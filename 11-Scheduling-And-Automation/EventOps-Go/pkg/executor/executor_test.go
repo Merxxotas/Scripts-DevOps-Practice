@@ -7,7 +7,7 @@ import (
 )
 
 func TestExecuteSync_Success(t *testing.T) {
-	res := ExecuteSync("echo 'hello go executor'", "TestRule")
+	res := ExecuteSync("echo hello go executor", "TestRule")
 	if res.ExitCode != 0 {
 		t.Fatalf("expected exit code 0, got %d", res.ExitCode)
 	}
@@ -27,7 +27,7 @@ func TestExecuteSync_Failure(t *testing.T) {
 func TestExecuteAsync(t *testing.T) {
 	done := make(chan bool)
 	go func() {
-		ExecuteAsync("echo 'async test'", "AsyncRule")
+		ExecuteAsync("echo async test", "AsyncRule")
 		time.Sleep(100 * time.Millisecond)
 		done <- true
 	}()
