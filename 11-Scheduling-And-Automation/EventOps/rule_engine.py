@@ -30,7 +30,7 @@ class Rule:
         ):
             self.endpoint = "/" + self.endpoint
         if self.rule_type == "file_change" and self.watch_path:
-            self.watch_path = os.path.abspath(self.watch_path)
+            self.watch_path = os.path.normcase(os.path.abspath(self.watch_path))
 
 
 class RuleEngine:
@@ -184,13 +184,13 @@ class RuleEngine:
         Returns:
             Matching Rule if found, None otherwise.
         """
-        abs_modified = os.path.abspath(modified_path)
+        abs_modified = os.path.normcase(os.path.abspath(modified_path))
 
         for rule in self.rules:
             if (
                 rule.rule_type == "file_change"
                 and rule.watch_path
-                and rule.watch_path == abs_modified
+                and os.path.normcase(rule.watch_path) == abs_modified
             ):
                 return rule
         return None

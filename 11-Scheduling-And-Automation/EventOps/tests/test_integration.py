@@ -1,6 +1,8 @@
 """End-to-end integration tests for EventOps daemon."""
 
 import json
+import sys
+import threading
 import time
 import urllib.request
 
@@ -15,19 +17,24 @@ def test_full_daemon_integration(tmp_path):
 
     watched_file.write_text("initial state\n")
 
+    # Use python executable for 100% cross-platform file writing in tests
+    # Works identically across Windows cmd/powershell, Linux bash, and macOS zsh
+    action_webhook = f"{sys.executable} -c \"with open(r'{output_log_file}', 'a') as f: f.write('webhook ok\\n')\""
+    action_file = f"{sys.executable} -c \"with open(r'{output_log_file}', 'a') as f: f.write('file ok\\n')\""
+
     rules_content = {
         "rules": [
             {
                 "name": "E2E Webhook Rule",
                 "type": "webhook",
                 "endpoint": "/e2e-webhook",
-                "action": f"echo 'webhook ok' >> '{output_log_file}'",
+                "action": action_webhook,
             },
             {
                 "name": "E2E File Rule",
                 "type": "file_change",
                 "watch_path": str(watched_file),
-                "action": f"echo 'file ok' >> '{output_log_file}'",
+                "action": action_file,
             },
         ]
     }
@@ -42,12 +49,10 @@ def test_full_daemon_integration(tmp_path):
     )
 
     # Start daemon in background thread
-    import threading
-
     daemon_thread = threading.Thread(target=daemon.start, daemon=True)
     daemon_thread.start()
 
-    time.sleep(0.5)  # Wait for startup
+    time.sleep(0.5)  # Wait for daemon startup
 
     try:
         # 1. Trigger Webhook
@@ -64,7 +69,7 @@ def test_full_daemon_integration(tmp_path):
 
         time.sleep(0.8)
 
-        # Verify output log file created by executed shell commands
+        # Verify output log file created by executed actions
         assert output_log_file.exists()
         content = output_log_file.read_text()
         assert "webhook ok" in content
