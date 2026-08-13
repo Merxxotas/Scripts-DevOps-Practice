@@ -49,11 +49,6 @@ func ExecuteSync(action string, ruleName string) Result {
 		return Result{ExitCode: -1, Err: err}
 	}
 
-	if err := cmd.Start(); err != nil {
-		logger.Error("Executor", "Failed to start command %s: %v", tag, err)
-		return Result{ExitCode: -1, Err: err}
-	}
-
 	var stdoutBuf, stderrBuf strings.Builder
 	var wg sync.WaitGroup
 	wg.Add(2)
@@ -74,8 +69,15 @@ func ExecuteSync(action string, ruleName string) Result {
 		})
 	}()
 
+	if err := cmd.Start(); err != nil {
+		logger.Error("Executor", "Failed to start command %s: %v", tag, err)
+		return Result{ExitCode: -1, Err: err}
+	}
+
+	// IMPORTANT: Wait for stdout/stderr scanners to finish reading EOF BEFORE calling cmd.Wait().
+	// Standard Go exec.Cmd closes pipes inside cmd.Wait(), which causes race conditions if called first.
+	wg.Wait()
 	err = cmd.Wait()
-	wg.Wait() // Ensure all pipe output is read before returning
 
 	exitCode := 0
 	if err != nil {
