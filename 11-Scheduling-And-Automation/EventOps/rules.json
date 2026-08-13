@@ -1,0 +1,16 @@
+{
+  "rules": [
+    {
+      "name": "Production Git Deploy",
+      "type": "webhook",
+      "endpoint": "/deploy-prod",
+      "action": "echo '[Deploy] Production deployment triggered via webhook'"
+    },
+    {
+      "name": "Config Reload",
+      "type": "file_change",
+      "watch_path": "sample_config.ini",
+      "action": "echo '[Config] Configuration file modification detected'"
+    }
+  ]
+}
