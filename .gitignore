@@ -1,0 +1,26 @@
+# Python artifacts
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+
+# Environments & Dependencies
+.venv/
+venv/
+ENV/
+env/
+
+# EventOps logs & runtime output
+*.log
+eventops.log
+
+# Test & coverage outputs
+.pytest_cache/
+.coverage
+htmlcov/
+
+# IDE & OS files
+.DS_Store
+.vscode/
+.idea/
