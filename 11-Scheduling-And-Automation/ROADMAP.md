@@ -34,6 +34,13 @@ This roadmap follows Spec Driven Development (SDD) based on `SPECS.md`. It break
 
 ## Phase 6: CI/CD Pipeline (GitHub Actions - Monorepo Filtered)
 - [x] **Workflow File:** Create `.github/workflows/ci-eventops.yml` in the global repo root.
-- [x] **Path Trigger:** Configure the workflow to trigger ONLY on paths: `'11-Scheduling-And-Automation/EventOps/**'`.
-- [x] **Linting Job:** Add a step to run `flake8` or `black` to enforce rules from `CODESTYLE.md`.
-- [x] **Testing Job:** Create basic tests (e.g., `pytest`) for the Rule Engine and Executor, and run them on Ubuntu, macOS, and Windows matrices.
+- [x] **Path Trigger:** Configure the workflow to trigger ONLY on paths: `'11-Scheduling-And-Automation/**'`.
+- [x] **Linting Job:** Add a step to run `ruff` to enforce rules from `CODESTYLE.md`.
+- [x] **Testing Job:** Create basic tests (`pytest`) for the Rule Engine and Executor, and run them on pinned stable OS matrices (`ubuntu-24.04`, `macos-14`, `windows-2022`).
+
+## Phase 7: Go Implementation & Interactive Scenario Labs
+- [x] **Go Port (`EventOps-Go`):** Port full EventOps architecture to Go (`main.go`, `pkg/ruleengine`, `pkg/executor`, `pkg/triggers`, `pkg/logger`).
+- [x] **Go Dependencies:** Add `fsnotify` for OS filesystem monitoring.
+- [x] **Go Tests:** Implement complete unit and end-to-end integration test suite (`*_test.go`).
+- [x] **Go CI/CD Matrix:** Integrated `go test` and `go vet` into `.github/workflows/ci-eventops.yml`.
+- [x] **Scenarios & Lab Docs (`docs/`):** Created `SCENARIOS.md`, `ARCHITECTURE_COMPARISON.md`, and 3 hands-on step-by-step labs (`LAB1`, `LAB2`, `LAB3`).
