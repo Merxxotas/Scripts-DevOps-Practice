@@ -27,13 +27,13 @@ This roadmap follows Spec Driven Development (SDD) based on `SPECS.md`. It break
 - [x] **Execution:** Pass the valid, debounced events to the Executor.
 
 ## Phase 5: Daemon Integration & Finalization
-- [ ] **Main Loop:** Wire up `eventops.py` to start both the Webhook Server and the File Watcher as background daemon threads.
-- [ ] **Graceful Shutdown:** Implement `try/except KeyboardInterrupt` to cleanly terminate the threads and close logs.
-- [ ] **End-to-End Testing:** Create a dummy `rules.json` and a simple bash script. Fire a webhook and modify a file to ensure both triggers successfully route through the Executor and generate logs.
-- [ ] **Cleanup:** Remove the obsolete `Linux-(Cron-Jobs).txt` and `Windows-(Task-Scheduler).txt` files.
+- [x] **Main Loop:** Wire up `eventops.py` to start both the Webhook Server and the File Watcher as background daemon threads.
+- [x] **Graceful Shutdown:** Implement `try/except KeyboardInterrupt` to cleanly terminate the threads and close logs.
+- [x] **End-to-End Testing:** Create a dummy `rules.json` and a simple bash script. Fire a webhook and modify a file to ensure both triggers successfully route through the Executor and generate logs.
+- [x] **Cleanup:** Remove the obsolete `Linux-(Cron-Jobs).txt` and `Windows-(Task-Scheduler).txt` files.
 
 ## Phase 6: CI/CD Pipeline (GitHub Actions - Monorepo Filtered)
-- [ ] **Workflow File:** Create `.github/workflows/ci-eventops.yml` in the global repo root.
-- [ ] **Path Trigger:** Configure the workflow to trigger ONLY on paths: `'11-Scheduling-And-Automation/EventOps/**'`.
-- [ ] **Linting Job:** Add a step to run `flake8` or `black` to enforce rules from `CODESTYLE.md`.
-- [ ] **Testing Job:** Create basic tests (e.g., `pytest`) for the Rule Engine and Executor, and run them on Ubuntu, macOS, and Windows matrices.
+- [x] **Workflow File:** Create `.github/workflows/ci-eventops.yml` in the global repo root.
+- [x] **Path Trigger:** Configure the workflow to trigger ONLY on paths: `'11-Scheduling-And-Automation/EventOps/**'`.
+- [x] **Linting Job:** Add a step to run `flake8` or `black` to enforce rules from `CODESTYLE.md`.
+- [x] **Testing Job:** Create basic tests (e.g., `pytest`) for the Rule Engine and Executor, and run them on Ubuntu, macOS, and Windows matrices.
