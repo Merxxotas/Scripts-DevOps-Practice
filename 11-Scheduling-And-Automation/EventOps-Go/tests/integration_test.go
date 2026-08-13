@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -29,9 +30,14 @@ func TestFullDaemonIntegration(t *testing.T) {
 
 	_ = os.WriteFile(watchedFile, []byte("initial state\n"), 0644)
 
-	// Format cross-platform python action writing to file
-	actionWebhook := fmt.Sprintf("python3 -c \"with open(r'%s', 'a') as f: f.write('webhook ok\\n')\"", outputLogFile)
-	actionFile := fmt.Sprintf("python3 -c \"with open(r'%s', 'a') as f: f.write('file ok\\n')\"", outputLogFile)
+	var actionWebhook, actionFile string
+	if runtime.GOOS == "windows" {
+		actionWebhook = fmt.Sprintf("echo webhook ok >> \"%s\"", outputLogFile)
+		actionFile = fmt.Sprintf("echo file ok >> \"%s\"", outputLogFile)
+	} else {
+		actionWebhook = fmt.Sprintf("echo 'webhook ok' >> '%s'", outputLogFile)
+		actionFile = fmt.Sprintf("echo 'file ok' >> '%s'", outputLogFile)
+	}
 
 	cfgContent := ruleengine.Config{
 		Rules: []ruleengine.Rule{
