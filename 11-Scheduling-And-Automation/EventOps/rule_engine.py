@@ -30,7 +30,7 @@ class Rule:
         ):
             self.endpoint = "/" + self.endpoint
         if self.rule_type == "file_change" and self.watch_path:
-            self.watch_path = os.path.normcase(os.path.abspath(self.watch_path))
+            self.watch_path = os.path.abspath(self.watch_path)
 
 
 class RuleEngine:
