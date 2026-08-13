@@ -86,7 +86,7 @@ func TestMatchFileChange(t *testing.T) {
 				Name:      "File Match Test",
 				Type:      "file_change",
 				WatchPath: tmpFile.Name(),
-				Action:     "echo modified",
+				Action:    "echo modified",
 			},
 		},
 	}
@@ -110,12 +110,12 @@ func TestMatchFileChange(t *testing.T) {
 func TestLoadFromConfig_Invalid(t *testing.T) {
 	invalidConfigs := []*Config{
 		{Rules: []Rule{}},
-		{Rules: []Rule{{Type: "webhook", Endpoint: "/t", Action: "ls"}}},               // missing name
-		{Rules: []Rule{{Name: "R1", Type: "invalid", Action: "ls"}}},                   // invalid type
-		{Rules: []Rule{{Name: "R1", Type: "webhook", Action: "ls"}}},                    // missing endpoint
-		{Rules: []Rule{{Name: "R1", Type: "file_change", Action: "ls"}}},                // missing watch_path
-		{Rules: []Rule{{Name: "R1", Type: "webhook", Endpoint: "/t", Action: ""}}},      // missing action
-		{Rules: []Rule{                                                                  // duplicate name
+		{Rules: []Rule{{Type: "webhook", Endpoint: "/t", Action: "ls"}}},           // missing name
+		{Rules: []Rule{{Name: "R1", Type: "invalid", Action: "ls"}}},               // invalid type
+		{Rules: []Rule{{Name: "R1", Type: "webhook", Action: "ls"}}},               // missing endpoint
+		{Rules: []Rule{{Name: "R1", Type: "file_change", Action: "ls"}}},           // missing watch_path
+		{Rules: []Rule{{Name: "R1", Type: "webhook", Endpoint: "/t", Action: ""}}}, // missing action
+		{Rules: []Rule{ // duplicate name
 			{Name: "Dup", Type: "webhook", Endpoint: "/t1", Action: "ls"},
 			{Name: "Dup", Type: "webhook", Endpoint: "/t2", Action: "pwd"},
 		}},
