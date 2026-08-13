@@ -2,7 +2,7 @@
 > **Stop waiting for the clock. Start reacting to the system.**
 
 [![Python](https://img.shields.io/badge/Python-3.8%2B-blue.svg)](https://www.python.org/)
-[![CI/CD](https://github.com/company/myapp/actions/workflows/ci.yml/badge.svg)](https://github.com/company/myapp/actions)
+[![CI/CD](https://github.com/Merxxotas/Scripts-DevOps-Practice/actions/workflows/ci-eventops.yml/badge.svg)](https://github.com/Merxxotas/Scripts-DevOps-Practice/actions/workflows/ci-eventops.yml)
 [![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
 EventOps is a lightweight, cross-platform automation daemon that replaces traditional time-based schedulers (like Cron or Windows Task Scheduler). Instead of running scripts on a rigid timer, EventOps monitors your system and network in real-time, executing shell commands the exact millisecond an event occurs.
