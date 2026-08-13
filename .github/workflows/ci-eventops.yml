@@ -40,13 +40,28 @@ jobs:
           uv venv .venv
           uv pip install -r requirements.txt -r requirements-dev.txt
 
-      - name: Run Ruff Linting
+      - name: Run Python Ruff Linting
         run: |
           cd 11-Scheduling-And-Automation/EventOps
           uv run ruff check .
           uv run ruff format --check .
 
-      - name: Run Pytest Suite
+      - name: Run Python Pytest Suite
         run: |
           cd 11-Scheduling-And-Automation/EventOps
           uv run pytest
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+
+      - name: Run Go Vet & Format Check
+        run: |
+          cd 11-Scheduling-And-Automation/EventOps-Go
+          go vet ./...
+
+      - name: Run Go Test Suite
+        run: |
+          cd 11-Scheduling-And-Automation/EventOps-Go
+          go test -v ./...
