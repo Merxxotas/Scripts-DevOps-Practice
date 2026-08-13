@@ -2,7 +2,7 @@ name: EventOps CI/CD
 
 on:
   push:
-    branches: [ main ]
+    branches: [ main, 'feat/**', 'fix/**' ]
     paths:
       - '11-Scheduling-And-Automation/**'
       - '.github/workflows/ci-eventops.yml'
