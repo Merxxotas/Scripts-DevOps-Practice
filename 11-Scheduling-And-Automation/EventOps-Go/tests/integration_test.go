@@ -24,7 +24,7 @@ func TestFullDaemonIntegration(t *testing.T) {
 	defer os.RemoveAll(tmpDir)
 
 	watchedFile := filepath.Join(tmpDir, "trigger_file.txt")
-	outputLogFile := filepath.Join(tmpDir, "output_action.log")
+	outputLogFile := filepath.ToSlash(filepath.Join(tmpDir, "output_action.log"))
 	configFile := filepath.Join(tmpDir, "rules.json")
 	daemonLogFile := filepath.Join(tmpDir, "eventops.log")
 
@@ -32,8 +32,8 @@ func TestFullDaemonIntegration(t *testing.T) {
 
 	var actionWebhook, actionFile string
 	if runtime.GOOS == "windows" {
-		actionWebhook = fmt.Sprintf("echo webhook ok >> \"%s\"", outputLogFile)
-		actionFile = fmt.Sprintf("echo file ok >> \"%s\"", outputLogFile)
+		actionWebhook = fmt.Sprintf("echo webhook ok >> %s", outputLogFile)
+		actionFile = fmt.Sprintf("echo file ok >> %s", outputLogFile)
 	} else {
 		actionWebhook = fmt.Sprintf("echo 'webhook ok' >> '%s'", outputLogFile)
 		actionFile = fmt.Sprintf("echo 'file ok' >> '%s'", outputLogFile)
