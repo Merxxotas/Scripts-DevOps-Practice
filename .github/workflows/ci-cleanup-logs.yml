@@ -1,0 +1,62 @@
+name: Log Cleanup CI/CD
+
+on:
+  push:
+    branches: [ main, 'feat/**', 'fix/**' ]
+    paths:
+      - '2-Log-Cleanup-Script-(Delete-Files-Older-Than-X-Days)/**'
+      - '.github/workflows/ci-cleanup-logs.yml'
+  pull_request:
+    branches: [ main ]
+    paths:
+      - '2-Log-Cleanup-Script-(Delete-Files-Older-Than-X-Days)/**'
+      - '.github/workflows/ci-cleanup-logs.yml'
+
+jobs:
+  lint-bash:
+    name: Lint Bash (ShellCheck)
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Run ShellCheck
+        run: |
+          shellcheck -x 2-Log-Cleanup-Script-\(Delete-Files-Older-Than-X-Days\)/cleanup_logs.sh
+          shellcheck -x 2-Log-Cleanup-Script-\(Delete-Files-Older-Than-X-Days\)/tests/test_cleanup_logs.sh
+
+  test-bash:
+    name: Test Bash on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, macos-14]
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Make scripts executable
+        run: |
+          chmod +x 2-Log-Cleanup-Script-\(Delete-Files-Older-Than-X-Days\)/cleanup_logs.sh
+          chmod +x 2-Log-Cleanup-Script-\(Delete-Files-Older-Than-X-Days\)/tests/test_cleanup_logs.sh
+
+      - name: Run Bash Test Suite
+        run: |
+          ./2-Log-Cleanup-Script-\(Delete-Files-Older-Than-X-Days\)/tests/test_cleanup_logs.sh
+
+  test-powershell:
+    name: Test PowerShell on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-2022, ubuntu-24.04]
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Run PowerShell Test Suite
+        shell: pwsh
+        run: |
+          ./2-Log-Cleanup-Script-(Delete-Files-Older-Than-X-Days)/tests/test_cleanup_logs.ps1
