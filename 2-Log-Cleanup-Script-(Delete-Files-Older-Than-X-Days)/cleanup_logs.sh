@@ -36,7 +36,7 @@ TOTAL_RECLAIMED_BYTES=0
 # Prints usage and help message
 show_help() {
     cat <<EOF
-${COLOR_BOLD}Log Cleanup Utility (Bash)${COLOR_RESET}
+Log Cleanup Utility (Bash)
 Usage: $0 -d <directory> [OPTIONS]
 
 Required Arguments:
@@ -124,6 +124,17 @@ validate_safety_guardrails() {
     local resolved
     resolved="$(get_realpath "$target")"
 
+    # Normalize paths by removing trailing slash if not root
+    local norm_target="$target"
+    if [[ "$norm_target" != "/" ]]; then
+        norm_target="${norm_target%/}"
+    fi
+
+    local norm_resolved="$resolved"
+    if [[ "$norm_resolved" != "/" ]]; then
+        norm_resolved="${norm_resolved%/}"
+    fi
+
     local -a protected_paths=(
         "/"
         "/bin"
@@ -141,12 +152,20 @@ validate_safety_guardrails() {
         "/var/run"
         "/tmp"
         "/home"
+        "/private"
+        "/private/etc"
+        "/private/var"
+        "/private/tmp"
+        "/Library"
+        "/System"
+        "/Applications"
+        "/Volumes"
     )
 
     for protected in "${protected_paths[@]}"; do
-        if [[ "$resolved" == "$protected" ]]; then
-            printf "${COLOR_RED}Error: Safety violation! Target directory '%s' is a protected system root.${COLOR_RESET}\n" "$resolved" >&2
-            log_message "ERROR" "Execution blocked: Target directory '$resolved' is a protected system root."
+        if [[ "$norm_target" == "$protected" || "$norm_resolved" == "$protected" ]]; then
+            printf "%bError: Safety violation! Target directory '%s' is a protected system root.%b\n" "$COLOR_RED" "$target" "$COLOR_RESET" >&2
+            log_message "ERROR" "Execution blocked: Target directory '$target' is a protected system root."
             return 1
         fi
     done
@@ -160,7 +179,7 @@ parse_arguments() {
             d) LOG_DIR="$OPTARG" ;;
             t)
                 if ! [[ "$OPTARG" =~ ^[0-9]+$ ]]; then
-                    printf "${COLOR_RED}Error: Retention days must be a positive integer.${COLOR_RESET}\n" >&2
+                    printf "%bError: Retention days must be a positive integer.%b\n" "$COLOR_RED" "$COLOR_RESET" >&2
                     exit 1
                 fi
                 RETENTION_DAYS="$OPTARG"
@@ -168,7 +187,7 @@ parse_arguments() {
             p) FILE_PATTERN="$OPTARG" ;;
             m)
                 if ! [[ "$OPTARG" =~ ^[0-9]+(.[0-9]+)?$ ]]; then
-                    printf "${COLOR_RED}Error: Minimum size must be a numeric value.${COLOR_RESET}\n" >&2
+                    printf "%bError: Minimum size must be a numeric value.%b\n" "$COLOR_RED" "$COLOR_RESET" >&2
                     exit 1
                 fi
                 MIN_SIZE_MB="$OPTARG"
@@ -183,7 +202,7 @@ parse_arguments() {
     done
 
     if [[ -z "$LOG_DIR" ]]; then
-        printf "${COLOR_RED}Error: Target directory (-d) is required.${COLOR_RESET}\n" >&2
+        printf "%bError: Target directory (-d) is required.%b\n" "$COLOR_RED" "$COLOR_RESET" >&2
         show_help
         exit 1
     fi
@@ -194,7 +213,7 @@ main() {
     parse_arguments "$@"
 
     if [[ ! -d "$LOG_DIR" ]]; then
-        printf "${COLOR_RED}Error: Target directory '%s' does not exist.${COLOR_RESET}\n" "$LOG_DIR" >&2
+        printf "%bError: Target directory '%s' does not exist.%b\n" "$COLOR_RED" "$LOG_DIR" "$COLOR_RESET" >&2
         log_message "ERROR" "Target directory does not exist: $LOG_DIR"
         exit 1
     fi
@@ -217,19 +236,26 @@ main() {
 
     log_message "INFO" "Log cleanup initiated for '$resolved_dir' (Retention: ${RETENTION_DAYS}d, Pattern: '$FILE_PATTERN', Recursive: $RECURSIVE, DryRun: $DRY_RUN, MinSizeMB: $MIN_SIZE_MB)"
 
-    printf "${COLOR_BLUE}${COLOR_BOLD}============================================================${COLOR_RESET}\n"
-    printf "${COLOR_BLUE}${COLOR_BOLD}                DevOps Log Cleanup Utility                  ${COLOR_RESET}\n"
-    printf "${COLOR_BLUE}${COLOR_BOLD}============================================================${COLOR_RESET}\n"
-    printf "Target Directory : ${COLOR_CYAN}%s${COLOR_RESET}\n" "$resolved_dir"
-    printf "Retention Policy : ${COLOR_YELLOW}Older than %s days${COLOR_RESET}\n" "$RETENTION_DAYS"
-    printf "Matching Pattern : ${COLOR_CYAN}%s${COLOR_RESET}\n" "$FILE_PATTERN"
-    printf "Min Size Filter  : ${COLOR_CYAN}%s MB${COLOR_RESET}\n" "$MIN_SIZE_MB"
-    printf "Recursive Scan   : ${COLOR_CYAN}%s${COLOR_RESET}\n" "$RECURSIVE"
-    printf "Execution Mode   : %b\n" "$([ "$DRY_RUN" = true ] && printf "${COLOR_YELLOW}DRY RUN (Simulation)${COLOR_RESET}" || printf "${COLOR_GREEN}LIVE (Deletions Active)${COLOR_RESET}")"
-    if [[ -n "$LOG_FILE" ]]; then
-        printf "Audit Log File   : ${COLOR_CYAN}%s${COLOR_RESET}\n" "$LOG_FILE"
+    local mode_label
+    if [[ "$DRY_RUN" = true ]]; then
+        mode_label="$(printf "%bDRY RUN (Simulation)%b" "$COLOR_YELLOW" "$COLOR_RESET")"
+    else
+        mode_label="$(printf "%bLIVE (Deletions Active)%b" "$COLOR_GREEN" "$COLOR_RESET")"
     fi
-    printf "\n${COLOR_BLUE}Scanning target files...\n${COLOR_RESET}"
+
+    printf "%b============================================================%b\n" "$COLOR_BLUE" "$COLOR_RESET"
+    printf "%b                DevOps Log Cleanup Utility                  %b\n" "$COLOR_BLUE" "$COLOR_RESET"
+    printf "%b============================================================%b\n" "$COLOR_BLUE" "$COLOR_RESET"
+    printf "Target Directory : %b%s%b\n" "$COLOR_CYAN" "$resolved_dir" "$COLOR_RESET"
+    printf "Retention Policy : %bOlder than %s days%b\n" "$COLOR_YELLOW" "$RETENTION_DAYS" "$COLOR_RESET"
+    printf "Matching Pattern : %b%s%b\n" "$COLOR_CYAN" "$FILE_PATTERN" "$COLOR_RESET"
+    printf "Min Size Filter  : %b%s MB%b\n" "$COLOR_CYAN" "$MIN_SIZE_MB" "$COLOR_RESET"
+    printf "Recursive Scan   : %b%s%b\n" "$COLOR_CYAN" "$RECURSIVE" "$COLOR_RESET"
+    printf "Execution Mode   : %b\n" "$mode_label"
+    if [[ -n "$LOG_FILE" ]]; then
+        printf "Audit Log File   : %b%s%b\n" "$COLOR_CYAN" "$LOG_FILE" "$COLOR_RESET"
+    fi
+    printf "\n%bScanning target files...%b\n" "$COLOR_BLUE" "$COLOR_RESET"
 
     local current_epoch
     current_epoch="$(date +%s)"
@@ -270,42 +296,42 @@ main() {
                 age_days=$(( (current_epoch - file_mtime) / 86400 ))
 
                 if [[ "$DRY_RUN" = true ]]; then
-                    printf "${COLOR_YELLOW}[DRY RUN]${COLOR_RESET} Would delete: %s (%s, %d days old)\n" "$file_path" "$formatted_size" "$age_days"
+                    printf "%b[DRY RUN]%b Would delete: %s (%s, %d days old)\n" "$COLOR_YELLOW" "$COLOR_RESET" "$file_path" "$formatted_size" "$age_days"
                     log_message "INFO" "[DRY RUN] Would delete: $file_path (Size: $formatted_size, Age: ${age_days}d)"
                     ((DELETED_COUNT++)) || true
                 else
                     if rm -f "$file_path" 2>/dev/null; then
-                        printf "${COLOR_GREEN}✓ Deleted:${COLOR_RESET} %s (%s, %d days old)\n" "$file_path" "$formatted_size" "$age_days"
+                        printf "%b✓ Deleted:%b %s (%s, %d days old)\n" "$COLOR_GREEN" "$COLOR_RESET" "$file_path" "$formatted_size" "$age_days"
                         log_message "INFO" "DELETED: $file_path (Size: $formatted_size, Age: ${age_days}d)"
                         ((DELETED_COUNT++)) || true
                     else
-                        printf "${COLOR_RED}✗ Failed to delete:${COLOR_RESET} %s\n" "$file_path" >&2
+                        printf "%b✗ Failed to delete:%b %s\n" "$COLOR_RED" "$COLOR_RESET" "$file_path" >&2
                         log_message "ERROR" "FAILED to delete: $file_path"
                         ((FAILED_COUNT++)) || true
                     fi
                 fi
             elif [[ "$VERBOSE" = true ]]; then
-                printf "${COLOR_CYAN}[SKIP - SIZE]${COLOR_RESET} %s is below minimum size threshold (%s < %s MB)\n" "$file_path" "$(format_bytes "$file_size")" "$MIN_SIZE_MB"
+                printf "%b[SKIP - SIZE]%b %s is below minimum size threshold (%s < %s MB)\n" "$COLOR_CYAN" "$COLOR_RESET" "$file_path" "$(format_bytes "$file_size")" "$MIN_SIZE_MB"
             fi
         elif [[ "$VERBOSE" = true ]]; then
             local file_age
             file_age=$(( (current_epoch - file_mtime) / 86400 ))
-            printf "${COLOR_CYAN}[SKIP - AGE]${COLOR_RESET} %s is within retention period (%d days <= %d days)\n" "$file_path" "$file_age" "$RETENTION_DAYS"
+            printf "%b[SKIP - AGE]%b %s is within retention period (%d days <= %d days)\n" "$COLOR_CYAN" "$COLOR_RESET" "$file_path" "$file_age" "$RETENTION_DAYS"
         fi
     done < <("${find_cmd[@]}" -print0 2>/dev/null)
 
     local total_space_formatted
     total_space_formatted="$(format_bytes "$TOTAL_RECLAIMED_BYTES")"
 
-    printf "\n${COLOR_BLUE}${COLOR_BOLD}============================================================${COLOR_RESET}\n"
-    printf "${COLOR_BLUE}${COLOR_BOLD}                    Execution Summary                       ${COLOR_RESET}\n"
-    printf "${COLOR_BLUE}${COLOR_BOLD}============================================================${COLOR_RESET}\n"
-    printf "Total Files Scanned : ${COLOR_BOLD}%d${COLOR_RESET}\n" "$TOTAL_SCANNED"
-    printf "Eligible for Purge  : ${COLOR_BOLD}%d${COLOR_RESET}\n" "$ELIGIBLE_COUNT"
-    printf "Files Processed     : ${COLOR_GREEN}%d${COLOR_RESET}\n" "$DELETED_COUNT"
-    printf "Failed Deletions    : ${COLOR_RED}%d${COLOR_RESET}\n" "$FAILED_COUNT"
-    printf "Storage Reclaimed   : ${COLOR_BOLD}${COLOR_GREEN}%s${COLOR_RESET}\n" "$total_space_formatted"
-    printf "${COLOR_BLUE}${COLOR_BOLD}============================================================${COLOR_RESET}\n"
+    printf "\n%b============================================================%b\n" "$COLOR_BLUE" "$COLOR_RESET"
+    printf "%b                    Execution Summary                       %b\n" "$COLOR_BLUE" "$COLOR_RESET"
+    printf "%b============================================================%b\n" "$COLOR_BLUE" "$COLOR_RESET"
+    printf "Total Files Scanned : %b%d%b\n" "$COLOR_BOLD" "$TOTAL_SCANNED" "$COLOR_RESET"
+    printf "Eligible for Purge  : %b%d%b\n" "$COLOR_BOLD" "$ELIGIBLE_COUNT" "$COLOR_RESET"
+    printf "Files Processed     : %b%d%b\n" "$COLOR_GREEN" "$DELETED_COUNT" "$COLOR_RESET"
+    printf "Failed Deletions    : %b%d%b\n" "$COLOR_RED" "$FAILED_COUNT" "$COLOR_RESET"
+    printf "Storage Reclaimed   : %b%b%s%b\n" "$COLOR_BOLD" "$COLOR_GREEN" "$total_space_formatted" "$COLOR_RESET"
+    printf "%b============================================================%b\n" "$COLOR_BLUE" "$COLOR_RESET"
 
     log_message "INFO" "Cleanup completed: Scanned=$TOTAL_SCANNED, Eligible=$ELIGIBLE_COUNT, Processed=$DELETED_COUNT, Failed=$FAILED_COUNT, Reclaimed=$total_space_formatted"
 

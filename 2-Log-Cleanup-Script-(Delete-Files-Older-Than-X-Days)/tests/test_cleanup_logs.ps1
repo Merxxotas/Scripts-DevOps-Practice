@@ -7,7 +7,7 @@
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Continue"
 
-$ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
+$ScriptDir = $PSScriptRoot
 $CleanupScript = Join-Path (Split-Path -Parent $ScriptDir) "cleanup_logs.ps1"
 $TestSandbox = Join-Path ([System.IO.Path]::GetTempPath()) ("test_ps1_cleanup_" + [System.Guid]::NewGuid().ToString("N"))
 
@@ -150,4 +150,3 @@ if ($Global:FailedCount -gt 0) {
     exit 1
 }
 exit 0
-

@@ -22,8 +22,8 @@ jobs:
 
       - name: Run ShellCheck
         run: |
-          shellcheck -x 2-Log-Cleanup-Script-\(Delete-Files-Older-Than-X-Days\)/cleanup_logs.sh
-          shellcheck -x 2-Log-Cleanup-Script-\(Delete-Files-Older-Than-X-Days\)/tests/test_cleanup_logs.sh
+          shellcheck -x "2-Log-Cleanup-Script-(Delete-Files-Older-Than-X-Days)/cleanup_logs.sh"
+          shellcheck -x "2-Log-Cleanup-Script-(Delete-Files-Older-Than-X-Days)/tests/test_cleanup_logs.sh"
 
   test-bash:
     name: Test Bash on ${{ matrix.os }}
@@ -38,8 +38,8 @@ jobs:
 
       - name: Make scripts executable
         run: |
-          chmod +x 2-Log-Cleanup-Script-\(Delete-Files-Older-Than-X-Days\)/cleanup_logs.sh
-          chmod +x 2-Log-Cleanup-Script-\(Delete-Files-Older-Than-X-Days\)/tests/test_cleanup_logs.sh
+          chmod +x "2-Log-Cleanup-Script-(Delete-Files-Older-Than-X-Days)/cleanup_logs.sh"
+          chmod +x "2-Log-Cleanup-Script-(Delete-Files-Older-Than-X-Days)/tests/test_cleanup_logs.sh"
 
       - name: Run Bash Test Suite
         run: |
@@ -59,4 +59,4 @@ jobs:
       - name: Run PowerShell Test Suite
         shell: pwsh
         run: |
-          ./2-Log-Cleanup-Script-(Delete-Files-Older-Than-X-Days)/tests/test_cleanup_logs.ps1
+          & './2-Log-Cleanup-Script-(Delete-Files-Older-Than-X-Days)/tests/test_cleanup_logs.ps1'

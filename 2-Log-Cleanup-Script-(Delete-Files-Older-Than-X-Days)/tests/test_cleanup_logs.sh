@@ -11,10 +11,10 @@ CLEANUP_SCRIPT="$SCRIPT_DIR/cleanup_logs.sh"
 TEST_SANDBOX="/tmp/test_log_cleanup_$$"
 
 # ANSI colors
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-CYAN='\033[0;36m'
-RESET='\033[0m'
+readonly RED='\033[0;31m'
+readonly GREEN='\033[0;32m'
+readonly CYAN='\033[0;36m'
+readonly RESET='\033[0m'
 
 PASSED_TESTS=0
 FAILED_TESTS=0
@@ -60,7 +60,11 @@ test_missing_directory() {
 test_safety_guardrails() {
     local exit_code=0
     "$CLEANUP_SCRIPT" -d "/etc" >/dev/null 2>&1 || exit_code=$?
-    assert_equals "1" "$exit_code" "Test 3: Safety guardrail blocks /etc with exit code 1"
+    assert_equals "1" "$exit_code" "Test 3a: Safety guardrail blocks /etc with exit code 1"
+
+    exit_code=0
+    "$CLEANUP_SCRIPT" -d "/var" >/dev/null 2>&1 || exit_code=$?
+    assert_equals "1" "$exit_code" "Test 3b: Safety guardrail blocks /var with exit code 1"
 }
 
 # Test 4: Dry-run simulation mode does not delete files
@@ -168,7 +172,7 @@ test_audit_logging() {
 }
 
 # Run all tests
-echo -e "${CYAN}Starting Bash Log Cleanup Test Suite...${RESET}"
+printf "%bStarting Bash Log Cleanup Test Suite...%b\n" "$CYAN" "$RESET"
 test_help_menu
 test_missing_directory
 test_safety_guardrails
@@ -177,12 +181,11 @@ test_retention_deletion
 test_recursive_cleanup
 test_audit_logging
 
-echo "============================================================"
-echo -e "Tests Summary: ${GREEN}$PASSED_TESTS Passed${RESET}, ${RED}$FAILED_TESTS Failed${RESET}"
-echo "============================================================"
+printf "============================================================\n"
+printf "Tests Summary: %b%d Passed%b, %b%d Failed%b\n" "$GREEN" "$PASSED_TESTS" "$RESET" "$RED" "$FAILED_TESTS" "$RESET"
+printf "============================================================\n"
 
 if [[ "$FAILED_TESTS" -gt 0 ]]; then
     exit 1
 fi
 exit 0
-
