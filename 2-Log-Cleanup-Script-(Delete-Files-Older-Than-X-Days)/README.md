@@ -32,8 +32,30 @@ Available in **POSIX Bash** for Linux / macOS and **PowerShell** for Windows, wi
 ├── README.md          # Comprehensive module documentation
 ├── SPECS.md           # Technical specification & architecture document
 ├── ROADMAP.md         # Spec-driven development milestone roadmap
-└── CODESTYLE.md       # Coding conventions and style guide
+├── CODESTYLE.md       # Coding conventions and style guide
+├── tests/             # Automated unit and integration test suites
+│   ├── test_cleanup_logs.sh
+│   └── test_cleanup_logs.ps1
+└── docs/              # In-depth technical guides & interactive labs
+    ├── ARCHITECTURE_COMPARISON.md
+    ├── SCENARIOS.md
+    └── labs/
+        ├── LAB1_BASIC_RETENTION_AND_DRYRUN.md
+        ├── LAB2_RECURSIVE_SIZE_FILTERING.md
+        └── LAB3_PRODUCTION_SCHEDULING_AND_AUDIT.md
 ```
+
+---
+
+## 📚 Architecture & Interactive Labs
+
+Deep-dive technical documentation and step-by-step interactive labs are available in the [`docs/`](docs/) directory:
+
+- 📊 **[Architecture & Runtime Comparison](docs/ARCHITECTURE_COMPARISON.md)**: Deep dive into POSIX streams vs. .NET object pipelines, memory footprints, and platform strengths.
+- 🚀 **[Production Deployment Scenarios](docs/SCENARIOS.md)**: Real-world patterns for Nginx web servers, IIS clusters, database dumps, and CI/CD runners.
+- 🧪 **[Lab 1: Basic Retention & Dry-Run Preview](docs/labs/LAB1_BASIC_RETENTION_AND_DRYRUN.md)**: Hands-on guide to testing simulation mode and live pruning.
+- 📁 **[Lab 2: Recursive Traversal & Size Thresholds](docs/labs/LAB2_RECURSIVE_SIZE_FILTERING.md)**: Nested microservice cleanup and size-based filters.
+- ⏰ **[Lab 3: Production Scheduling & Audit Logging](docs/labs/LAB3_PRODUCTION_SCHEDULING_AND_AUDIT.md)**: Configuring Linux Cron, Windows Task Scheduler, and ISO-8601 logging.
 
 ---
 
@@ -56,10 +78,10 @@ chmod +x cleanup_logs.sh
 
 ```powershell
 # 1. Perform a dry-run preview on logs older than 14 days
-.cleanup_logs.ps1 -LogDirectory "C:LogsApp" -Days 14 -DryRun
+.\cleanup_logs.ps1 -LogDirectory "C:\Logs\App" -Days 14 -DryRun
 
 # 2. Execute recursive cleanup with minimum size filter (files >= 10MB) and audit log
-.cleanup_logs.ps1 -LogDirectory "C:LogsApp" -Days 30 -Pattern "*.log" -Recursive -MinSizeMB 10 -LogFile "C:Logscleanup_audit.log"
+.\cleanup_logs.ps1 -LogDirectory "C:\Logs\App" -Days 30 -Pattern "*.log" -Recursive -MinSizeMB 10 -LogFile "C:\Logs\cleanup_audit.log"
 ```
 
 ---
@@ -90,7 +112,7 @@ To run the cleanup daily at 02:00 AM for logs older than 14 days:
 
 ### Windows (Task Scheduler via PowerShell)
 ```powershell
-$Action = New-ScheduledTaskAction -Execute "PowerShell.exe" -Argument "-ExecutionPolicy Bypass -File C:Scriptscleanup_logs.ps1 -LogDirectory C:LogsIIS -Days 30 -Recursive -LogFile C:Logscleanup.log"
+$Action = New-ScheduledTaskAction -Execute "PowerShell.exe" -Argument "-ExecutionPolicy Bypass -File C:\Scripts\cleanup_logs.ps1 -LogDirectory C:\Logs\IIS -Days 30 -Recursive -LogFile C:\Logs\cleanup.log"
 $Trigger = New-ScheduledTaskTrigger -Daily -At 2am
 Register-ScheduledTask -Action $Action -Trigger $Trigger -TaskName "DailyLogCleanup" -Description "Purges logs older than 30 days"
 ```
@@ -110,4 +132,3 @@ Register-ScheduledTask -Action $Action -Trigger $Trigger -TaskName "DailyLogClea
 ## 📜 License
 
 This project is licensed under the [MIT License](../LICENSE).
-
