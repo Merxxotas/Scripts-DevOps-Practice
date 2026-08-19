@@ -150,17 +150,22 @@ function Test-SafetyGuardrails {
         "/boot",
         "/root",
         "/var",
-        "/home"
+        "/home",
+        "/private",
+        "/private/etc",
+        "/private/var",
+        "/private/tmp"
     )
 
-    $NormalizedTarget = $ResolvedPath.TrimEnd("\", "/")
+    $NormalizedTarget = $Path.TrimEnd('\', '/')
+    $NormalizedResolved = $ResolvedPath.TrimEnd('\', '/')
 
     foreach ($Blocked in $Blacklist) {
-        $NormalizedBlocked = $Blocked.TrimEnd("\", "/")
+        $NormalizedBlocked = $Blocked.TrimEnd('\', '/')
         if ([string]::Equals($NormalizedTarget, $NormalizedBlocked, [System.StringComparison]::OrdinalIgnoreCase) -or 
-            [string]::Equals($ResolvedPath, $Blocked, [System.StringComparison]::OrdinalIgnoreCase)) {
-            Write-Host "$($Colors.Red)Error: Safety violation! Target directory '$ResolvedPath' is a protected system root.$($Colors.Reset)"
-            Write-AuditLog -Level "ERROR" -Message "Execution blocked: Target directory '$ResolvedPath' is a protected system root."
+            [string]::Equals($NormalizedResolved, $NormalizedBlocked, [System.StringComparison]::OrdinalIgnoreCase)) {
+            Write-Host "$($Colors.Red)Error: Safety violation! Target directory '$Path' is a protected system root.$($Colors.Reset)"
+            Write-AuditLog -Level "ERROR" -Message "Execution blocked: Target directory '$Path' is a protected system root."
             return $false
         }
     }
@@ -181,6 +186,7 @@ function Invoke-LogCleanup {
     }
 
     $ResolvedDir = (Resolve-Path -LiteralPath $LogDirectory).ProviderPath
+    $NormalizedRootDir = $ResolvedDir.TrimEnd('\', '/')
     $CutoffDate = (Get-Date).AddDays(-$Days)
     $MinSizeBytes = [long]($MinSizeMB * 1MB)
 
@@ -201,19 +207,14 @@ function Invoke-LogCleanup {
     }
     Write-Host "`n$($Colors.Blue)Scanning target files...$($Colors.Reset)"
 
-    $GciParams = @{
-        LiteralPath = $ResolvedDir
-        Filter      = $Pattern
-        File        = $true
-        Force       = $true
-        ErrorAction = "SilentlyContinue"
-    }
-
     if ($Recursive) {
-        $GciParams["Recurse"] = $true
+        $Files = Get-ChildItem -LiteralPath $ResolvedDir -Filter $Pattern -File -Force -Recurse -ErrorAction SilentlyContinue
+    } else {
+        $Files = Get-ChildItem -LiteralPath $ResolvedDir -Filter $Pattern -File -Force -ErrorAction SilentlyContinue |
+            Where-Object {
+                $_.Directory.FullName.TrimEnd('\', '/') -eq $NormalizedRootDir
+            }
     }
-
-    $Files = Get-ChildItem @GciParams
 
     foreach ($File in $Files) {
         $Script:TotalScanned++

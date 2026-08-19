@@ -57,9 +57,10 @@ function Test-MissingDirectory {
 
 # Test 2: Safety guardrail blocks protected system directories
 function Test-SafetyGuardrails {
+    $TestPath = if ($env:OS -like "*Windows*" -or $IsWindows) { "C:\Windows" } else { "/etc" }
     $ExitCode = 0
     try {
-        & $CleanupScript -LogDirectory "C:Windows" -ErrorAction Stop 2>$null
+        & $CleanupScript -LogDirectory $TestPath -ErrorAction Stop 2>$null
         $ExitCode = $LASTEXITCODE
     } catch {
         $ExitCode = 1
@@ -106,7 +107,8 @@ function Test-RetentionDeletion {
 # Test 5: Recursive scan cleans subdirectories
 function Test-RecursiveCleanup {
     Setup-TestEnv
-    $SubOldFile = Join-Path $TestSandbox "sub1sub_old.log"
+    $SubDir = Join-Path $TestSandbox "sub1"
+    $SubOldFile = Join-Path $SubDir "sub_old.log"
     Set-Content -Path $SubOldFile -Value "sub content"
     (Get-Item $SubOldFile).LastWriteTime = (Get-Date).AddDays(-50)
 
@@ -125,7 +127,8 @@ function Test-RecursiveCleanup {
 # Test 6: Audit logging
 function Test-AuditLogging {
     Setup-TestEnv
-    $LogFilePath = Join-Path $TestSandbox "logsaudit.log"
+    $LogParent = Join-Path $TestSandbox "logs"
+    $LogFilePath = Join-Path $LogParent "audit.log"
     & $CleanupScript -LogDirectory $TestSandbox -Days 30 -LogFile $LogFilePath *>$null
 
     $LogExists = Test-Path -LiteralPath $LogFilePath
