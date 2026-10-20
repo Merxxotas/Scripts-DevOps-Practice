@@ -42,5 +42,25 @@ Because this is a monorepo, **CI/CD pipelines are strictly segregated by project
 
 ---
 
+## 📚 Documentation & Governance
+
+| Document | Purpose |
+| :--- | :--- |
+| **[`AGENTS.md`](AGENTS.md)** | **Start here.** What this repository is, the working methodology (ODD), the module contract, branching and commit conventions, the CI model, code standards, and known gotchas. |
+| **[`MODULES.md`](MODULES.md)** | Status of every one of the 11 modules, the seed-to-shipped checklist, and the recommended build order. |
+| **[`CONTRIBUTING.md`](CONTRIBUTING.md)** | How to contribute: workflow, branch naming, commit format, testing rules, PR checklist. |
+| **[`SECURITY.md`](SECURITY.md)** | Reporting a vulnerability privately, response targets, and what does and does not count as a vulnerability here. |
+| **[`CODE_OF_CONDUCT.md`](CODE_OF_CONDUCT.md)** | Community standards. |
+| **[`SUPPORT.md`](SUPPORT.md)** | Where to ask questions, and what to include in a bug report. |
+| **[`CHANGELOG.md`](CHANGELOG.md)** | Notable changes, newest first. |
+| **[`wiki/`](wiki/)** | The knowledge base — architecture, deep-dive comparisons, production scenarios and interactive labs. Also published as the [GitHub Wiki](https://github.com/Merxxotas/Scripts-DevOps-Practice/wiki). |
+
+> **Working methodology: Organic Driven Development (ODD)** — the gentle-ai implementation. See
+> [`AGENTS.md` §2](AGENTS.md) for the full protocol. The module artifacts (`SPECS.md`,
+> `ROADMAP.md`, `CODESTYLE.md`, `README.md`, `docs/`) remain mandatory; ODD is the process that
+> produces them.
+
+---
+
 ## 📜 License
 This entire repository is open source and available under the [MIT License](LICENSE).
