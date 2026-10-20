@@ -14,9 +14,9 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
-- **`AGENTS.md`** — the single source of truth for the repository: what it is, the ODD working
-  methodology, the module contract, branching and commit conventions, the CI model, testing and
-  code standards, a navigation map, and the known state and gotchas.
+- **`AGENTS.md`** — the router for the repository: what it is, the module contract, branching and
+  commit conventions, the CI model, the code standards baseline, a navigation map, and the known
+  state and gotchas.
 - **`MODULES.md`** — inventory and status of all 11 modules, the seed-to-shipped remediation
   checklist, and the recommended build order.
 - **`SECURITY.md`** — supported versions, private vulnerability reporting, response targets, a
@@ -30,6 +30,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **`.github/PULL_REQUEST_TEMPLATE.md`** — verification, documentation, and risk checklist.
 - **`.github/ISSUE_TEMPLATE/bug_report.md`** and **`.github/ISSUE_TEMPLATE/feature_request.md`** —
   structured reporting paths.
+- **`odd/METHODOLOGY.md`** — the expanded ODD protocol for this repository: the seven phases with
+  their local rules, the ODD-versus-SDD relationship, the feature-document format, task sizing,
+  the test-first policy and the delegation triggers. Moved out of `AGENTS.md` so that file can stay
+  within a readable size while remaining the entry point.
 
 ### Changed
 
@@ -39,6 +43,23 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   (`SPECS.md`, `ROADMAP.md`, `CODESTYLE.md`, `README.md`, `docs/`) remain mandatory; they are now
   produced *by* the ODD flow rather than written entirely up front. See
   [`AGENTS.md` §2](AGENTS.md).
+
+- **`AGENTS.md` reduced from 551 to 300 lines, and rebuilt as a router instead of a second copy of
+  everything.** The file was duplicating two other sources — it restated the contributor workflow
+  already in `CONTRIBUTING.md`, and restated the ODD protocol already installed with the agent
+  harness — so three copies of the same facts could drift apart. It now holds only the
+  agent-facing invariants, the module contract, the CI model, the known gotchas and a navigation
+  map, and points at the single home of every other fact.
+
+  Every section number (`§1`–`§10`, `§2.1`–`§2.10`, `§5.1`, `§5.2`) and every block quoted
+  verbatim as a specification in `odd/tasks/module-5-capstone-shipment.md` were preserved, so no
+  cross-reference in the repository broke.
+
+- **`CONTRIBUTING.md` §Code Standards is now the full shared baseline** — language and naming
+  conventions, log levels, commenting and docstring rules, shell specifics, and the security
+  rules. It previously deferred to `AGENTS.md` §7 for detail that `AGENTS.md` no longer carried,
+  which had left those rules with no home; the direction is now one-way: `AGENTS.md` §7 holds the
+  must-know summary and points here for the rest.
 
 ---
 

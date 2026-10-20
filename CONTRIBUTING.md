@@ -7,8 +7,10 @@ CI, real documentation.
 That standard is the point. A contribution that only "works" but skips the tests and docs makes
 the module less useful than it was.
 
-> **Read [`AGENTS.md`](AGENTS.md) first.** It is the source of truth for the methodology, module
-> contract, code standards and CI model. This document is the contributor-facing summary.
+> **Read [`AGENTS.md`](AGENTS.md) first.** It is the router for this repository: the module contract,
+> the CI model, the code standards baseline and the known gotchas, with pointers to every detailed
+> document. This file is the contributor-facing summary; the full ODD protocol lives in
+> [`odd/METHODOLOGY.md`](odd/METHODOLOGY.md).
 
 ---
 
@@ -32,14 +34,17 @@ replaced the older Spec-Driven Development flow on **2026-10-20**.
 
 ### What that means in practice
 
+Seven phases, in order, on every request: **Authorize → Explore → Resolve uncertainty → Classify →
+Track → Implement → Close.** The phase-by-phase detail and the repository-local rules live in
+[`odd/METHODOLOGY.md`](odd/METHODOLOGY.md).
+
 | Phase | What happens |
 | :--- | :--- |
 | **Authorize** | Confirm the request actually authorizes a change. Investigations and reviews are read-only. |
 | **Explore** | Read the existing code and requirements first, proportionately. |
-| **Resolve uncertainty** | Research only for a named uncertainty. One focused question for a genuine product decision — then stop and wait. |
-| **Classify** | Decide small vs large. Size is decided by whether the work is resumable from the request plus `git diff` — never by file count. |
+| **Classify** | Decide small vs large by the **resume test** — could someone finish from the request plus `git diff`? Never by file count. |
 | **Track** | Large work gets a feature document at `odd/tasks/<feature-name>.md` plus an Engram mirror. Small work gets no durable artifacts. |
-| **Implement** | Task by task. Hand off by reference, not paraphrase. Observe RED, reach GREEN, then refactor. |
+| **Implement** | Task by task, handed off by reference. Observe RED, reach GREEN, then refactor. |
 | **Close** | Report the verified outcome, every failed / skipped / pending check, and a `Risk:` line. |
 
 **The module artifacts survive the change.** ODD governs *how the work happens*; `SPECS.md` and
@@ -158,18 +163,48 @@ feat: added new feature to eventops
 
 ## Code Standards
 
-Full detail in [`AGENTS.md` §7](AGENTS.md) and each module's `CODESTYLE.md`.
+This is the **full shared baseline**. Module-specific conventions live in each module's
+`CODESTYLE.md`; the short must-know summary is in [`AGENTS.md` §7](AGENTS.md) and the wider style
+guide in [`wiki/09`](wiki/09-Code-Style-and-Standards.md).
+
+### Language and naming
 
 - **English only** — code, comments, identifiers, docs, commit messages.
 - **B2 English** — clear, simple, direct; optimize for global readability.
 - Lines under **100 characters**. Python follows **PEP 8**; PowerShell uses **Approved Verb-Noun**
   naming.
-- **No `print()` in production code** — use structured logging.
+- `snake_case` for variables and functions, `PascalCase` for types/classes, `UPPER_SNAKE_CASE` for
+  constants, `kebab-case` for CLI flags, `PascalCase` for PowerShell parameters.
+
+### Debugging and observability
+
+- **No `print()` in production code** — use the language's structured logging (`logging` in Python,
+  `Write-Information`/`Write-Warning` in PowerShell, `log/slog` in Go, a `log()` helper in Bash).
+- Log levels: `DEBUG` (troubleshooting), `INFO` (normal behaviour), `WARNING` (unexpected but
+  survivable), `ERROR` (needs attention).
 - Catch **specific** exceptions, never a bare `except Exception:`.
+- Every destructive or long-running action writes an **audit line**.
+
+### Commenting and documentation
+
 - Comments explain **why**, not what. No commented-out code, no orphan `TODO`s.
-- Bash scripts start with `set -euo pipefail` and `IFS=$'\n\t'`.
+- Docstrings on every class and public function: inputs, outputs, raised errors.
+
+### Shell specifics
+
+- Bash scripts start with `set -euo pipefail` and `IFS=$'\n\t'`. Quote every expansion. Use `[[ ]]`
+  for tests. Prefer `$(...)` over backticks.
+- `--help` must exist and exit `0`.
 - **Exit codes are a public contract:** `0` success, `1` configuration/safety violation, `2` partial
   failure — documented in the README.
+
+### Security
+
+- **Never hardcode secrets.** Read from the environment and fail loudly when unset.
+- Validate and sanitise every external input — paths, arguments, JSON payloads, webhook bodies.
+- **Guardrail destructive paths.** Refuse to operate on `/`, `C:\`, `/etc`, `/var`, system directories.
+- Prefer **dry-run** modes and non-destructive defaults.
+- Never log credentials, tokens or full secret-bearing payloads.
 
 ---
 
