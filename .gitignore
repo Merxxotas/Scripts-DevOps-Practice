@@ -18,7 +18,9 @@ eventops.log
 # Test & coverage outputs
 .pytest_cache/
 .coverage
+coverage.xml
 htmlcov/
+.ruff_cache/
 
 # IDE & OS files
 .DS_Store

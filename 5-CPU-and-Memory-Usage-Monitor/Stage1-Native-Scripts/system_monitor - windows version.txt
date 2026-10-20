@@ -1,0 +1,358 @@
+<#
+.SYNOPSIS
+    Cross-Platform System Resource Monitor - Sorted by RAM with Summary
+    Supports: Windows (PowerShell 5.1+), Linux (PowerShell 7+), macOS (PowerShell 7+)
+.DESCRIPTION
+    Monitors CPU and Memory usage, displays top processes by RAM usage with color coding,
+    and shows aggregated totals by process name.
+#>
+
+[CmdletBinding()]
+param(
+    [int]$TopProcesses = 100,
+    [int]$CpuThreshold = 80,
+    [int]$MemThreshold = 80
+)
+
+# Color codes (ANSI)
+$ESC = [char]27
+$RED = "$ESC[0;31m"
+$YELLOW = "$ESC[1;33m"
+$GREEN = "$ESC[0;32m"
+$CYAN = "$ESC[0;36m"
+$WHITE = "$ESC[37m"
+$BLUE = "$ESC[0;34m"
+$NC = "$ESC[0m"
+
+# OS Detection (Compatible with PS 5.1 and 7+)
+$OS = "Unknown"
+if ($PSVersionTable.PSVersion.Major -eq 5) {
+    $OS = "Windows"
+} elseif ($PSVersionTable.PSVersion.Major -ge 6) {
+    if ($IsWindows) { $OS = "Windows" }
+    elseif ($IsLinux) { $OS = "Linux" }
+    elseif ($IsMacOS) { $OS = "Darwin" }
+}
+
+Write-Host "$BLUE=== System Resource Monitor ===$NC"
+Write-Host "$CYAN$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')$NC"
+Write-Host "$YELLOW OS: $OS$NC`n"
+
+#region Helper Functions
+
+function Get-CpuUsage {
+    switch ($OS) {
+        "Windows" {
+            try {
+                # Get-Counter works in both PS 5.1 and 7
+                $counter = Get-Counter '\Processor(_Total)\% Processor Time' -SampleInterval 1 -MaxSamples 1 -ErrorAction Stop
+                return [math]::Round($counter.CounterSamples.CookedValue, 2)
+            } catch {
+                return $null
+            }
+        }
+        "Linux" {
+            if (Test-Path /proc/stat) {
+                # Read twice with delay for current usage (like top)
+                $stat1 = (Get-Content /proc/stat)[0]
+                $parts1 = $stat1 -split '\s+'
+                $user1 = [long]$parts1[1]
+                $nice1 = [long]$parts1[2]
+                $system1 = [long]$parts1[3]
+                $idle1 = [long]$parts1[4]
+                $iowait1 = [long]$parts1[5]
+                $total1 = $user1 + $nice1 + $system1 + $idle1 + $iowait1
+                
+                Start-Sleep -Milliseconds 500
+                
+                $stat2 = (Get-Content /proc/stat)[0]
+                $parts2 = $stat2 -split '\s+'
+                $user2 = [long]$parts2[1]
+                $nice2 = [long]$parts2[2]
+                $system2 = [long]$parts2[3]
+                $idle2 = [long]$parts2[4]
+                $iowait2 = [long]$parts2[5]
+                $total2 = $user2 + $nice2 + $system2 + $idle2 + $iowait2
+                
+                $totalDiff = $total2 - $total1
+                $idleDiff = ($idle2 - $idle1) + ($iowait2 - $iowait1)
+                
+                if ($totalDiff -gt 0) {
+                    return [math]::Round(100 * ($totalDiff - $idleDiff) / $totalDiff, 2)
+                }
+            }
+            return $null
+        }
+        "Darwin" {
+            $topOutput = & top -l1 2>$null | Select-String "CPU usage"
+            if ($topOutput) {
+                $match = [regex]::Match($topOutput, '([\d.]+)%\s*idle')
+                if ($match.Success) {
+                    return [math]::Round(100 - [double]$match.Groups[1].Value, 2)
+                }
+            }
+            return $null
+        }
+    }
+    return $null
+}
+
+function Get-MemoryUsage {
+    switch ($OS) {
+        "Windows" {
+            try {
+                $os = Get-CimInstance -ClassName Win32_OperatingSystem -ErrorAction Stop
+                $total = $os.TotalVisibleMemorySize
+                $free = $os.FreePhysicalMemory
+                return [math]::Round(($total - $free) / $total * 100, 2)
+            } catch {
+                return $null
+            }
+        }
+        "Linux" {
+            if (Get-Command free -ErrorAction SilentlyContinue) {
+                $output = & free | & grep Mem
+                if ($output) {
+                    $parts = $output -split '\s+'
+                    $total = [decimal]$parts[1]
+                    $used = [decimal]$parts[2]
+                    return [math]::Round($used / $total * 100, 2)
+                }
+            }
+            if (Test-Path /proc/meminfo) {
+                $meminfo = Get-Content /proc/meminfo
+                $totalLine = $meminfo | Select-String "MemTotal"
+                $availLine = $meminfo | Select-String "MemAvailable"
+                if ($totalLine -and $availLine) {
+                    $total = [decimal]($totalLine -split '\s+')[1]
+                    $available = [decimal]($availLine -split '\s+')[1]
+                    return [math]::Round(($total - $available) / $total * 100, 2)
+                }
+            }
+            return $null
+        }
+        "Darwin" {
+            $vmStats = & vm_stat 2>$null
+            if ($vmStats) {
+                $parseValue = {
+                    param($line, $index)
+                    if ($line) {
+                        $val = ($line -split '\s+')[$index] -replace '\.', ''
+                        return [long]$val
+                    }
+                    return 0
+                }
+                
+                $pagesFree = & $parseValue ($vmStats | Select-String "Pages free") 2
+                $pagesActive = & $parseValue ($vmStats | Select-String "Pages active") 2
+                $pagesInactive = & $parseValue ($vmStats | Select-String "Pages inactive") 2
+                $pagesWired = & $parseValue ($vmStats | Select-String "Pages wired down") 3
+                $pagesSpeculative = & $parseValue ($vmStats | Select-String "Pages speculative") 2
+                
+                $used = $pagesActive + $pagesInactive + $pagesSpeculative + $pagesWired
+                $total = $used + $pagesFree
+                if ($total -gt 0) {
+                    return [math]::Round($used / $total * 100, 2)
+                }
+            }
+            return $null
+        }
+    }
+    return $null
+}
+
+#endregion
+
+#region Display System Stats
+
+$cpuUsage = Get-CpuUsage
+$memUsage = Get-MemoryUsage
+
+Write-Host "CPU Usage: " -NoNewline
+if ($null -eq $cpuUsage) {
+    Write-Host "${YELLOW}Unable to detect${NC}"
+} elseif ($cpuUsage -gt $CpuThreshold) {
+    Write-Host "${RED}${cpuUsage}% (HIGH)${NC}"
+} else {
+    Write-Host "${GREEN}${cpuUsage}%${NC}"
+}
+
+Write-Host "Memory Usage: " -NoNewline
+if ($null -eq $memUsage) {
+    Write-Host "${YELLOW}Unable to detect${NC}"
+} elseif ($memUsage -gt $MemThreshold) {
+    Write-Host "${RED}${memUsage}% (HIGH)${NC}"
+} else {
+    Write-Host "${GREEN}${memUsage}%${NC}"
+}
+
+#endregion
+
+#region Process Listing
+
+Write-Host "`n${YELLOW}Top $TopProcesses Processes (Sorted by RAM Usage):${NC}"
+Write-Host ("{0}{1,-22} {2,-10} {3,-12} {4,-12}{5}" -f $CYAN, "PROCESS", "PID", "CPU(%)", "RAM(MB)", $NC)
+Write-Host ("{0}{1}{2}" -f $CYAN, ("-" * 62), $NC)
+
+if ($OS -eq "Windows") {
+    # Windows: Use Get-Process (works in both 5.1 and 7)
+    # Note: For per-process CPU%, we use Win32_PerfFormattedData_PerfProc_Process if available
+    $processCpuMap = @{}
+    try {
+        $perfData = Get-CimInstance -ClassName Win32_PerfFormattedData_PerfProc_Process -ErrorAction Stop
+        foreach ($proc in $perfData) {
+            if ($proc.IDProcess -and $proc.PercentProcessorTime -ne $null) {
+                $processCpuMap[$proc.IDProcess] = $proc.PercentProcessorTime
+            }
+        }
+    } catch {
+        # Performance counters not available, will show N/A
+    }
+    
+    $processes = Get-Process | Sort-Object WorkingSet -Descending | Select-Object -First $TopProcesses
+    
+    foreach ($proc in $processes) {
+        $rssMb = [math]::Round($proc.WorkingSet / 1MB, 0)
+        $procName = $proc.ProcessName
+        if ($procName.Length -gt 22) { $procName = $procName.Substring(0, 22) }
+        $procName = $procName.PadRight(22)
+        $pidStr = $proc.Id.ToString().PadRight(10)
+        
+        $cpuVal = $processCpuMap[$proc.Id]
+        if ($null -eq $cpuVal) { $cpuVal = 0.0 }
+        $cpuStr = "$cpuVal%".PadRight(12)
+        $memStr = "$rssMb MB".PadRight(12)
+        
+        if ($rssMb -gt 500) {
+            Write-Host "${RED}${procName} ${pidStr} ${cpuStr} ${memStr}${NC}"
+        } else {
+            Write-Host "${procName} ${pidStr} ${cpuStr} ${memStr}"
+        }
+    }
+    
+    # Summary for Windows
+    Write-Host "`n${YELLOW}Total Usage by Process (Aggregated RAM):${NC}"
+    Write-Host ("{0}{1}{2}" -f $CYAN, ("-" * 42), $NC)
+    
+    $grouped = Get-Process | Group-Object ProcessName | ForEach-Object {
+        $totalRam = ($_.Group | Measure-Object WorkingSet -Sum).Sum / 1MB
+        [PSCustomObject]@{
+            Name = $_.Name
+            Count = $_.Count
+            TotalRam = [decimal][math]::Round($totalRam, 2)
+        }
+    } | Sort-Object TotalRam -Descending
+    
+    if ($grouped) {
+        $maxRam = $grouped[0].TotalRam
+        
+        foreach ($item in $grouped) {
+            $ram = $item.TotalRam
+            $color = $WHITE
+            
+            if (($ram -eq $maxRam) -or ($ram -ge $maxRam * 0.9)) {
+                $color = $RED
+            } elseif ($ram -gt $maxRam * 0.6) {
+                $color = $YELLOW
+            } elseif ($ram -gt $maxRam * 0.3) {
+                $color = $GREEN
+            } elseif ($ram -gt $maxRam * 0.1) {
+                $color = $CYAN
+            }
+            
+            Write-Host ("{0}{1}{2}: {3}MB ({4} instances)" -f $color, $item.Name, $NC, $ram, $item.Count)
+        }
+    }
+} else {
+    # Linux/macOS: Use ps command for better CPU% accuracy
+    # Parse ps aux output
+    $psOutput = & ps aux 2>$null | Select-Object -Skip 1 | ForEach-Object {
+        # Parse: USER PID %CPU %MEM VSZ RSS TTY STAT START TIME COMMAND
+        $line = $_ -replace '^\s+', ''
+        $parts = $line -split '\s+', 11
+        if ($parts.Count -ge 11) {
+            [PSCustomObject]@{
+                User = $parts[0]
+                Pid = $parts[1]
+                Cpu = [decimal]$parts[2]
+                MemPercent = [decimal]$parts[3]
+                Vsz = [long]$parts[4]
+                Rss = [long]$parts[5]
+                Command = $parts[10]
+            }
+        }
+    } | Sort-Object Rss -Descending | Select-Object -First $TopProcesses
+    
+    foreach ($proc in $psOutput) {
+        $rssMb = [math]::Round($proc.Rss / 1024, 0)
+        
+        # Extract process name (first word of command, strip path)
+        $procName = ($proc.Command -split ' ')[0] -replace '^.*/', ''
+        if ($procName.Length -gt 22) { $procName = $procName.Substring(0, 22) }
+        $procName = $procName.PadRight(22)
+        
+        $pidStr = $proc.Pid.ToString().PadRight(10)
+        $cpuStr = ("$($proc.Cpu)%").PadRight(12)
+        $memStr = ("$rssMb MB").PadRight(12)
+        
+        if ($rssMb -gt 500) {
+            Write-Host "${RED}${procName} ${pidStr} ${cpuStr} ${memStr}${NC}"
+        } else {
+            Write-Host "${procName} ${pidStr} ${cpuStr} ${memStr}"
+        }
+    }
+    
+    # Summary for Unix
+    Write-Host "`n${YELLOW}Total Usage by Process (Aggregated RAM):${NC}"
+    Write-Host ("{0}{1}{2}" -f $CYAN, ("-" * 42), $NC)
+    
+    $aggregated = @{}
+    & ps -eo comm,rss 2>$null | Select-Object -Skip 1 | ForEach-Object {
+        $line = $_.Trim()
+        if ($line -match '^(\S+)\s+(\d+)$') {
+            $comm = $matches[1]
+            $rss = [long]$matches[2]
+            
+            if ($aggregated.ContainsKey($comm)) {
+                $aggregated[$comm].Rss += $rss
+                $aggregated[$comm].Count++
+            } else {
+                $aggregated[$comm] = @{
+                    Rss = $rss
+                    Count = 1
+                }
+            }
+        }
+    }
+    
+    $sorted = $aggregated.GetEnumerator() | ForEach-Object {
+        [PSCustomObject]@{
+            Name = $_.Key
+            TotalRam = [decimal][math]::Round($_.Value.Rss / 1024, 2)
+            Count = $_.Value.Count
+        }
+    } | Sort-Object TotalRam -Descending
+    
+    if ($sorted) {
+        $maxRam = $sorted[0].TotalRam
+        
+        foreach ($item in $sorted) {
+            $ram = $item.TotalRam
+            $color = $WHITE
+            
+            if (($ram -eq $maxRam) -or ($ram -ge $maxRam * 0.9)) {
+                $color = $RED
+            } elseif ($ram -gt $maxRam * 0.6) {
+                $color = $YELLOW
+            } elseif ($ram -gt $maxRam * 0.3) {
+                $color = $GREEN
+            } elseif ($ram -gt $maxRam * 0.1) {
+                $color = $CYAN
+            }
+            
+            Write-Host ("{0}{1}{2}: {3}MB ({4} instances)" -f $color, $item.Name, $NC, $ram, $item.Count)
+        }
+    }
+}
+
+#endregion

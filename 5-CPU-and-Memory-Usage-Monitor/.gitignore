@@ -1,0 +1,30 @@
+# Module 5 — CPU and Memory Usage Monitor
+#
+# The repository-root .gitignore already covers the common Python artifacts.
+# These rules add the ones that are specific to this module's layout.
+
+# Superseded early drafts of the disk-IO and kill/restart scripts. That
+# capability shipped in Stage1-Native-Scripts/system_monitor.sh and
+# system_monitor.ps1; these stubs are the abandoned drafts and stay out.
+Stage1-Native-Scripts/New-Addittions/
+
+# Runtime output. The Stage 1 scripts and the Python CLI both write their
+# reports here; the docs reference ./logs/ as an output directory.
+Stage1-Native-Scripts/logs/
+
+# Virtual environments are rebuilt per developer and never committed.
+.venv/
+
+# Generated coverage and test output.
+.coverage
+coverage.xml
+htmlcov/
+.pytest_cache/
+.ruff_cache/
+
+# Compiled bytecode.
+__pycache__/
+*.py[cod]
+
+# Lock files are resolved per environment rather than pinned in the repository.
+uv.lock

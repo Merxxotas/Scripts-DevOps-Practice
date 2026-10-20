@@ -1,0 +1,64 @@
+# ============================================================================
+# Docker Ignore File
+# 
+# These files/directories are excluded from the Docker build context
+# This makes builds faster and keeps the image clean
+# ============================================================================
+
+# Python cache files
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+
+# Virtual environments
+.venv/
+venv/
+ENV/
+env/
+
+# Build artifacts
+build/
+dist/
+*.egg-info/
+.eggs/
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+.nox/
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Git
+.git/
+.gitignore
+
+# Docker files (don't include these in the build context)
+Dockerfile
+docker-compose.yml
+.dockerignore
+
+# Documentation (not needed in the image)
+*.md
+docs/
+
+# Logs (will be mounted as volume)
+logs/*.json
+logs/*.csv
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Temporary files
+*.tmp
+*.temp

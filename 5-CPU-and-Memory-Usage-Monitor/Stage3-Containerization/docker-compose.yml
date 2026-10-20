@@ -1,0 +1,203 @@
+# ============================================================================
+# Docker Compose Configuration for System Resource Monitor
+# 
+# This file defines multiple services and profiles for different use cases:
+# - dev: Development mode with live code reloading
+# - prod: Production mode with resource limits
+# - test: Running unit tests
+# - monitor: Continuous monitoring service
+# ============================================================================
+
+version: "3.8"
+
+services:
+  # --------------------------------------------------------------------------
+  # Development Service
+  # Use for: Active development, testing changes
+  # Profile: dev
+  # --------------------------------------------------------------------------
+  monitor-dev:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: runtime
+    image: system-monitor:dev
+    container_name: sysmon-dev
+    
+    # Mount local code for live reloading
+    volumes:
+      - ./src:/app/src:ro  # Read-only mount of source code
+      - ./logs:/app/logs   # Persistent logs
+    
+    # Environment variables
+    environment:
+      - PYTHONUNBUFFERED=1
+      - LOG_LEVEL=DEBUG
+    
+    # Development profile - only started with --profile dev
+    profiles:
+      - dev
+    
+    # Interactive mode for development
+    stdin_open: true
+    tty: true
+    
+    # Command for development (watch mode)
+    command: ["--watch", "--interval", "5", "--export", "/app/logs/monitor.json"]
+    
+    # Network for inter-service communication
+    networks:
+      - sysmon-net
+
+  # --------------------------------------------------------------------------
+  # Production Service
+  # Use for: Production deployments, resource-constrained environments
+  # Profile: prod
+  # --------------------------------------------------------------------------
+  monitor-prod:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: runtime
+    image: system-monitor:latest
+    container_name: sysmon-prod
+    
+    # Production profile
+    profiles:
+      - prod
+    
+    # Resource limits (prevent container from consuming all host resources)
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'      # Max 50% of one CPU core
+          memory: 128M     # Max 128 MB RAM
+        reservations:
+          cpus: '0.1'      # Reserve 10% CPU
+          memory: 64M      # Reserve 64 MB RAM
+    
+    # Security hardening
+    read_only: true              # Read-only root filesystem
+    user: "1000:1000"           # Run as non-root user
+    security_opt:
+      - no-new-privileges:true   # Prevent privilege escalation
+    cap_drop:
+      - ALL                     # Drop all capabilities
+    cap_add:
+      - SYS_PTRACE              # Only add what's needed for process monitoring
+    
+    # Persistent storage for logs
+    volumes:
+      - logs-data:/app/logs
+    
+    # Temporary filesystem for any write operations
+    tmpfs:
+      - /tmp:noexec,nosuid,size=10m
+    
+    # Restart policy
+    restart: unless-stopped
+    
+    # Production command
+    command: ["--interval", "30", "--format", "json", "--export", "/app/logs/monitor.json"]
+    
+    networks:
+      - sysmon-net
+
+  # --------------------------------------------------------------------------
+  # One-Shot Monitor
+  # Use for: Single execution, CI/CD pipelines
+  # Profile: (none - runs by default)
+  # --------------------------------------------------------------------------
+  monitor-once:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: runtime
+    image: system-monitor:latest
+    container_name: sysmon-once
+    
+    # No profile - runs with default docker-compose up
+    volumes:
+      - ./logs:/app/logs
+    
+    command: ["--format", "json", "--export", "/app/logs/snapshot.json"]
+    
+    # Don't restart - run once and exit
+    restart: "no"
+    
+    networks:
+      - sysmon-net
+
+  # --------------------------------------------------------------------------
+  # Test Service
+  # Use for: Running unit tests
+  # Profile: test
+  # --------------------------------------------------------------------------
+  monitor-test:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: runtime
+    image: system-monitor:test
+    container_name: sysmon-test
+    
+    profiles:
+      - test
+    
+    # Mount tests for execution
+    volumes:
+      - ./tests:/app/tests:ro
+      - ./pyproject.toml:/app/pyproject.toml:ro
+    
+    # Install test dependencies and run tests
+    command: >
+      sh -c "pip install pytest pytest-cov pytest-mock &&
+             pytest /app/tests -v --cov=src/system_monitor"
+    
+    networks:
+      - sysmon-net
+
+  # --------------------------------------------------------------------------
+  # Watch Mode Service
+  # Use for: Continuous monitoring in background
+  # Profile: watch
+  # --------------------------------------------------------------------------
+  monitor-watch:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: runtime
+    image: system-monitor:latest
+    container_name: sysmon-watch
+    
+    profiles:
+      - watch
+    
+    volumes:
+      - logs-data:/app/logs
+    
+    # Continuous monitoring with 10-second interval
+    command: ["--watch", "--interval", "10", "--format", "json", "--export", "/app/logs/continuous.json"]
+    
+    restart: unless-stopped
+    
+    networks:
+      - sysmon-net
+
+# ------------------------------------------------------------------------------
+# Volumes (persistent storage)
+# ------------------------------------------------------------------------------
+volumes:
+  logs-data:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: ./logs
+
+# ------------------------------------------------------------------------------
+# Networks
+# ------------------------------------------------------------------------------
+networks:
+  sysmon-net:
+    driver: bridge
