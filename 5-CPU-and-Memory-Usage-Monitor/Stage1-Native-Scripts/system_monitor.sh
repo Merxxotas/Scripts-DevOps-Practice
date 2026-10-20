@@ -20,7 +20,13 @@ IFS=$'\n\t'
 # is. Under a locale such as es_CO or de_DE the decimal separator is a comma,
 # awk still emits a dot, and printf then rejects the value as an invalid
 # number and turns a successful run into a non-zero exit.
-export LC_NUMERIC=C
+#
+# LC_ALL is pinned rather than LC_NUMERIC because LC_ALL overrides every
+# category, including LC_NUMERIC, so setting LC_NUMERIC alone leaves the
+# script exposed to an inherited LC_ALL. The script's own messages are
+# English either way, and the sorts it runs are numeric, so the C locale
+# costs nothing.
+export LC_ALL=C
 
 # Error handler
 # Invoked indirectly by the ERR trap below.

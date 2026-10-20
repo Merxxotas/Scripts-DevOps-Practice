@@ -446,9 +446,10 @@ function Stop-ProcessById {
         $procName = $proc.ProcessName
         $procPath = $proc.Path
     } catch {
-        # Process already gone - this is actually success (goal achieved)
-        Write-Verbose "Process $ProcessId not found - may have already exited"
-        return $true
+        # The Bash implementation reports a missing PID as a failure, so the
+        # exit codes stay the same across both native implementations.
+        Write-Error "Process $ProcessId does not exist or cannot be signaled"
+        return $false
     }
     
     if (-not $PSCmdlet.ShouldProcess("Process $ProcessId ($procName)", "Stop")) {
