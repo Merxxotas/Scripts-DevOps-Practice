@@ -30,7 +30,7 @@ export LC_ALL=C
 
 # Error handler
 # Invoked indirectly by the ERR trap below.
-# shellcheck disable=SC2329
+# shellcheck disable=SC2329,SC2317
 cleanup_on_error() {
     local line=$1
     local status=$2
@@ -67,14 +67,31 @@ OS=$(uname -s)
 # LOGGING FUNCTIONS
 # ============================================================================
 LOG_LEVEL="${LOG_LEVEL:-INFO}"
-declare -A LOG_LEVELS=([DEBUG]=0 [INFO]=1 [WARN]=2 [ERROR]=3)
+# The log level thresholds are looked up with a case statement rather than an
+# associative array. macOS still ships Bash 3.2, where `declare -A` does not
+# exist, and the script has to run on the stock interpreter there.
+log_level_value() {
+    case "$1" in
+        DEBUG) LOG_LEVEL_VALUE=0 ;;
+        INFO)  LOG_LEVEL_VALUE=1 ;;
+        WARN)  LOG_LEVEL_VALUE=2 ;;
+        ERROR) LOG_LEVEL_VALUE=3 ;;
+        *)     LOG_LEVEL_VALUE=1 ;;
+    esac
+}
 
 log() {
     local level="$1"; shift
     local msg="$*"
     local timestamp
-    timestamp=$(date -Iseconds 2>/dev/null || date '+%Y-%m-%dT%H:%M:%S')
-    if [[ ${LOG_LEVELS[$level]:-1} -ge ${LOG_LEVELS[$LOG_LEVEL]:-1} ]]; then
+    timestamp=$(timestamp_iso)
+
+    log_level_value "$level"
+    local level_value="$LOG_LEVEL_VALUE"
+    log_level_value "$LOG_LEVEL"
+    local threshold_value="$LOG_LEVEL_VALUE"
+
+    if [[ $level_value -ge $threshold_value ]]; then
         echo -e "[$timestamp] [$level] $msg" >&2
     fi
 }
@@ -82,6 +99,13 @@ log() {
 # ============================================================================
 # UTILITY FUNCTIONS
 # ============================================================================
+
+# An ISO 8601 timestamp. GNU date has -Iseconds, but BSD date, which macOS
+# still ships, does not, so the format string is the fallback. Without this the
+# script dies on macOS the moment it writes a timestamp.
+timestamp_iso() {
+    date -Iseconds 2>/dev/null || date '+%Y-%m-%dT%H:%M:%S%z'
+}
 
 # Safe calculation using awk (no external bc dependency)
 calc() {
@@ -298,7 +322,7 @@ log_kill_action() {
     local result="$3"
     local details="${4:-}"
     local timestamp
-    timestamp=$(date -Iseconds)
+    timestamp=$(timestamp_iso)
     echo "[$timestamp] [$action] PID/Name: $target | Result: $result | $details" >> "$KILL_LOG_FILE" 2>/dev/null
 }
 
@@ -498,7 +522,7 @@ output_json() {
     local mem
     mem=$(get_memory_usage)
     local timestamp
-    timestamp=$(date -Iseconds)
+    timestamp=$(timestamp_iso)
     
     echo "{"
     echo "  \"timestamp\": \"$timestamp\","
@@ -545,7 +569,7 @@ output_csv() {
     local mem
     mem=$(get_memory_usage)
     local timestamp
-    timestamp=$(date -Iseconds)
+    timestamp=$(timestamp_iso)
     
     echo "timestamp,os,metric_type,name,pid,cpu_percent,ram_mb,instances,mount_point,device,percent_used"
     
@@ -881,7 +905,7 @@ fi
 
 # Watch mode cleanup handler
 # Invoked indirectly by the INT/TERM trap that installs it.
-# shellcheck disable=SC2329
+# shellcheck disable=SC2329,SC2317
 cleanup_watch() {
     echo -e "\n${GREEN}Watch mode stopped.${NC}"
     # Close JSON array if needed

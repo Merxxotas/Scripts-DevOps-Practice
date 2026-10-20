@@ -22,6 +22,20 @@ readonly RESET='\033[0m'
 PASSED_TESTS=0
 FAILED_TESTS=0
 
+# The output and the exit code of the last captured command. They are kept so
+# that a failing assertion can show what the script actually printed: without
+# this, a command that fails under `set -e` kills the suite before any
+# assertion runs and the failure is completely silent.
+LAST_OUTPUT=""
+LAST_EXIT_CODE=0
+
+# Runs the monitor script and captures its output and its exit code.
+capture() {
+    local exit_code=0
+    LAST_OUTPUT=$("$MONITOR_SCRIPT" "$@" 2>&1) || exit_code=$?
+    LAST_EXIT_CODE=$exit_code
+}
+
 cleanup() {
     rm -rf "$TEST_SANDBOX"
 }
@@ -39,6 +53,10 @@ assert_equals() {
     else
         printf "%b[FAIL]%b %s (Expected: '%s', Got: '%s')\n" \
             "$RED" "$RESET" "$test_name" "$expected" "$actual" >&2
+        if [[ -n "$LAST_OUTPUT" ]]; then
+            printf "  --- the script printed ---\n%s\n  ---------------------------\n" \
+                "$LAST_OUTPUT" >&2
+        fi
         FAILED_TESTS=$((FAILED_TESTS + 1))
     fi
 }
@@ -49,9 +67,8 @@ assert_exit_code() {
     local test_name="$2"
     shift 2
 
-    local exit_code=0
-    "$@" >/dev/null 2>&1 || exit_code=$?
-    assert_equals "$expected" "$exit_code" "$test_name"
+    capture "$@"
+    assert_equals "$expected" "$LAST_EXIT_CODE" "$test_name"
 }
 
 # Assert a string contains a substring.
@@ -90,8 +107,8 @@ with open(sys.argv[1]) as handle:
 # Test 1: The help output succeeds and describes the interface
 # ------------------------------------------------------------------------------
 test_help_output() {
-    local output
-    output=$("$MONITOR_SCRIPT" --help 2>&1)
+    capture --help
+    local output="$LAST_OUTPUT"
     assert_exit_code 0 "Test 1a: --help exits with code 0"
     assert_contains "$output" "Usage:" "Test 1b: --help prints the usage line"
     assert_contains "$output" "--json" "Test 1c: --help documents --json"
@@ -102,8 +119,8 @@ test_help_output() {
 # Test 2: The version output succeeds and names the tool
 # ------------------------------------------------------------------------------
 test_version_output() {
-    local output
-    output=$("$MONITOR_SCRIPT" --version 2>&1)
+    capture --version
+    local output="$LAST_OUTPUT"
     assert_exit_code 0 "Test 2a: --version exits with code 0"
     assert_contains "$output" "System Resource Monitor" "Test 2b: --version names the tool"
 }
@@ -112,8 +129,8 @@ test_version_output() {
 # Test 3: An unknown option is rejected
 # ------------------------------------------------------------------------------
 test_unknown_option() {
-    local output
-    output=$("$MONITOR_SCRIPT" --definitely-not-a-flag 2>&1 || true)
+    capture --definitely-not-a-flag
+    local output="$LAST_OUTPUT"
     assert_contains "$output" "Unknown option" "Test 3a: an unknown option is reported"
     assert_exit_code 1 "Test 3b: an unknown option exits with code 1" \
         "$MONITOR_SCRIPT" --definitely-not-a-flag
@@ -123,8 +140,8 @@ test_unknown_option() {
 # Test 4: The watch interval is validated against its documented range
 # ------------------------------------------------------------------------------
 test_interval_validation() {
-    local output
-    output=$("$MONITOR_SCRIPT" --watch 400 2>&1 || true)
+    capture --watch 400
+    local output="$LAST_OUTPUT"
     assert_contains "$output" "at most" "Test 4a: an out-of-range interval is reported"
     assert_exit_code 1 "Test 4b: an out-of-range interval exits with code 1" \
         "$MONITOR_SCRIPT" --watch 400

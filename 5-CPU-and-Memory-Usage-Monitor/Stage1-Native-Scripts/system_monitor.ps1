@@ -352,7 +352,9 @@ function Get-ProcessData {
             }
         }
     } else {
-        $data = & ps aux 2>$null | Select-Object -Skip 1 | ForEach-Object {
+        # The full path is used because `ps` is an alias for Get-Process on
+        # Windows, and these branches only ever run on Linux and macOS.
+        $data = & /bin/ps aux 2>$null | Select-Object -Skip 1 | ForEach-Object {
             $line = $_ -replace '^\s+', ''
             $parts = $line -split '\s+', 11
             if ($parts.Count -ge 11) {
@@ -380,7 +382,7 @@ function Get-AggregatedData {
             }
         }
     } else {
-        & ps -eo comm,rss 2>$null | Select-Object -Skip 1 | ForEach-Object {
+        & /bin/ps -eo comm,rss 2>$null | Select-Object -Skip 1 | ForEach-Object {
             $line = $_.Trim()
             if ($line -match '^(\S+)\s+(\d+)$') {
                 $comm = $matches[1] -replace '^.*/', ''
