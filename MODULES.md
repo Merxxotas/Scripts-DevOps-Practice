@@ -92,8 +92,9 @@ had never run, so nothing about it had ever been verified.
 | 286 lint errors in the Python package | `ruff check` and `ruff format --check` are clean |
 
 **Known gaps**, recorded rather than hidden: the disk I/O fields differ between the native
-implementations, the Bash script has no options for the thresholds or the process count, and exit
-code 2 is reserved but unused.
+implementations, the Bash script has no options for the thresholds or the process count, the memory
+percentage is wrong on macOS because the file cache is counted as used, and exit code 2 is reserved
+but unused.
 
 ### 🔵 Seed modules — 1, 3, 4, 6, 7, 8, 9, 10
 

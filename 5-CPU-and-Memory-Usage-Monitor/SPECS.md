@@ -227,11 +227,21 @@ deliberate, and they are listed here so a consumer knows what to expect.
 | Kill method | Signal name | Graceful, Terminate, Kill | Graceful, then force |
 | Disk I/O fields | Cumulative counters | Per-second rates | Both |
 | CSV quoting | Unquoted | Every field quoted | Unquoted |
+| Memory usage on macOS | see below | see below | Accurate |
 
 The disk I/O difference is the one that matters to a consumer: the Bash
 script reads cumulative counters from `/proc/diskstats`, while the
 PowerShell script reads per-second rates from the Windows performance
 counters. The Python implementation reports both families.
+
+**The memory percentage on macOS is not accurate.** The macOS branch counts
+every active and inactive page as used, and on macOS the inactive pages
+hold the file cache. A GitHub macOS runner with 14 GB of RAM and nothing
+running reports **99.39 % used**. Linux and the Python package report the
+figure the rest of the tooling does, because they exclude the cache. Fixing
+it means deciding what counts as used on macOS and reading the page counts
+that support that definition, which is a design decision rather than a
+cleanup.
 
 ---
 

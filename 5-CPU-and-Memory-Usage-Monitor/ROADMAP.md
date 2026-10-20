@@ -84,5 +84,9 @@ These are known gaps, recorded so they are not lost.
       implementations expose them.
 - [ ] **The exit code 2 is reserved but unused.** The repository standard
       defines it for partial failure.
+- [ ] **The memory percentage on macOS is wrong.** The native scripts count
+      the file cache as used memory there, so an idle GitHub macOS runner
+      reports 99.39 % used. Fixing it means deciding what counts as used on
+      macOS and reading the page counts that support it.
 - [ ] **Stage 1 has no test for the watch mode**, because the mode runs
       until it is interrupted.
