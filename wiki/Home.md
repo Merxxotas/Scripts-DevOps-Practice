@@ -40,7 +40,12 @@ This wiki provides comprehensive architecture guides, deep-dive comparisons, ste
 - **[[06-Log-Cleanup-Bash-vs-PowerShell|06. Bash vs. PowerShell Architecture Comparison]]**: POSIX byte streams vs. .NET object pipelines, platform strengths, and exit codes.
 - **[[07-Log-Cleanup-Scenarios-and-Labs|07. Log Cleanup Scenarios & Interactive Labs]]**: Nginx, IIS, DB dumps, and 3 hands-on practical labs.
 
-### 4. Quality & Engineering Standards
+### 4. Module 5: CPU & Memory Usage Monitor
+- **[[10-CPU-Monitor-Overview|10. CPU & Memory Usage Monitor — Overview & Specs]]**: Three implementations of one monitor, the shared JSON contract, and the defects found while shipping it.
+- **[[11-CPU-Monitor-Bash-vs-PowerShell|11. Bash vs PowerShell vs Python]]**: The dependency-free argument for the native scripts, and where the three implementations still disagree.
+- **[[12-CPU-Monitor-Scenarios-and-Labs|12. CPU Monitor Scenarios & Interactive Labs]]**: Scheduled checks, runaway-process triage, and 3 hands-on labs that run the real commands.
+
+### 5. Quality & Engineering Standards
 - **[[08-CI-CD-Pipelines|08. CI/CD Pipelines & Testing Philosophy]]**: Path-based GitHub Actions monorepo isolation and multi-OS validation.
 - **[[09-Code-Style-and-Standards|09. Code Style & Engineering Standards]]**: B2 English conventions, commenting strategy, and branching workflow.
 

@@ -22,3 +22,10 @@
 - **[[08-CI-CD-Pipelines|🔄 CI/CD Pipelines]]**
 - **[[09-Code-Style-and-Standards|📐 Code Style Standards]]**
 
+---
+
+### 📈 Module 5: CPU Monitor
+- **[[10-CPU-Monitor-Overview|📖 CPU Monitor Overview]]**
+- **[[11-CPU-Monitor-Bash-vs-PowerShell|📊 Bash vs PowerShell vs Python]]**
+- **[[12-CPU-Monitor-Scenarios-and-Labs|🧪 Scenarios & Labs]]**
+

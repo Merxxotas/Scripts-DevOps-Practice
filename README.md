@@ -14,7 +14,7 @@ This repository is a **multi-language monorepo**. While it includes foundational
 | `2-Log-Cleanup-Script-(Delete-Files-Older-Than-X-Days)` | Bash / PowerShell | Automated log retention & directory purging |
 | `3-Automated-Database-Backup-with-Timestamp` | Bash / PowerShell | Timestamped database dump & rotation utilities |
 | `4-Service-Monitor-And-Auto-Restart` | Bash / PowerShell | System service uptime monitoring & auto-restart |
-| `5-CPU-and-Memory-Usage-Monitor` | Bash / PowerShell | System resource threshold monitoring & alerting |
+| `5-CPU-and-Memory-Usage-Monitor` | Bash / PowerShell / Python / Docker | **CPU Monitor:** resource monitoring & process kill/restart, in three implementations sharing one data contract |
 | `6-Website-Availability-(HTTP-Health-Check)` | Bash / PowerShell | Web endpoint HTTP status & response time checker |
 | `7-Find-and-Kill-High-CPU-Processes` | Bash / PowerShell | Process management & runaway CPU process cleanup |
 | `8-Log-Rotation-and-Compression` | Bash / PowerShell | Log archiving, gzip compression, & retention |
@@ -39,6 +39,7 @@ We select the best technology for each automation challenge:
 Because this is a monorepo, **CI/CD pipelines are strictly segregated by project folder**:
 - There is no single "monolithic" build pipeline. Instead, each project has its own dedicated GitHub Actions workflow file in `.github/workflows/`.
 - Workflows use Git `paths` filters to trigger *only* when files inside that specific project folder are modified (e.g., modifying files in `11-Scheduling-And-Automation/` triggers `ci-eventops.yml`, leaving other modules untouched).
+- Each workflow lives at the **repository root** in `.github/workflows/`. A `.github` folder nested inside a module folder is never executed by GitHub.
 
 ---
 

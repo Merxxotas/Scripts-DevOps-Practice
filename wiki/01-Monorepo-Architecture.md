@@ -23,9 +23,11 @@ Rather than forcing a single programming language across all operations, the rep
 Scripts-DevOps-Practice/
 ├── .github/workflows/                             # Segregated CI/CD workflows per module
 │   ├── ci-cleanup-logs.yml                        # Pipeline for Module 2
+│   ├── ci-cpu-monitor.yml                         # Pipeline for Module 5
 │   └── ci-eventops.yml                            # Pipeline for Module 11
 ├── 1-Disk-Usage-Monitoring-with-Email-Alert/      # Bash / PowerShell disk monitors
 ├── 2-Log-Cleanup-Script-(Delete-Files-Older-Than-X-Days)/  # Enterprise Log Cleanup
+├── 5-CPU-and-Memory-Usage-Monitor/              # CPU & Memory Monitor (capstone)
 │   ├── cleanup_logs.sh                            # POSIX Bash script
 │   ├── cleanup_logs.ps1                           # PowerShell script
 │   ├── tests/                                     # Automated test suites

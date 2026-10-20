@@ -28,7 +28,7 @@ working methodology.
 | 2 | Log Cleanup (files older than X days) | Bash / PowerShell | ✅ **Shipped** | ✅ | Full |
 | 3 | Automated Database Backup with Timestamp | Bash / PowerShell | 🔵 Seed | — | — |
 | 4 | Service Monitor and Auto-Restart | Bash / PowerShell | 🔵 Seed | — | — |
-| 5 | CPU and Memory Usage Monitor | Bash / PowerShell / Python / Docker | 🟡 Capstone | ⚠️ Nested | Full |
+| 5 | CPU and Memory Usage Monitor | Bash / PowerShell / Python / Docker | ✅ **Shipped** | ✅ | Full |
 | 6 | Website Availability (HTTP Health Check) | Bash / PowerShell | 🔵 Seed | — | — |
 | 7 | Find and Kill High-CPU Processes | Bash / PowerShell | 🔵 Seed | — | — |
 | 8 | Log Rotation and Compression | Bash / PowerShell | 🔵 Seed | — | — |
@@ -59,37 +59,41 @@ a debounced filesystem watcher feed a rule engine that dispatches actions asynch
 - CI: `.github/workflows/ci-eventops.yml` — 3 OS × Python 3.10/3.11/3.12, plus `go vet` and `go test`
 - Wiki: [02](wiki/02-EventOps-Overview.md) · [03](wiki/03-EventOps-Python-vs-Go.md) · [04](wiki/04-EventOps-Scenarios-and-Labs.md)
 
-### 🟡 5 — CPU and Memory Usage Monitor *(Capstone, local only)*
+### ✅ 5 — CPU and Memory Usage Monitor *(Shipped)*
 
-The most substantial body of work in the repository, and the closest to completion. A four-stage
-evolution: native scripts → unified Python package → containerization → CI/CD.
+A cross-platform system resource monitor with three implementations of the same tool and one shared
+data contract. The four-stage capstone of the repository.
 
 | Stage | Contents | Size |
 | :-- | :--- | :-- |
-| 1 — Native | `system_monitor.sh`, `system_monitor.ps1`, 8 topic READMEs | Bash + PowerShell, v1.3.0 |
-| 2 — Python | `src/system_monitor/` (6 modules), `tests/` (42 tests) | 1,047 LOC src · 718 LOC tests |
-| 3 — Container | Multi-stage `Dockerfile`, `docker-compose.yml` (5 profiles), `.dockerignore` | non-root UID 1000, read-only rootfs |
-| 4 — CI/CD | 3 GitHub Actions workflows | ⚠️ nested — would never execute |
+| 1 — Native | `system_monitor.sh`, `system_monitor.ps1` | Bash + PowerShell, v1.3.0 |
+| 2 — Python | `src/system_monitor/` (6 modules), `tests/` (45 tests) | 1,047 LOC src · 718 LOC tests |
+| 3 — Container | Multi-stage `Dockerfile`, `docker-compose.yml` (5 profiles) | non-root UID 1000, read-only rootfs |
+| 4 — CI/CD | `.github/workflows/ci-cpu-monitor.yml` | at the repository root |
 
-**Before this module can ship:**
+- `README.md` · `SPECS.md` · `ROADMAP.md` · `CODESTYLE.md` · `AGENTS.md`
+- `tests/` — Stage 1 suites: 20 Bash tests, 18 PowerShell tests
+- `docs/` — `ARCHITECTURE_COMPARISON.md`, `SCENARIOS.md`, `labs/LAB1-3`
+- CI: `.github/workflows/ci-cpu-monitor.yml` — 6 jobs across Linux, macOS and Windows
+- Wiki: [10](wiki/10-CPU-Monitor-Overview.md) · [11](wiki/11-CPU-Monitor-Bash-vs-PowerShell.md) · [12](wiki/12-CPU-Monitor-Scenarios-and-Labs.md)
 
-1. Fix the two failing tests (§ *Known Issues* below).
-2. Move the three workflows to the **repository root** `.github/workflows/` with `paths:` filters
-   scoped to `5-CPU-and-Memory-Usage-Monitor/**`. GitHub does not execute nested workflow folders.
-3. Reconcile `5-CPU-and-Memory-Usage-Monitor/.gitignore` — it currently ignores its own `AGENTS.md`.
-4. Rebuild the broken `.venv`; never commit it.
-5. Add `SPECS.md`, `ROADMAP.md` and `CODESTYLE.md` to match the module contract.
-6. Strip generated artifacts (`htmlcov/`, `.coverage`, `coverage.xml`, `.pytest_cache/`, `.ruff_cache/`,
-   `__pycache__/`, `uv.lock`).
+**Defects found and fixed while shipping it.** The module had never been in git and its workflows
+had never run, so nothing about it had ever been verified.
 
-**Known issues (verified 2026-10-20):** `2 failed, 40 passed`.
+| Defect | Fix |
+| :--- | :--- |
+| Two failing tests from contract drift | The under-mocked snapshot was fixed in the test; the positional call was fixed in the implementation |
+| `--cpu-threshold` and `--mem-threshold` had no effect at all | Threaded into the display exporter, with a regression test |
+| The output followed the host locale, so a comma-decimal locale failed every run | `LC_ALL=C` in Bash, `InvariantCulture` in PowerShell |
+| `head` closed the pipe early, and `pipefail` turned that into a failure on any host running more than 100 processes | The limit now lives inside the consumer |
+| The container image could never have built | The builder stage was missing `README.md` and `src/`, and the install was editable |
+| The PowerShell script failed outright on Linux | The kill log directory no longer depends on `$env:TEMP` |
+| The JSON and CSV contracts disagreed between the implementations | All three now emit the same key names |
+| 286 lint errors in the Python package | `ruff check` and `ruff format --check` are clean |
 
-| Test | Symptom | Nature |
-| :--- | :--- | :--- |
-| `tests/test_cli.py::TestCLIMonitor::test_display_mode` | `TypeError: '>' not supported between instances of 'Mock' and 'int'` | The CLI compares `snapshot.cpu_percent` against a threshold, but the test only stubs `snapshot.to_dict()`, so the attribute stays an auto-generated `Mock`. |
-| `tests/test_monitor.py::TestSystemMonitorSnapshot::test_get_snapshot` | `Expected: get_process_data(top_n=10)` / `Actual: get_process_data(10)` | Positional vs keyword call — the test and the implementation disagree on the call convention. |
-
-Neither is a production defect; both are test-to-implementation contract drift.
+**Known gaps**, recorded rather than hidden: the disk I/O fields differ between the native
+implementations, the Bash script has no options for the thresholds or the process count, and exit
+code 2 is reserved but unused.
 
 ### 🔵 Seed modules — 1, 3, 4, 6, 7, 8, 9, 10
 
@@ -128,15 +132,15 @@ guardrails, no dry-run, no audit log, no exit-code contract, no tests, no docume
 
 | Priority | Module | Rationale |
 | :-- | :--- | :-- |
-| 1 | **5 — CPU and Memory Usage Monitor** | Largest existing asset, already ~90% built. Converting it to shipped recovers ~6,200 LOC of finished work and closes the two red tests. |
-| 2 | **1 — Disk Usage Monitoring** | First module in the series and the direct sibling of module 2 (same Bash/PowerShell CLI shape). Sets the template for the remaining seeds. |
-| 3 | **3 — Automated Database Backup** | Complements module 2 — backup creation feeding retention pruning. Natural narrative pairing. |
-| 4 | **8 — Log Rotation and Compression** | Shares the log-lifecycle domain with modules 2 and 3. |
-| 5 | **4 — Service Monitor and Auto-Restart** | Introduces process/service supervision; pairs with 7. |
-| 6 | **7 — Find and Kill High-CPU Processes** | Resource-control counterpart to 4 and 5. |
-| 7 | **9 — Automated Git Deployment** | Already referenced by the EventOps specification as a webhook action target. |
-| 8 | **6 — Website Availability** | Self-contained HTTP monitoring. |
-| 9 | **10 — Kubernetes Pod Monitor** | Highest operational complexity; benefits from the hardened patterns established above. |
+| — | **5 — CPU and Memory Usage Monitor** | **Shipped.** Completed. |
+| 1 | **1 — Disk Usage Monitoring** | First module in the series and the direct sibling of module 2 (same Bash/PowerShell CLI shape). Sets the template for the remaining seeds. |
+| 2 | **3 — Automated Database Backup** | Complements module 2 — backup creation feeding retention pruning. Natural narrative pairing. |
+| 3 | **8 — Log Rotation and Compression** | Shares the log-lifecycle domain with modules 2 and 3. |
+| 4 | **4 — Service Monitor and Auto-Restart** | Introduces process/service supervision; pairs with 7. |
+| 5 | **7 — Find and Kill High-CPU Processes** | Resource-control counterpart to 4 and 5. |
+| 6 | **9 — Automated Git Deployment** | Already referenced by the EventOps specification as a webhook action target. |
+| 7 | **6 — Website Availability** | Self-contained HTTP monitoring. |
+| 8 | **10 — Kubernetes Pod Monitor** | Highest operational complexity; benefits from the hardened patterns established above. |
 
 ---
 

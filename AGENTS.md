@@ -31,8 +31,8 @@ Windows and cross-platform .NET, Python for orchestration engines, Go for compil
 [`wiki/01`](wiki/01-Monorepo-Architecture.md)
 
 **Module status — check before assuming anything exists.** Shipped and committed: **2** (Log Cleanup),
-**11** (EventOps). Capstone, on disk only: **5**. Seed, on disk only: **1, 3, 4, 6, 7, 8, 9, 10**.
-Only modules 2 and 11 are in git. → [`MODULES.md`](MODULES.md)
+**11** (EventOps) and **5** (CPU and Memory Usage Monitor). Seed, on disk only: **1, 3, 4, 6, 7, 8, 9, 10**.
+Only modules 2, 5 and 11 are in git. → [`MODULES.md`](MODULES.md)
 
 ---
 
@@ -256,6 +256,7 @@ The rules that break things most often:
 | :--- | :--- |
 | Understand the architecture | [`wiki/01-Monorepo-Architecture.md`](wiki/01-Monorepo-Architecture.md) |
 | EventOps — overview, Python vs Go, scenarios & labs | [`wiki/02`](wiki/02-EventOps-Overview.md) · [`03`](wiki/03-EventOps-Python-vs-Go.md) · [`04`](wiki/04-EventOps-Scenarios-and-Labs.md) |
+| CPU Monitor — overview, Bash vs PowerShell vs Python, scenarios & labs | [`wiki/10`](wiki/10-CPU-Monitor-Overview.md) · [`11`](wiki/11-CPU-Monitor-Bash-vs-PowerShell.md) · [`12`](wiki/12-CPU-Monitor-Scenarios-and-Labs.md) |
 | Log Cleanup — overview, Bash vs PowerShell, scenarios & labs | [`wiki/05`](wiki/05-Log-Cleanup-Overview.md) · [`06`](wiki/06-Log-Cleanup-Bash-vs-PowerShell.md) · [`07`](wiki/07-Log-Cleanup-Scenarios-and-Labs.md) |
 | CI/CD philosophy and code standards | [`wiki/08`](wiki/08-CI-CD-Pipelines.md) · [`wiki/09`](wiki/09-Code-Style-and-Standards.md) |
 | Know a module's status | [`MODULES.md`](MODULES.md) |
@@ -272,8 +273,8 @@ Verified on **2026-10-20**. These are real, current, and will bite you.
 
 | # | Gotcha |
 | :-- | :--- |
-| 1 | **Modules 1, 3, 4, 5, 6, 7, 8, 9, 10 are not in git.** On the working disk only; `git log --all` shows zero history. They also miss `SPECS.md`, `ROADMAP.md`, `CODESTYLE.md`, tests and CI — so they violate the module contract (§3). |
-| 2 | **Module 5 is the next ship.** Four blockers in [`MODULES.md`](MODULES.md): two failing tests, three workflows in a nested path that would never execute, a `.gitignore` that ignores its own `AGENTS.md`, and a committed `.venv` that is broken — rebuild it, never commit it. |
+| 1 | **Modules 1, 3, 4, 6, 7, 8, 9, 10 are not in git.** On the working disk only; `git log --all` shows zero history. They also miss `SPECS.md`, `ROADMAP.md`, `CODESTYLE.md`, tests and CI — so they violate the module contract (§3). |
+| 2 | **Module 1 is the next ship.** The seed modules are raw script pairs with no CLI parser, guardrails, tests, docs or CI. The checklist is in [`MODULES.md`](MODULES.md). |
 | 3 | **Path filters create a blind spot.** Changes under `wiki/`, `MODULES.md`, `AGENTS.md` and the other root docs match no workflow, so they trigger **no CI run**. Documentation changes are never automatically validated. |
 | 4 | **The wiki lives in two places** — committed to `main:wiki/` **and** published as the GitHub Wiki (a separate `Scripts-DevOps-Practice.wiki.git` repo). Verified byte-identical on 2026-10-20, but nothing enforces it. **When you edit a wiki page, push it to both.** |
 | 5 | **`main` is unprotected.** No branch protection, no rulesets, no required checks. |
