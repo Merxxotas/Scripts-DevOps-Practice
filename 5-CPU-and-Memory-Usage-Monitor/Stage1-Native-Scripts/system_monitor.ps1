@@ -24,6 +24,8 @@
     Command to use for restart (optional)
 .PARAMETER KillLog
     Show recent kill/restart actions
+.PARAMETER Version
+    Display the version information and exit
 .EXAMPLE
     .\system_monitor.ps1 -ExportPath "C:\logs\server1.json"
 .EXAMPLE
@@ -74,7 +76,9 @@ param(
     
     [string]$RestartCommand,
     
-    [switch]$KillLog
+    [switch]$KillLog,
+    
+    [switch]$Version
 )
 
 # ============================================================================
@@ -83,8 +87,14 @@ param(
 $ErrorActionPreference = "Stop"
 $WarningPreference = "Continue"
 
+# The JSON and CSV output always uses dot decimals, whatever the host
+# culture is. Under a culture such as es-CO or de-DE the decimal
+# separator is a comma, which breaks CSV parsing and produces output
+# that differs from the Bash implementation.
+[System.Threading.Thread]::CurrentThread.CurrentCulture = [System.Globalization.CultureInfo]::InvariantCulture
+
 # Script metadata
-$script:Version = "1.3.0"
+$script:ScriptVersion = "1.3.0"
 $script:ScriptName = $MyInvocation.MyCommand.Name
 
 $ESC = [char]27
@@ -225,11 +235,11 @@ function Get-DiskUsage {
                         [math]::Round(($_.Size - $_.FreeSpace) / $_.Size * 100, 1) 
                     } else { 0 }
                     $disks += [PSCustomObject]@{
-                        MountPoint = $_.DeviceID
-                        TotalGB = [math]::Round($_.Size / 1GB, 2)
-                        UsedGB = [math]::Round(($_.Size - $_.FreeSpace) / 1GB, 2)
-                        FreeGB = [math]::Round($_.FreeSpace / 1GB, 2)
-                        PercentUsed = $percent
+                        mount_point = $_.DeviceID
+                        total_gb = [math]::Round($_.Size / 1GB, 2)
+                        used_gb = [math]::Round(($_.Size - $_.FreeSpace) / 1GB, 2)
+                        free_gb = [math]::Round($_.FreeSpace / 1GB, 2)
+                        percent_used = $percent
                     }
                 }
             } catch {
@@ -243,11 +253,11 @@ function Get-DiskUsage {
                     if ($parts.Count -ge 6) {
                         $percent = ($parts[4] -replace '%', '')
                         $disks += [PSCustomObject]@{
-                            MountPoint = $parts[5]
-                            Total = $parts[1]
-                            Used = $parts[2]
-                            Free = $parts[3]
-                            PercentUsed = [int]$percent
+                            mount_point = $parts[5]
+                            total = $parts[1]
+                            used = $parts[2]
+                            free = $parts[3]
+                            percent_used = [int]$percent
                         }
                     }
                 }
@@ -276,18 +286,18 @@ function Show-DiskSection {
     }
 }
 
-function Get-DiskIoStats {
+function Get-DiskIoStat {
     # Windows disk I/O counters (optional - may require elevated privileges)
     $ioStats = @()
     if ($OS -eq "Windows") {
         try {
             Get-CimInstance Win32_PerfFormattedData_PerfDisk_PhysicalDisk | Where-Object { $_.Name -ne '_Total' } | ForEach-Object {
                 $ioStats += [PSCustomObject]@{
-                    Device = $_.Name
-                    ReadsPerSec = $_.DiskReadsPerSec
-                    WritesPerSec = $_.DiskWritesPerSec
-                    ReadBytesPerSec = $_.DiskReadBytesPerSec
-                    WriteBytesPerSec = $_.DiskWriteBytesPerSec
+                    device = $_.Name
+                    reads_per_sec = $_.DiskReadsPerSec
+                    writes_per_sec = $_.DiskWritesPerSec
+                    read_bytes_per_sec = $_.DiskReadBytesPerSec
+                    write_bytes_per_sec = $_.DiskWriteBytesPerSec
                 }
             }
         } catch {
@@ -298,7 +308,7 @@ function Get-DiskIoStats {
 }
 
 function Show-DiskIoSection {
-    $ioStats = Get-DiskIoStats
+    $ioStats = Get-DiskIoStat
     if ($ioStats) {
         Write-Host "`n${YELLOW}Disk I/O Statistics:${NC}"
         foreach ($stat in $ioStats) {
@@ -315,20 +325,25 @@ function Get-ProcessData {
         $cpuMap = @{}
         try {
             Get-CimInstance Win32_PerfFormattedData_PerfProc_Process | ForEach-Object {
-                if ($_.IDProcess -and $_.PercentProcessorTime -ne $null) {
+                if ($_.IDProcess -and $null -ne $_.PercentProcessorTime) {
                     $cpuMap[$_.IDProcess] = $_.PercentProcessorTime
                 }
             }
-        } catch {}
+        } catch {
+            # The performance counter class is not available on every
+            # Windows host. The process list is still reported, with a
+            # CPU usage of zero for each entry.
+            Write-Verbose "Win32_PerfFormattedData_PerfProc_Process is unavailable - reporting 0% CPU per process"
+        }
         
         foreach ($proc in $processes) {
             $cpuVal = $cpuMap[$proc.Id]
             if ($null -eq $cpuVal) { $cpuVal = 0.0 }
             $data += [PSCustomObject]@{
-                Name = $proc.ProcessName
-                PID = $proc.Id
-                CpuPercent = [decimal]$cpuVal
-                RamMB = [math]::Round($proc.WorkingSet / 1MB, 2)
+                name = $proc.ProcessName
+                pid = $proc.Id
+                cpu_percent = [decimal]$cpuVal
+                ram_mb = [math]::Round($proc.WorkingSet / 1MB, 2)
             }
         }
     } else {
@@ -338,13 +353,13 @@ function Get-ProcessData {
             if ($parts.Count -ge 11) {
                 $name = ($parts[10] -split ' ')[0] -replace '^.*/', ''
                 [PSCustomObject]@{
-                    Name = $name
-                    PID = $parts[1]
-                    CpuPercent = [decimal]$parts[2]
-                    RamMB = [math]::Round([long]$parts[5] / 1024, 2)
+                    name = $name
+                    pid = $parts[1]
+                    cpu_percent = [decimal]$parts[2]
+                    ram_mb = [math]::Round([long]$parts[5] / 1024, 2)
                 }
             }
-        } | Sort-Object RamMB -Descending | Select-Object -First $TopProcesses
+        } | Sort-Object ram_mb -Descending | Select-Object -First $TopProcesses
     }
     return $data
 }
@@ -355,8 +370,8 @@ function Get-AggregatedData {
         Get-Process | Group-Object ProcessName | ForEach-Object {
             $totalRam = ($_.Group | Measure-Object WorkingSet -Sum).Sum / 1MB
             $agg[$_.Name] = @{
-                TotalRamMB = [math]::Round($totalRam, 2)
-                Instances = $_.Count
+                total_ram_mb = [math]::Round($totalRam, 2)
+                instances = $_.Count
             }
         }
     } else {
@@ -366,24 +381,32 @@ function Get-AggregatedData {
                 $comm = $matches[1] -replace '^.*/', ''
                 $rss = [long]$matches[2]
                 if ($agg.ContainsKey($comm)) {
-                    $agg[$comm].TotalRamMB += ($rss / 1024)
-                    $agg[$comm].Instances++
+                    $agg[$comm].total_ram_mb += ($rss / 1024)
+                    $agg[$comm].instances++
                 } else {
-                    $agg[$comm] = @{ TotalRamMB = [math]::Round($rss / 1024, 2); Instances = 1 }
+                    $agg[$comm] = @{ total_ram_mb = [math]::Round($rss / 1024, 2); instances = 1 }
                 }
             }
         }
     }
     return $agg.GetEnumerator() | ForEach-Object {
-        [PSCustomObject]@{ Name = $_.Key; TotalRamMB = $_.Value.TotalRamMB; Instances = $_.Value.Instances }
-    } | Sort-Object TotalRamMB -Descending
+        [PSCustomObject]@{ name = $_.Key; total_ram_mb = $_.Value.total_ram_mb; instances = $_.Value.instances }
+    } | Sort-Object total_ram_mb -Descending
 }
 
 # ============================================================================
 # PROCESS KILL/RESTART FUNCTIONS
 # ============================================================================
 
-$KillLogDir = $env:KILL_LOG_DIR, "$env:TEMP" | Where-Object { $_ } | Select-Object -First 1
+# The kill log lands in the platform temporary directory. $env:TEMP only
+# exists on Windows, and $env:TMPDIR only on Unix, so the .NET temp path
+# is the final fallback. The Bash implementation defaults to /tmp.
+$KillLogDir = @(
+    $env:KILL_LOG_DIR
+    $env:TEMP
+    $env:TMPDIR
+    [System.IO.Path]::GetTempPath()
+) | Where-Object { $_ } | Select-Object -First 1
 $KillLogFile = Join-Path $KillLogDir "system_monitor_kill.log"
 
 function Initialize-KillLog {
@@ -408,6 +431,7 @@ function Write-KillLog {
 }
 
 function Stop-ProcessById {
+    [CmdletBinding(SupportsShouldProcess = $true)]
     param(
         [Parameter(Mandatory)]
         [int]$ProcessId,
@@ -427,6 +451,10 @@ function Stop-ProcessById {
         return $true
     }
     
+    if (-not $PSCmdlet.ShouldProcess("Process $ProcessId ($procName)", "Stop")) {
+        return $true
+    }
+
     Write-Host "${CYAN}Attempting to stop process $ProcessId ($procName) using $Method method...${NC}"
     
     $success = $false
@@ -486,6 +514,7 @@ function Stop-ProcessById {
 }
 
 function Stop-ProcessByName {
+    [CmdletBinding(SupportsShouldProcess = $true)]
     param(
         [Parameter(Mandatory)]
         [string]$ProcessName,
@@ -504,6 +533,10 @@ function Stop-ProcessByName {
     Write-Host "${CYAN}Found $($processes.Count) process(es) matching '$ProcessName':${NC}"
     $processes | Select-Object Id, ProcessName, CPU, WorkingSet | Format-Table -AutoSize
     
+    if (-not $PSCmdlet.ShouldProcess("$($processes.Count) process(es) matching '$ProcessName'", "Stop")) {
+        return $true
+    }
+
     $allSuccess = $true
     foreach ($proc in $processes) {
         # Check if process still exists before trying to kill
@@ -523,6 +556,7 @@ function Stop-ProcessByName {
 }
 
 function Restart-ProcessTarget {
+    [CmdletBinding(SupportsShouldProcess = $true)]
     param(
         [Parameter(Mandatory)]
         [string]$Target,  # Can be PID or name
@@ -565,6 +599,10 @@ function Restart-ProcessTarget {
         }
     }
     
+    if (-not $PSCmdlet.ShouldProcess("Target '$Target'", "Restart")) {
+        return $true
+    }
+
     Write-Host "${CYAN}Restarting process $($processInfo.Name) (PID: $($processInfo.Id))...${NC}"
     
     # Capture restart command
@@ -611,17 +649,23 @@ function Export-MonitorData {
     $processes = Get-ProcessData
     $aggregated = Get-AggregatedData
     $disks = Get-DiskUsage
-    $diskIo = Get-DiskIoStats
+    $diskIo = Get-DiskIoStat
     
     $data = [PSCustomObject]@{
-        Timestamp = Get-Date -Format "o"
-        OS = $OS
-        CpuPercent = $cpu
-        MemoryPercent = $mem
-        DiskUsage = $disks
-        DiskIo = $diskIo
-        TopProcesses = $processes | Select-Object -First 10
-        AggregatedTotals = $aggregated
+        timestamp = Get-Date -Format "o"
+        os = $OS
+
+        cpu_percent = $cpu
+
+        memory_percent = $mem
+
+        disk_usage = $disks
+
+        disk_io = $diskIo
+
+        top_processes = $processes | Select-Object -First 10
+        aggregated_totals = $aggregated
+
     }
     
     if ($Format -eq "Json") {
@@ -629,30 +673,30 @@ function Export-MonitorData {
     } else {
         $csvData = @()
         $csvData += [PSCustomObject]@{
-            Timestamp = $data.Timestamp; OS = $OS; MetricType = "system"
-            Name = "system"; PID = ""; CpuPercent = $cpu; RamMB = ""; Instances = ""
-            MountPoint = ""; Device = ""; PercentUsed = ""
+            timestamp = $data.timestamp; os = $OS; metric_type = "system"
+            name = "system"; pid = ""; cpu_percent = $cpu; ram_mb = ""; instances = ""
+            mount_point = ""; device = ""; percent_used = ""
         }
         # Add disk usage rows
         $disks | ForEach-Object {
             $csvData += [PSCustomObject]@{
-                Timestamp = $data.Timestamp; OS = $OS; MetricType = "disk_usage"
-                Name = "disk"; PID = ""; CpuPercent = ""; RamMB = ""; Instances = ""
-                MountPoint = $_.MountPoint; Device = ""; PercentUsed = $_.PercentUsed
+                timestamp = $data.timestamp; os = $OS; metric_type = "disk_usage"
+                name = "disk"; pid = ""; cpu_percent = ""; ram_mb = ""; instances = ""
+                mount_point = $_.mount_point; device = ""; percent_used = $_.percent_used
             }
         }
         $processes | Select-Object -First 10 | ForEach-Object {
             $csvData += [PSCustomObject]@{
-                Timestamp = $data.Timestamp; OS = $OS; MetricType = "process"
-                Name = $_.Name; PID = $_.PID; CpuPercent = $_.CpuPercent
-                RamMB = $_.RamMB; Instances = 1; MountPoint = ""; Device = ""; PercentUsed = ""
+                timestamp = $data.timestamp; os = $OS; metric_type = "process"
+                name = $_.name; pid = $_.pid; cpu_percent = $_.cpu_percent
+                ram_mb = $_.ram_mb; instances = 1; mount_point = ""; device = ""; percent_used = ""
             }
         }
         $aggregated | ForEach-Object {
             $csvData += [PSCustomObject]@{
-                Timestamp = $data.Timestamp; OS = $OS; MetricType = "aggregate"
-                Name = $_.Name; PID = ""; CpuPercent = ""
-                RamMB = $_.TotalRamMB; Instances = $_.Instances; MountPoint = ""; Device = ""; PercentUsed = ""
+                timestamp = $data.timestamp; os = $OS; metric_type = "aggregate"
+                name = $_.name; pid = ""; cpu_percent = ""
+                ram_mb = $_.total_ram_mb; instances = $_.instances; mount_point = ""; device = ""; percent_used = ""
             }
         }
         $csvData | Export-Csv $Path -NoTypeInformation
@@ -743,6 +787,11 @@ if ($ExportPath) {
     }
 }
 
+if ($Version) {
+    Write-Host "System Resource Monitor v$($script:ScriptVersion)"
+    exit 0
+}
+
 # Initialize kill log
 Initialize-KillLog
 
@@ -775,14 +824,14 @@ if ($Format -eq "Json" -and -not $Watch) {
     } else {
         $cpu = Get-CpuUsage; $mem = Get-MemoryUsage
         $data = [PSCustomObject]@{
-            Timestamp = Get-Date -Format "o"
-            OS = $OS
-            CpuPercent = $cpu
-            MemoryPercent = $mem
-            DiskUsage = (Get-DiskUsage)
-            DiskIo = (Get-DiskIoStats)
-            TopProcesses = (Get-ProcessData | Select-Object -First 10)
-            AggregatedTotals = (Get-AggregatedData)
+            timestamp = Get-Date -Format "o"
+            os = $OS
+            cpu_percent = $cpu
+            memory_percent = $mem
+            disk_usage = (Get-DiskUsage)
+            disk_io = (Get-DiskIoStat)
+            top_processes = (Get-ProcessData | Select-Object -First 10)
+            aggregated_totals = (Get-AggregatedData)
         }
         $data | ConvertTo-Json -Depth 3
     }
