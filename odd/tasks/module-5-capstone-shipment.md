@@ -440,6 +440,9 @@ could surface.
 - Stage 1 has no test for the watch mode, because the mode runs until it is
   interrupted.
 
-**Delivery.** The branch holds 20 work-unit commits. It is pushed and open as pull
-request #1, where all 33 checks pass. Merging is the maintainer's decision, and the wiki
-is published separately, so `wiki/10` to `wiki/12` have to reach the wiki repository too.
+**Delivery.** Merged into `main` as pull request #1, 21 work-unit commits, with all
+33 checks green on Linux, macOS and Windows. A follow-up pull request cleared the
+executable bit from 45 data files that had been tracked as executable since the module was
+authored on Windows. The wiki is published separately: pages 10 to 12, the sidebar and the
+home page have been pushed to the wiki repository and verified byte-identical to
+`main:wiki/`.
