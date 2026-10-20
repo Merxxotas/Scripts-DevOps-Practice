@@ -178,7 +178,7 @@ before duplicating work.
 | T7 | S8 | Author `SPECS.md`, `ROADMAP.md`, `CODESTYLE.md` | Inline | ✅ | All three authored; the module contract is satisfied |
 | T8 | S2 | Reconcile the module contract with the 4-stage layout | Inline | ✅ | `docs/ARCHITECTURE_COMPARISON.md`, `docs/SCENARIOS.md` and `docs/labs/LAB1-3` added at the module root; the stage folders keep their own material |
 | T9 | S10 | Register in `MODULES.md`, `README.md`, `wiki/` | Inline | ✅ | Module 5 marked shipped; wiki pages 10–12 added and the sidebar, home page and navigation map updated |
-| T10 | S11, S12 | Run the full CI matrix locally; close with a `Risk:` line | Inline | ✅ | **25 of 26 gates pass**; the only failure is the Docker build, which has no daemon in this environment. The builder and runtime stages were verified directly instead |
+| T10 | S11, S12 | Run the full CI matrix locally; close with a `Risk:` line | Inline | ✅ | **26 of 26 gates pass** — Bash 20, PowerShell 18, Python 45 × 2 stages × 3 versions, ShellCheck, PSScriptAnalyzer, ruff, and the container image |
 
 > Task IDs are stable; the table is ordered by execution sequence. **T11 to T16 were added on
 > 2026-10-20** as the work uncovered what the module actually needed (see L6 to L9). T11 lands
@@ -352,13 +352,17 @@ invisible because nothing about this module had ever been verified.
 | `lint-powershell` — PSScriptAnalyzer | ✅ 0 findings |
 | `test-powershell` — the PowerShell suite | ✅ 18 passed |
 | `test-python` — ruff and pytest, Stage 2 and Stage 3, on Python 3.9 / 3.12 / 3.13 | ✅ 45 passed, 6 combinations |
-| `build-docker` — the image builds | ⚠️ **not verifiable here** — no Docker daemon, and it cannot be started in this environment |
+| `build-docker` — the image builds and runs | ✅ verified once the daemon was available |
 
-25 of the 26 gates pass. The Docker build is the only one that could not be executed
-locally, so the builder and runtime stages were verified directly instead: the install
-succeeds against the exact build context the `.dockerignore` produces, and the package
-imports from the installed virtual environment rather than from the source tree, which
-is the failure the editable install would have caused.
+**All 26 gates pass.** The Docker build was the last one outstanding, because no daemon
+could be started in the first environment. It was verified twice: the builder and runtime
+stages were checked directly — the install succeeds against the exact build context the
+`.dockerignore` produces, and the package imports from the installed virtual environment
+rather than from the source tree, which is the failure the editable install would have
+caused — and then, once a daemon was available, the image was built for real.
+
+The image runs as `uid=1000(monitor)`, answers `--version`, and emits the same eight
+JSON keys as the native implementations. Its size is 98.7 MB.
 
 **Risk: item 3** — the change alters contracts that other code consumes: the CLI
 output, the JSON and CSV key names, and the exit codes. The module was never published,
@@ -369,9 +373,8 @@ regression test.
 
 ## Close
 
-Module 5 ships. The module contract is satisfied, the CI matrix is green except for
-the one gate that could not be executed locally, and every task above is closed with
-observed evidence.
+Module 5 ships. The module contract is satisfied, the CI matrix is green across all 26
+gates, and every task above is closed with observed evidence.
 
 **What a reviewer should know.** The module had never been in git, and its workflows
 had never run, so none of it had ever been verified. The work above is mostly the
