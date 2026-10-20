@@ -28,13 +28,20 @@ RUN pip install --no-cache-dir uv
 # Set working directory
 WORKDIR /build
 
-# Copy dependency definitions
-COPY pyproject.toml .
+# Copy the build inputs. The package metadata names README.md as the readme
+# and hatchling builds the wheel from src/system_monitor, so all three have
+# to be in the build context before the install runs.
+COPY pyproject.toml README.md ./
+COPY src/ ./src/
 
 # Create a virtual environment and install dependencies
-# Using UV for faster installation
+# Using UV for faster installation.
+#
+# The install is deliberately not editable: an editable install resolves the
+# package back to /build/src, which does not exist in the runtime stage, so
+# the copied virtual environment would import nothing.
 RUN uv venv /opt/venv && \
-    uv pip install --python /opt/venv/bin/python -e .
+    uv pip install --python /opt/venv/bin/python .
 
 # ----------------------------------------------------------------------------
 # STAGE 2: Runtime

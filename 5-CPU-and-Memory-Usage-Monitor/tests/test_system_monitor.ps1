@@ -19,7 +19,9 @@ $ScriptDir = $PSScriptRoot
 $ModuleDir = Split-Path -Parent $ScriptDir
 $MonitorScript = Join-Path $ModuleDir "Stage1-Native-Scripts/system_monitor.ps1"
 $TestSandbox = Join-Path ([System.IO.Path]::GetTempPath()) ("test_ps1_monitor_" + [System.Guid]::NewGuid().ToString("N"))
-$PwshPath = Join-Path $PSHOME ("pwsh" + [System.IO.Path]::GetExtension($PSHOME))
+# The executable that is running this suite is the one that has to run the
+# monitor, so the child processes use the same interpreter.
+$PwshPath = (Get-Process -Id $PID).Path
 
 $Global:PassedCount = 0
 $Global:FailedCount = 0
@@ -164,7 +166,7 @@ function Test-ExportToDirectory {
     $exportDir = Join-Path $TestSandbox "exports"
     New-Item -ItemType Directory -Path $exportDir -Force | Out-Null
 
-    $result = Invoke-Monitor @("-Format", "Json", "-ExportPath", "$exportDir\")
+    $result = Invoke-Monitor @("-Format", "Json", "-ExportPath", $exportDir)
     Assert-Equal 0 $result.ExitCode "Test 6a: -ExportPath to a directory exits with code 0"
 
     $created = @(Get-ChildItem -LiteralPath $exportDir -Filter "system_monitor_*.json" -ErrorAction SilentlyContinue).Count

@@ -1,0 +1,146 @@
+name: CPU Monitor CI/CD
+
+on:
+  push:
+    branches: [ main, 'feat/**', 'fix/**' ]
+    paths:
+      - '5-CPU-and-Memory-Usage-Monitor/**'
+      - '.github/workflows/ci-cpu-monitor.yml'
+  pull_request:
+    branches: [ main ]
+    paths:
+      - '5-CPU-and-Memory-Usage-Monitor/**'
+      - '.github/workflows/ci-cpu-monitor.yml'
+
+jobs:
+  lint-bash:
+    name: Lint Bash (ShellCheck)
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Run ShellCheck
+        run: |
+          shellcheck -x "5-CPU-and-Memory-Usage-Monitor/Stage1-Native-Scripts/system_monitor.sh"
+
+      - name: Check Bash syntax
+        run: bash -n "5-CPU-and-Memory-Usage-Monitor/Stage1-Native-Scripts/system_monitor.sh"
+
+  test-bash:
+    name: Test Bash on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, macos-14]
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Make the script executable
+        run: chmod +x "5-CPU-and-Memory-Usage-Monitor/Stage1-Native-Scripts/system_monitor.sh"
+
+      - name: Run Bash Test Suite
+        run: bash "5-CPU-and-Memory-Usage-Monitor/tests/test_system_monitor.sh"
+
+  lint-powershell:
+    name: Lint PowerShell (PSScriptAnalyzer)
+    runs-on: windows-2022
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install PSScriptAnalyzer
+        shell: pwsh
+        run: |
+          Set-PSRepository -Name PSGallery -InstallationPolicy Trusted
+          Install-Module -Name PSScriptAnalyzer -Force -Scope CurrentUser
+          (Get-Module -ListAvailable PSScriptAnalyzer).Version
+
+      - name: Run PSScriptAnalyzer
+        shell: pwsh
+        run: |
+          $results = Invoke-ScriptAnalyzer `
+            -Path "5-CPU-and-Memory-Usage-Monitor/Stage1-Native-Scripts/system_monitor.ps1" `
+            -Settings "5-CPU-and-Memory-Usage-Monitor/Stage1-Native-Scripts/PSScriptAnalyzerSettings.psd1"
+          if ($results) {
+            $results | Format-Table -AutoSize
+            Write-Host "PSScriptAnalyzer found $($results.Count) issue(s)"
+            exit 1
+          }
+          Write-Host "PSScriptAnalyzer found no issues"
+
+  test-powershell:
+    name: Test PowerShell on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-2022, ubuntu-24.04]
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Run PowerShell Test Suite
+        shell: pwsh
+        run: "& '5-CPU-and-Memory-Usage-Monitor/tests/test_system_monitor.ps1'"
+
+  test-python:
+    name: Test Python ${{ matrix.python-version }} on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, macos-14, windows-2022]
+        # 3.9 is the floor declared in pyproject.toml, 3.13 is the current
+        # release, and 3.12 sits between them.
+        python-version: ['3.9', '3.12', '3.13']
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+
+      - name: Lint and test Stage 2 (Python Unified)
+        run: |
+          cd 5-CPU-and-Memory-Usage-Monitor/Stage2-Python-Unified
+          uv venv .venv
+          uv pip install -e ".[dev]"
+          uv run ruff check src tests
+          uv run ruff format --check src tests
+          uv run pytest
+
+      - name: Lint and test Stage 3 (Containerization)
+        run: |
+          cd 5-CPU-and-Memory-Usage-Monitor/Stage3-Containerization
+          uv venv .venv
+          uv pip install -e ".[dev]"
+          uv run ruff check src tests
+          uv run ruff format --check src tests
+          uv run pytest
+
+  build-docker:
+    name: Build and smoke test the container image
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build the image
+        working-directory: 5-CPU-and-Memory-Usage-Monitor/Stage3-Containerization
+        run: docker build -t system-monitor:ci .
+
+      - name: Smoke test the image
+        run: |
+          docker run --rm system-monitor:ci --version
+          docker run --rm system-monitor:ci --format json | python3 -c "import json, sys; json.load(sys.stdin); print('valid JSON')"

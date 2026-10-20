@@ -51,6 +51,10 @@ docker-compose.yml
 *.md
 docs/
 
+# README.md is the readme the package metadata points at, so hatchling needs
+# it in the build context even though the other markdown is excluded.
+!README.md
+
 # Logs (will be mounted as volume)
 logs/*.json
 logs/*.csv
