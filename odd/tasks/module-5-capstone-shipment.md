@@ -371,31 +371,6 @@ regression test.
 
 ---
 
-## Close
-
-Module 5 ships. The module contract is satisfied, the CI matrix is green across all 26
-gates, and every task above is closed with observed evidence.
-
-**What a reviewer should know.** The module had never been in git, and its workflows
-had never run, so none of it had ever been verified. The work above is mostly the
-consequence of that: eight defects, of which five made the tool fail outright on a
-real host.
-
-**What is deliberately left open**, and is recorded rather than hidden:
-
-- The disk I/O fields still differ between the native implementations. Bash reports
-  cumulative counters from `/proc/diskstats`, PowerShell reports per-second rates from
-  the Windows performance counters, and Python reports both. The values are not
-  interchangeable, and harmonising them is a design decision, not a cleanup.
-- The Bash script still has no options for the thresholds or the process count. Both
-  are fixed at 80 and 100, while the other two implementations expose them.
-- Exit code 2 is reserved by the repository standard and still unused.
-- Stage 1 has no test for the watch mode, because the mode runs until it is
-  interrupted.
-
-**Delivery.** The branch holds 14 work-unit commits. Nothing has been pushed, and
-merging, pushing and the pull request remain the maintainer's decisions.
-
 **L11** — 2026-10-20. The pull request is where the last defects surfaced.
 **All 33 checks pass**, across Linux, macOS and Windows.
 
@@ -438,8 +413,33 @@ design decision rather than a cleanup, so it is left for the maintainer.
 
 ---
 
+---
+
 ## Close
 
 Module 5 ships. The module contract is satisfied, the CI matrix is green across all 33
 checks on Linux, macOS and Windows, and every task above is closed with observed evidence.
 
+**What a reviewer should know.** The module had never been in git, and its workflows had
+never run, so none of it had ever been verified. Everything above is mostly the
+consequence of that: more than a dozen defects, seven of which made the tool or its test
+suite fail outright on a real host, and two of which only a macOS or a Windows runner
+could surface.
+
+**What is deliberately left open**, and is recorded rather than hidden:
+
+- The disk I/O fields still differ between the native implementations. Bash reports
+  cumulative counters from `/proc/diskstats`, PowerShell reports per-second rates from
+  the Windows performance counters, and Python reports both. The values are not
+  interchangeable, and harmonising them is a design decision, not a cleanup.
+- The memory percentage is wrong on macOS, where the file cache is counted as used
+  memory. An idle runner reports 99.39 % used.
+- The Bash script still has no options for the thresholds or the process count. Both
+  are fixed at 80 and 100, while the other two implementations expose them.
+- Exit code 2 is reserved by the repository standard and still unused.
+- Stage 1 has no test for the watch mode, because the mode runs until it is
+  interrupted.
+
+**Delivery.** The branch holds 20 work-unit commits. It is pushed and open as pull
+request #1, where all 33 checks pass. Merging is the maintainer's decision, and the wiki
+is published separately, so `wiki/10` to `wiki/12` have to reach the wiki repository too.
