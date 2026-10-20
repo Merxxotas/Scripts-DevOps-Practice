@@ -16,11 +16,19 @@
 set -euo pipefail
 IFS=$'\n\t'
 
+# The JSON and CSV output always uses dot decimals, whatever the host locale
+# is. Under a locale such as es_CO or de_DE the decimal separator is a comma,
+# awk still emits a dot, and printf then rejects the value as an invalid
+# number and turns a successful run into a non-zero exit.
+export LC_NUMERIC=C
+
 # Error handler
+# Invoked indirectly by the ERR trap below.
+# shellcheck disable=SC2329
 cleanup_on_error() {
     local line=$1
     local status=$2
-    echo -e "${RED}ÃƒÂ¢Ã…â€œÃ¢â‚¬â€ Error on line ${line}: Command exited with status ${status}${NC}" >&2
+    echo -e "${RED}[ERROR] Error on line ${line}: Command exited with status ${status}${NC}" >&2
     exit 1
 }
 trap 'cleanup_on_error ${LINENO} $?' ERR
@@ -29,7 +37,8 @@ trap 'cleanup_on_error ${LINENO} $?' ERR
 # CONFIGURATION
 # ============================================================================
 readonly VERSION="1.3.0"
-readonly SCRIPT_NAME="$(basename "$0")"
+SCRIPT_NAME="$(basename "$0")"
+readonly SCRIPT_NAME
 
 # Color codes
 readonly RED='\033[0;31m'
@@ -83,47 +92,33 @@ command_exists() {
     command -v "$1" >/dev/null 2>&1
 }
 
-# Validate numeric input
-validate_positive_number() {
-    local value="$1"
-    local name="$2"
-    if ! [[ "$value" =~ ^[0-9]+(\.[0-9]+)?$ ]]; then
-        log ERROR "Invalid $name: '$value' (must be a positive number)"
-        exit 1
-    fi
-}
-
-# Validate integer range
-validate_int_range() {
-    local value="$1"
-    local name="$2"
-    local min="${3:-1}"
-    local max="${4:-9999}"
-    if ! [[ "$value" =~ ^[0-9]+$ ]] || [[ "$value" -lt "$min" ]] || [[ "$value" -gt "$max" ]]; then
-        log ERROR "Invalid $name: '$value' (must be integer between $min and $max)"
-        exit 1
-    fi
-}
-
 get_cpu_usage() {
     case "$OS" in
         Linux)
             if [[ -f /proc/stat ]]; then
-                local stat_line=$(grep '^cpu ' /proc/stat)
-                local user=$(echo $stat_line | awk '{print $2}')
-                local nice=$(echo $stat_line | awk '{print $3}')
-                local system=$(echo $stat_line | awk '{print $4}')
-                local idle=$(echo $stat_line | awk '{print $5}')
-                local iowait=$(echo $stat_line | awk '{print $6}')
+                local stat_line
+                stat_line=$(grep '^cpu ' /proc/stat)
+                local user
+                user=$(echo "$stat_line" | awk '{print $2}')
+                local nice
+                nice=$(echo "$stat_line" | awk '{print $3}')
+                local system
+                system=$(echo "$stat_line" | awk '{print $4}')
+                local idle
+                idle=$(echo "$stat_line" | awk '{print $5}')
+                local iowait
+                iowait=$(echo "$stat_line" | awk '{print $6}')
                 local total=$((user + nice + system + idle + iowait))
                 if [[ $total -gt 0 ]]; then
                     calc "100 * ($total - $idle - $iowait) / $total"
                     return
                 fi
             fi
-            local top_output=$(top -bn1 2>/dev/null | grep -E "^%?Cpu")
+            local top_output
+            top_output=$(top -bn1 2>/dev/null | grep -E "^%?Cpu")
             if [[ -n "$top_output" ]]; then
-                local idle=$(echo "$top_output" | sed -n 's/.*, *\([0-9.]*\)%* id.*/\1/p')
+                local idle
+                idle=$(echo "$top_output" | sed -n 's/.*, *\([0-9.]*\)%* id.*/\1/p')
                 if [[ -n "$idle" ]]; then
                     calc "100 - $idle"
                     return
@@ -131,9 +126,11 @@ get_cpu_usage() {
             fi
             ;;
         Darwin)
-            local top_output=$(top -l1 2>/dev/null | grep "CPU usage")
+            local top_output
+            top_output=$(top -l1 2>/dev/null | grep "CPU usage")
             if [[ -n "$top_output" ]]; then
-                local idle=$(echo "$top_output" | sed -n 's/.*, *\([0-9.]*\)%* idle.*/\1/p')
+                local idle
+                idle=$(echo "$top_output" | sed -n 's/.*, *\([0-9.]*\)%* idle.*/\1/p')
                 if [[ -n "$idle" ]]; then
                     calc "100 - $idle"
                     return
@@ -157,13 +154,19 @@ get_memory_usage() {
             fi
             ;;
         Darwin)
-            local vm_stats=$(vm_stat 2>/dev/null)
+            local vm_stats
+            vm_stats=$(vm_stat 2>/dev/null)
             if [[ -n "$vm_stats" ]]; then
-                local pages_free=$(echo "$vm_stats" | grep "Pages free" | awk '{gsub(/\./,""); print $3}')
-                local pages_active=$(echo "$vm_stats" | grep "Pages active" | awk '{gsub(/\./,""); print $3}')
-                local pages_inactive=$(echo "$vm_stats" | grep "Pages inactive" | awk '{gsub(/\./,""); print $3}')
-                local pages_wired=$(echo "$vm_stats" | grep "Pages wired down" | awk '{gsub(/\./,""); print $4}')
-                local pages_speculative=$(echo "$vm_stats" | grep "Pages speculative" | awk '{gsub(/\./,""); print $3}')
+                local pages_free
+                pages_free=$(echo "$vm_stats" | grep "Pages free" | awk '{gsub(/\./,""); print $3}')
+                local pages_active
+                pages_active=$(echo "$vm_stats" | grep "Pages active" | awk '{gsub(/\./,""); print $3}')
+                local pages_inactive
+                pages_inactive=$(echo "$vm_stats" | grep "Pages inactive" | awk '{gsub(/\./,""); print $3}')
+                local pages_wired
+                pages_wired=$(echo "$vm_stats" | grep "Pages wired down" | awk '{gsub(/\./,""); print $4}')
+                local pages_speculative
+                pages_speculative=$(echo "$vm_stats" | grep "Pages speculative" | awk '{gsub(/\./,""); print $3}')
                 pages_speculative=${pages_speculative:-0}
                 local used=$((pages_active + pages_inactive + pages_speculative + pages_wired))
                 local total=$((used + pages_free))
@@ -242,10 +245,8 @@ show_disk_section() {
     # Show disk usage with color coding
     echo -e "\n${YELLOW}Disk Usage:${NC}"
     
-    local has_disks=0
     get_disk_usage | while IFS='|' read -r mount total used free percent; do
         [[ -z "$mount" ]] && continue
-        has_disks=1
         
         # Determine color based on usage
         local color="$GREEN"
@@ -323,21 +324,21 @@ kill_process_by_pid() {
         sleep 0.5
         if ! kill -0 "$pid" 2>/dev/null; then
             log_kill_action "KILL" "$pid" "SUCCESS" "Process: $proc_info, Signal: SIG$signal"
-            log INFO "âœ“ Process $pid ($proc_info) terminated successfully"
+            log INFO "[OK]  Process $pid ($proc_info) terminated successfully"
             return 0
         else
             # Process still running, try SIGKILL
             log WARN "Process $pid still running, trying SIGKILL..."
             if kill -9 "$pid" 2>/dev/null; then
                 log_kill_action "KILL" "$pid" "SUCCESS" "Process: $proc_info, Signal: SIGKILL (forced)"
-                log INFO "âœ“ Process $pid ($proc_info) killed forcefully"
+                log INFO "[OK]  Process $pid ($proc_info) killed forcefully"
                 return 0
             fi
         fi
     fi
     
     log_kill_action "KILL" "$pid" "FAILED" "Process: $proc_info"
-    log ERROR "âœ— Failed to kill process $pid"
+    log ERROR "[FAIL]  Failed to kill process $pid"
     return 1
 }
 
@@ -396,13 +397,13 @@ restart_process() {
                 nohup bash -c "$restart_cmd" >/dev/null 2>&1 &
                 local new_pid=$!
                 log_kill_action "RESTART" "$target" "SUCCESS" "New PID: $new_pid, Command: $restart_cmd"
-                log INFO "âœ“ Process restarted with new PID: $new_pid"
+                log INFO "[OK]  Process restarted with new PID: $new_pid"
             elif [[ -n "$proc_cmd" ]]; then
                 log INFO "Restarting with original command: $proc_cmd"
                 nohup bash -c "$proc_cmd" >/dev/null 2>&1 &
                 local new_pid=$!
                 log_kill_action "RESTART" "$target" "SUCCESS" "New PID: $new_pid, Original: $proc_name"
-                log INFO "âœ“ Process restarted with new PID: $new_pid"
+                log INFO "[OK]  Process restarted with new PID: $new_pid"
             fi
             return 0
         fi
@@ -426,13 +427,13 @@ restart_process() {
                 nohup bash -c "$restart_cmd" >/dev/null 2>&1 &
                 local new_pid=$!
                 log_kill_action "RESTART" "$target" "SUCCESS" "New PID: $new_pid"
-                log INFO "âœ“ Process restarted with new PID: $new_pid"
+                log INFO "[OK]  Process restarted with new PID: $new_pid"
             elif [[ -n "$proc_cmd" ]]; then
                 log INFO "Restarting with captured command"
                 nohup bash -c "$proc_cmd" >/dev/null 2>&1 &
                 local new_pid=$!
                 log_kill_action "RESTART" "$target" "SUCCESS" "New PID: $new_pid"
-                log INFO "âœ“ Process restarted with new PID: $new_pid"
+                log INFO "[OK]  Process restarted with new PID: $new_pid"
             fi
             return 0
         else
@@ -457,11 +458,17 @@ show_kill_log() {
 }
 
 get_process_data() {
-    ps aux 2>/dev/null | grep -v '^USER' | sort -k6,6nr | head -n $TOP_PROCESSES | awk '{
-        proc = $11
-        gsub(/^.+\//, "", proc)
-        printf "%s|%s|%s|%s\n", proc, $2, $3, $6
-    }'
+    # The limit is applied inside awk rather than with a head stage on purpose:
+    # head closes the pipe after N lines, which hands sort a SIGPIPE, and
+    # `set -o pipefail` then turns that into a failed pipeline and a non-zero
+    # exit on any host that runs more than TOP_PROCESSES processes.
+    ps aux 2>/dev/null | tail -n +2 | sort -k6,6nr | awk -v limit="$TOP_PROCESSES" '
+        NR <= limit {
+            proc = $11
+            gsub(/^.+\//, "", proc)
+            printf "%s|%s|%s|%s\n", proc, $2, $3, $6
+        }
+    '
 }
 
 get_aggregated_data() {
@@ -480,9 +487,12 @@ get_aggregated_data() {
 }
 
 output_json() {
-    local cpu=$(get_cpu_usage)
-    local mem=$(get_memory_usage)
-    local timestamp=$(date -Iseconds)
+    local cpu
+    cpu=$(get_cpu_usage)
+    local mem
+    mem=$(get_memory_usage)
+    local timestamp
+    timestamp=$(date -Iseconds)
     
     echo "{"
     echo "  \"timestamp\": \"$timestamp\","
@@ -524,9 +534,12 @@ output_json() {
 }
 
 output_csv() {
-    local cpu=$(get_cpu_usage)
-    local mem=$(get_memory_usage)
-    local timestamp=$(date -Iseconds)
+    local cpu
+    cpu=$(get_cpu_usage)
+    local mem
+    mem=$(get_memory_usage)
+    local timestamp
+    timestamp=$(date -Iseconds)
     
     echo "timestamp,os,metric_type,name,pid,cpu_percent,ram_mb,instances,mount_point,device,percent_used"
     
@@ -843,7 +856,7 @@ fi
 if [[ "$OUTPUT_FORMAT" == "json" ]] && [[ $WATCH_MODE -eq 0 ]]; then
     if [[ -n "$EXPORT_PATH" ]]; then
         output_json > "$EXPORT_PATH"
-        echo -e "${GREEN}ÃƒÂ¢Ã…â€œÃ¢â‚¬Å“ Exported JSON to: $EXPORT_PATH${NC}"
+        echo -e "${GREEN}[OK]  Exported JSON to: $EXPORT_PATH${NC}"
     else
         output_json
     fi
@@ -853,7 +866,7 @@ fi
 if [[ "$OUTPUT_FORMAT" == "csv" ]] && [[ $WATCH_MODE -eq 0 ]]; then
     if [[ -n "$EXPORT_PATH" ]]; then
         output_csv > "$EXPORT_PATH"
-        echo -e "${GREEN}ÃƒÂ¢Ã…â€œÃ¢â‚¬Å“ Exported CSV to: $EXPORT_PATH${NC}"
+        echo -e "${GREEN}[OK]  Exported CSV to: $EXPORT_PATH${NC}"
     else
         output_csv
     fi
@@ -861,6 +874,8 @@ if [[ "$OUTPUT_FORMAT" == "csv" ]] && [[ $WATCH_MODE -eq 0 ]]; then
 fi
 
 # Watch mode cleanup handler
+# Invoked indirectly by the INT/TERM trap that installs it.
+# shellcheck disable=SC2329
 cleanup_watch() {
     echo -e "\n${GREEN}Watch mode stopped.${NC}"
     # Close JSON array if needed
@@ -919,7 +934,7 @@ else
         else
             output_csv > "$EXPORT_PATH"
         fi
-        echo -e "\n${GREEN}ÃƒÂ¢Ã…â€œÃ¢â‚¬Å“ Exported to: $EXPORT_PATH${NC}"
+        echo -e "\n${GREEN}[OK]  Exported to: $EXPORT_PATH${NC}"
     fi
 fi
 
