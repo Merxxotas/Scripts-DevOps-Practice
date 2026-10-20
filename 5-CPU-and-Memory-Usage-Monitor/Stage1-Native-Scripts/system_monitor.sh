@@ -223,7 +223,11 @@ get_disk_usage() {
     case "$OS" in
         Linux|Darwin)
             if command_exists df; then
-                df -h 2>/dev/null | grep -E '^/dev/' | awk '{
+                # -P asks for the POSIX output format, which always has the
+                # same six columns. Without it macOS inserts three extra
+                # numeric columns before the mount point, so $6 is the inode
+                # count rather than the mount point.
+                df -P -h 2>/dev/null | grep -E '^/dev/' | awk '{
                     gsub(/%/, "", $5)
                     print $6 "|" $2 "|" $3 "|" $4 "|" $5
                 }'

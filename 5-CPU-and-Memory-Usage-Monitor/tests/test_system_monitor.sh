@@ -198,8 +198,38 @@ test_export_to_directory() {
     assert_exit_code 0 "Test 7a: --export to a directory exits with code 0"
 
     local created
-    created=$(find "$export_dir" -name 'system_monitor_*.json' | wc -l)
+    # wc pads its count to a fixed width on BSD, which macOS ships, so the
+    # whitespace is stripped before the comparison.
+    created=$(find "$export_dir" -name 'system_monitor_*.json' | wc -l | tr -d '[:space:]')
     assert_equals "1" "$created" "Test 7b: --export to a directory creates one timestamped file"
+}
+
+# ------------------------------------------------------------------------------
+# Test 7c: The reported mount points are paths
+#
+# macOS inserts extra columns into the df output, so a parser that assumes
+# fixed positions reports the inode count instead of the mount point. This
+# check is what catches that.
+# ------------------------------------------------------------------------------
+test_disk_mount_points() {
+    local json_file="$TEST_SANDBOX/disks.json"
+    "$MONITOR_SCRIPT" --json --export "$json_file" >/dev/null 2>&1
+
+    local mount_points
+    mount_points=$(python3 -c "
+import json, sys
+with open(sys.argv[1]) as handle:
+    for disk in json.load(handle)['disk_usage']:
+        print(disk['mount_point'])
+" "$json_file" 2>/dev/null || echo "PARSE_ERROR")
+
+    local bad=""
+    while IFS= read -r mount_point; do
+        [[ -z "$mount_point" ]] && continue
+        [[ "$mount_point" == /* ]] || bad="$bad $mount_point"
+    done <<< "$mount_points"
+
+    assert_equals "" "$bad" "Test 7c: every reported mount point is an absolute path"
 }
 
 # ------------------------------------------------------------------------------
@@ -267,6 +297,7 @@ test_interval_validation
 test_json_output
 test_csv_output
 test_export_to_directory
+test_disk_mount_points
 test_kill_missing_process
 test_locale_independence
 
