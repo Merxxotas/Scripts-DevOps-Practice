@@ -76,6 +76,10 @@ ENV PATH="/opt/venv/bin:$PATH"
 # Set working directory
 WORKDIR /app
 
+# The working directory belongs to the unprivileged user, so the test profile
+# can write its coverage data into it.
+RUN chown monitor:monitor /app
+
 # Copy application code
 COPY --chown=monitor:monitor src/ ./src/
 
@@ -93,3 +97,21 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=5s --retries=3 \
 # Default command - show help
 ENTRYPOINT ["python", "-m", "system_monitor"]
 CMD ["--help"]
+
+# ----------------------------------------------------------------------------
+# STAGE 3: Test
+# The runtime image plus the test dependencies, for the compose test profile.
+# The production image stays lean, and the test profile builds this one.
+# ----------------------------------------------------------------------------
+FROM runtime AS test
+
+USER root
+
+# The virtual environment was created by uv, which does not seed it with pip,
+# so ensurepip adds it. The test dependencies then go into the same
+# interpreter the package lives in, and the suite runs against the installed
+# package rather than the source tree.
+RUN /opt/venv/bin/python -m ensurepip --upgrade && \
+    /opt/venv/bin/python -m pip install --no-cache-dir pytest pytest-cov pytest-mock
+
+USER monitor

@@ -1,0 +1,12 @@
+# The reports the monitor writes into this directory are runtime output, so
+# they are not tracked.
+#
+# The directory itself is tracked on purpose. Every compose profile bind
+# mounts it into the container, and a bind mount whose source does not exist
+# fails to start. Docker creates a missing source for a plain bind mount, but
+# it creates it as root, so the container, which runs as uid 1000, could not
+# write into it. Tracking the directory keeps it owned by the developer, whose
+# uid matches the container's.
+*.json
+*.csv
+*.log

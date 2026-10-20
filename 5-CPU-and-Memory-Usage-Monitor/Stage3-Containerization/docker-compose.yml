@@ -8,8 +8,6 @@
 # - monitor: Continuous monitoring service
 # ============================================================================
 
-version: "3.8"
-
 services:
   # --------------------------------------------------------------------------
   # Development Service
@@ -98,7 +96,10 @@ services:
     restart: unless-stopped
     
     # Production command
-    command: ["--interval", "30", "--format", "json", "--export", "/app/logs/monitor.json"]
+    # Production command. --watch is what keeps the container running: without
+    # it the monitor takes a single snapshot and exits, and the restart policy
+    # below turns that into a restart loop.
+    command: ["--watch", "--interval", "30", "--format", "json", "--export", "/app/logs/monitor.json"]
     
     networks:
       - sysmon-net
@@ -137,7 +138,9 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-      target: runtime
+      # The test target adds the test dependencies to the same interpreter the
+      # package lives in.
+      target: test
     image: system-monitor:test
     container_name: sysmon-test
     
@@ -149,10 +152,17 @@ services:
       - ./tests:/app/tests:ro
       - ./pyproject.toml:/app/pyproject.toml:ro
     
-    # Install test dependencies and run tests
-    command: >
-      sh -c "pip install pytest pytest-cov pytest-mock &&
-             pytest /app/tests -v --cov=src/system_monitor"
+    # The entrypoint is overridden because the default one is the monitor
+    # itself, and this service runs the test suite instead. The image already
+    # carries the test dependencies, so there is nothing to install at runtime.
+    entrypoint: ["/opt/venv/bin/python", "-m", "pytest"]
+    command: ["/app/tests", "-v"]
+
+    # The tests import the package from the source tree rather than from the
+    # virtual environment, so the coverage report measures the code that
+    # actually ran instead of reporting zero percent.
+    environment:
+      PYTHONPATH: /app/src
     
     networks:
       - sysmon-net
