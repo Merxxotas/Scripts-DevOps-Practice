@@ -63,6 +63,79 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
 
+## 2026-10-20 — CPU and Memory Usage Monitor module
+
+**Module 5 — CPU and Memory Usage Monitor** goes from a capstone that existed only on disk to a
+fully shipped module: three implementations of the same tool, one shared data contract, a test
+suite per platform, and a CI pipeline that actually executes.
+
+### Added — the module
+
+- **`5-CPU-and-Memory-Usage-Monitor/`** — the whole module, tracked for the first time. Four
+  stages: native Bash and PowerShell scripts, a unified Python package, a hardened container
+  image, and the pipeline documentation.
+- **`tests/test_system_monitor.sh`** and **`tests/test_system_monitor.ps1`** — 20 Bash tests and
+  18 PowerShell tests, mirroring each other so both native implementations are held to the same
+  contract. They cover the flags, the exit codes, the emitted files, the JSON and CSV key names,
+  the locale independence and the `-WhatIf` preview.
+- **`docs/ARCHITECTURE_COMPARISON.md`** — the three implementations side by side, where they agree
+  and where they still differ.
+- **`docs/SCENARIOS.md`** — scheduled checks, runaway-process triage, safe process termination,
+  and the locale failure mode.
+- **`docs/labs/LAB1…LAB3.md`** — three hands-on labs. Every command in them was executed and the
+  expected output is the real output.
+- **`SPECS.md`**, **`ROADMAP.md`**, **`CODESTYLE.md`** and a complete `README.md` — the module
+  contract, satisfied.
+
+### Added — CI
+
+- **`.github/workflows/ci-cpu-monitor.yml`** — path-filtered to the module folder, six jobs:
+  ShellCheck and the Bash suite on Linux and macOS, PSScriptAnalyzer and the PowerShell suite on
+  Windows and Linux, ruff and pytest for Stage 2 **and** Stage 3 across three operating systems
+  and Python 3.9, 3.12 and 3.13, and a container build with a smoke test.
+
+### Fixed
+
+- **`--cpu-threshold` and `--mem-threshold` had no effect at all.** The CLI parsed both flags and
+  stored them, but the display exporter never received them and hardcoded 80. They now reach the
+  output, with a regression test per flag.
+- **The Bash script failed on every run under a comma-decimal locale.** `LC_NUMERIC=es_CO.UTF-8`
+  made `printf` reject the values `awk` produced, so a successful run exited 1. The script now pins
+  `LC_ALL`, and the test suite runs it under a comma-decimal locale to prove it.
+- **The Bash script failed on any host running more than 100 processes.** `head` closed the pipe
+  early, `sort` took a SIGPIPE, and `pipefail` turned that into a failed pipeline. The limit now
+  lives inside the consumer.
+- **The PowerShell script could not run on Linux at all.** The kill log directory came from
+  `$env:TEMP`, which only exists on Windows, so `Join-Path` received a null path.
+- **The container image had never been buildable.** The builder stage copied only
+  `pyproject.toml`, so the package metadata had no `README.md` to point at and hatchling had no
+  `src/system_monitor` to build; the install was also editable, resolving the package back to a
+  stage the runtime image does not have.
+- **The JSON and CSV contracts disagreed between the implementations.** All three now emit the same
+  snake_case key names.
+- **The two failing tests** — contract drift between the tests and the implementation, not
+  production defects.
+- **286 lint errors in the Python package** — `ruff check` and `ruff format --check` are clean.
+- **Mojibake in the Bash log messages** — the emoji had been double-encoded when the file was
+  authored on Windows, so the script printed garbage. The file is plain ASCII now.
+- **The PowerShell script now supports `-WhatIf` and `-Confirm`** on the three functions that stop
+  and restart processes, while the default still acts immediately without prompting.
+
+### Changed
+
+- **`.gitattributes` added at the repository root.** Line endings are now pinned for every text
+  file, implementing the fix AGENTS.md §9 already recommended. Without it, a Windows checkout
+  turned the Bash shebangs into CRLF and broke the scripts.
+- **`MODULES.md`, `README.md` and `AGENTS.md`** — module 5 is marked shipped, the build order now
+  starts at module 1, and the known gaps are recorded rather than hidden.
+
+### Documentation — knowledge base
+
+- **`wiki/10-CPU-Monitor-Overview.md`**, **`wiki/11-CPU-Monitor-Bash-vs-PowerShell.md`** and
+  **`wiki/12-CPU-Monitor-Scenarios-and-Labs.md`**, with the sidebar and home page updated.
+
+---
+
 ## 2026-08-19 — Log Cleanup module and knowledge base
 
 **Module 2 — Log Cleanup (Delete Files Older Than X Days)** goes from seed script to fully shipped
