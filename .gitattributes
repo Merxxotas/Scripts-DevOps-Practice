@@ -1,0 +1,14 @@
+# Normalize line endings so the same bytes work on every platform.
+#
+# Without this, a Windows checkout turns Bash shebangs into CRLF and the
+# scripts break, while the CI matrix runs those same scripts on Linux and
+# macOS. PowerShell is the exception: CRLF is its native form, so it is
+# stored as LF in the repository and checked out as CRLF.
+#
+# See AGENTS.md section 9, gotcha 6.
+
+*.sh text eol=lf
+*.ps1 text eol=crlf
+*.py text eol=lf
+*.yml text eol=lf
+*.md text eol=lf
