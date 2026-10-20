@@ -88,6 +88,51 @@ class TestCLIMonitor:
         assert "Linux" in result.output or result.output == ""
 
 
+class TestCLIThresholds:
+    """Tests for the --cpu-threshold and --mem-threshold options."""
+
+    @patch("system_monitor.cli.SystemMonitor")
+    def test_cpu_threshold_flag_applies(self, mock_monitor_class: Mock, runner: CliRunner) -> None:
+        """Test that --cpu-threshold lowers the boundary for the HIGH marker."""
+        mock_monitor = Mock()
+        mock_snapshot = _snapshot_stub(cpu_percent=50.0)
+        mock_monitor.get_snapshot.return_value = mock_snapshot
+        mock_monitor_class.return_value = mock_monitor
+
+        result = runner.invoke(cli, ["--cpu-threshold", "40"])
+
+        assert result.exit_code == 0
+        assert "(HIGH)" in result.output
+
+    @patch("system_monitor.cli.SystemMonitor")
+    def test_mem_threshold_flag_applies(self, mock_monitor_class: Mock, runner: CliRunner) -> None:
+        """Test that --mem-threshold lowers the boundary for the HIGH marker."""
+        mock_monitor = Mock()
+        mock_snapshot = _snapshot_stub(memory_percent=60.0)
+        mock_monitor.get_snapshot.return_value = mock_snapshot
+        mock_monitor_class.return_value = mock_monitor
+
+        result = runner.invoke(cli, ["--mem-threshold", "50"])
+
+        assert result.exit_code == 0
+        assert "(HIGH)" in result.output
+
+    @patch("system_monitor.cli.SystemMonitor")
+    def test_default_threshold_marks_high(
+        self, mock_monitor_class: Mock, runner: CliRunner
+    ) -> None:
+        """Test that the default 80% threshold still marks usage above it."""
+        mock_monitor = Mock()
+        mock_snapshot = _snapshot_stub(cpu_percent=85.0)
+        mock_monitor.get_snapshot.return_value = mock_snapshot
+        mock_monitor_class.return_value = mock_monitor
+
+        result = runner.invoke(cli, [])
+
+        assert result.exit_code == 0
+        assert "(HIGH)" in result.output
+
+
 class TestCLIKill:
     """Tests for kill command."""
 

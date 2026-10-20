@@ -142,13 +142,19 @@ def run_monitor(config: dict, watch_mode: bool) -> None:
     export_path: Path | None = config["export_path"]
     interval: float = config["interval"]
     top: int = config["top"]
+    cpu_threshold: float = config["cpu_threshold"]
+    mem_threshold: float = config["mem_threshold"]
     no_color: bool = config["no_color"]
 
     # Create exporters
     exporters = {
         "json": JSONExporter(),
         "csv": CSVExporter(),
-        "display": DisplayExporter(use_color=not no_color),
+        "display": DisplayExporter(
+            use_color=not no_color,
+            cpu_threshold=cpu_threshold,
+            mem_threshold=mem_threshold,
+        ),
     }
 
     if watch_mode:

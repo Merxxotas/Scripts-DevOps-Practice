@@ -179,14 +179,23 @@ class DisplayExporter(BaseExporter):
     BLUE = "\033[0;34m"
     NC = "\033[0m"
 
-    def __init__(self, use_color: bool = True) -> None:
+    def __init__(
+        self,
+        use_color: bool = True,
+        cpu_threshold: float = 80.0,
+        mem_threshold: float = 80.0,
+    ) -> None:
         """
         Initialize display exporter.
 
         Args:
             use_color: Whether to use ANSI color codes
+            cpu_threshold: CPU usage percentage above which usage is flagged HIGH
+            mem_threshold: Memory usage percentage above which usage is flagged HIGH
         """
         self.use_color = use_color and sys.platform != "win32"
+        self.cpu_threshold = cpu_threshold
+        self.mem_threshold = mem_threshold
         if sys.platform == "win32":
             # Try to enable ANSI on Windows
             try:
@@ -218,7 +227,7 @@ class DisplayExporter(BaseExporter):
         output.write("CPU Usage: ")
         if cpu is None:
             output.write(f"{self._color(self.YELLOW)}Unable to detect{self._color(self.NC)}\n")
-        elif cpu > 80:
+        elif cpu > self.cpu_threshold:
             output.write(f"{self._color(self.RED)}{cpu}% (HIGH){self._color(self.NC)}\n")
         else:
             output.write(f"{self._color(self.GREEN)}{cpu}%{self._color(self.NC)}\n")
@@ -228,7 +237,7 @@ class DisplayExporter(BaseExporter):
         output.write("Memory Usage: ")
         if mem is None:
             output.write(f"{self._color(self.YELLOW)}Unable to detect{self._color(self.NC)}\n")
-        elif mem > 80:
+        elif mem > self.mem_threshold:
             output.write(f"{self._color(self.RED)}{mem}% (HIGH){self._color(self.NC)}\n")
         else:
             output.write(f"{self._color(self.GREEN)}{mem}%{self._color(self.NC)}\n")
