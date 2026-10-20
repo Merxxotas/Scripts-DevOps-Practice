@@ -3,6 +3,7 @@ Unit tests for CLI commands.
 Uses Click's test runner.
 """
 
+from datetime import datetime
 from unittest.mock import Mock, patch
 
 import pytest
@@ -15,6 +16,34 @@ from system_monitor.cli import cli
 def runner() -> CliRunner:
     """Create a Click test runner."""
     return CliRunner()
+
+
+def _snapshot_stub(cpu_percent: float = 50.0, memory_percent: float = 60.0) -> Mock:
+    """
+    Build a snapshot stub that satisfies both exporter paths.
+
+    The display exporter reads attributes directly while the JSON path calls
+    to_dict(), so a bare Mock only covers the latter.
+    """
+    snapshot = Mock()
+    snapshot.timestamp = datetime(2024, 1, 1, 12, 0, 0)
+    snapshot.os = "Linux"
+    snapshot.cpu_percent = cpu_percent
+    snapshot.memory_percent = memory_percent
+    snapshot.disk_usage = []
+    snapshot.disk_io = []
+    snapshot.top_processes = []
+    snapshot.aggregated_totals = []
+    snapshot.to_dict.return_value = {
+        "os": "Linux",
+        "cpu_percent": cpu_percent,
+        "memory_percent": memory_percent,
+        "disk_usage": [],
+        "disk_io": [],
+        "top_processes": [],
+        "aggregated_totals": [],
+    }
+    return snapshot
 
 
 class TestCLIVersion:
@@ -34,16 +63,7 @@ class TestCLIMonitor:
     def test_display_mode(self, mock_monitor_class: Mock, runner: CliRunner) -> None:
         """Test display mode output."""
         mock_monitor = Mock()
-        mock_snapshot = Mock()
-        mock_snapshot.to_dict.return_value = {
-            "os": "Linux",
-            "cpu_percent": 50.0,
-            "memory_percent": 60.0,
-            "disk_usage": [],
-            "disk_io": [],
-            "top_processes": [],
-            "aggregated_totals": [],
-        }
+        mock_snapshot = _snapshot_stub()
         mock_monitor.get_snapshot.return_value = mock_snapshot
         mock_monitor_class.return_value = mock_monitor
 
@@ -51,21 +71,14 @@ class TestCLIMonitor:
 
         # Should run without errors
         assert result.exit_code == 0 or result.exit_code is None
+        # 50% CPU sits below the default 80% threshold, so it must not be flagged
+        assert "(HIGH)" not in result.output
 
     @patch("system_monitor.cli.SystemMonitor")
     def test_json_output(self, mock_monitor_class: Mock, runner: CliRunner) -> None:
         """Test JSON output format."""
         mock_monitor = Mock()
-        mock_snapshot = Mock()
-        mock_snapshot.to_dict.return_value = {
-            "os": "Linux",
-            "cpu_percent": 50.0,
-            "memory_percent": 60.0,
-            "disk_usage": [],
-            "disk_io": [],
-            "top_processes": [],
-            "aggregated_totals": [],
-        }
+        mock_snapshot = _snapshot_stub()
         mock_monitor.get_snapshot.return_value = mock_snapshot
         mock_monitor_class.return_value = mock_monitor
 

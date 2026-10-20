@@ -222,7 +222,7 @@ class SystemMonitor:
             memory_percent=self.get_memory_usage(),
             disk_usage=self.get_disk_usage(),
             disk_io=self.get_disk_io(),
-            top_processes=self.get_process_data(top_n),
+            top_processes=self.get_process_data(top_n=top_n),
             aggregated_totals=self.get_aggregated_data(),
         )
 
