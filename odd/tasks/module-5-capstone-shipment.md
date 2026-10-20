@@ -162,9 +162,9 @@ before duplicating work.
 
 | ID | Specs | Task | Route | Status | Evidence |
 | :--- | :--- | :--- | :--- | :--- | :--- |
-| T0 | S4, S7 | Rebuild the venv, reproduce the 2-failure baseline | Inline | ⬜ | |
+| T0 | S4, S7 | Rebuild the venv, reproduce the 2-failure baseline | Inline | ✅ | venv rebuilt (CPython 3.13.16 / uv 0.13.1); `pytest --no-cov -q` → **2 failed, 40 passed** — identical to the recorded baseline |
 | T1 | S4, S11 | Fix `test_display_mode` (under-mocked snapshot) | Inline | ⬜ | |
-| T2 | S4, S11 | Fix `test_get_snapshot` — **needs O-2 decision** | Inline | ⬜ | |
+| T2 | S4, S11 | Fix `test_get_snapshot` — implementation → `get_process_data(top_n=top_n)` | Inline | ⬜ | |
 | T3 | S4 | Re-run the full suite → expect 42 passed | Inline | ⬜ | |
 | T4 | S9 | Strip generated artifacts; extend the module `.gitignore` | Inline | ⬜ | |
 | T5 | S6 | Reconcile `.gitignore` — it ignores its own `AGENTS.md` | Inline | ⬜ | |
@@ -176,11 +176,13 @@ before duplicating work.
 
 ### Open decisions for the parent
 
-- **O-1** — Fix the hardcoded thresholds in `exporters.py` (`80`, `80`, `500`) so the CLI's
-  `--cpu-threshold` / `--mem-threshold` flags actually apply? Or scope this feature to the two
-  failing tests only?
-- **O-2** — For `test_get_snapshot`: fix the test (a) or the implementation (b)?
-- **O-3** — Module 5's docs live *inside* its Stage folders (`Stage1-Native-Scripts/docs/README-*.md`),
+- **O-1 — OPEN.** Fix the hardcoded thresholds in `exporters.py` (`80`, `80`, `500`) so the CLI's
+  `--cpu-threshold` / `--mem-threshold` flags actually apply, or scope this feature to the two
+  failing tests only? Either way it **adds or omits one task** (threshold fix with its own RED
+  test); it does not block T1–T3.
+- **O-2 — RESOLVED (b).** For `test_get_snapshot`: fix the **implementation** to
+  `self.get_process_data(top_n=top_n)`. Rationale in L5.
+- **O-3 — OPEN, gates T8.** Module 5's docs live *inside* its Stage folders (`Stage1-Native-Scripts/docs/README-*.md`),
   not in a top-level `docs/`. Adapt the module contract to the 4-stage layout, or restructure toward
   the canonical `docs/ARCHITECTURE_COMPARISON.md` + `docs/SCENARIOS.md` + `docs/labs/` shape?
 
@@ -210,3 +212,22 @@ module 5 work can be picked up cold in a new session.
 
 **L4** — 2026-10-20. Next step: start at **T0**. Re-verify the baseline before changing anything, and
 settle **O-1**, **O-2** and **O-3** before implementing T1 onward.
+
+**L5** — 2026-10-20. T0 executed on branch `feat/5-capstone-shipment` (created from `main`).
+
+- Rebuilt the environment from scratch: `rm -rf .venv` → `uv venv --python 3.13 .venv` →
+  `uv pip install -e ".[dev]"` (uv 0.13.1, CPython 3.13.16). The committed `.venv` pointed at a
+  deleted uv-managed CPython 3.12; it is now a working local venv and stays untracked.
+- Baseline re-verified: `./.venv/bin/python -m pytest --no-cov -q` → **`2 failed, 40 passed`** — the
+  same two failures the document recorded (`test_cli.py::TestCLIMonitor::test_display_mode`,
+  `test_monitor.py::TestSystemMonitorSnapshot::test_get_snapshot`). No drift since L3.
+- **O-2 resolved — option (b).** Fix the implementation at `src/system_monitor/monitor.py:211` to
+  call `self.get_process_data(top_n=top_n)`. Rationale: the keyword call is the clearer contract and
+  the existing test already encodes that intent; bending production code to a stale positional
+  assertion is the wrong direction. This is a technical call with no product impact, so the parent
+  takes it — recorded here, not delegated. T2 still observes RED before the fix.
+- **O-1 still open** — awaiting the parent's scope decision on the hardcoded exporter thresholds.
+- **O-3 still open** — the docs-layout fork (canonical `docs/` contract vs. the 4-stage layout).
+- Root `.gitignore` already covers `.venv/`, `__pycache__/`, `.pytest_cache/`, `.coverage` and
+  `htmlcov/`. **Not covered:** `coverage.xml`, `.ruff_cache/`, and the Stage3 copies of every
+  coverage artifact. Those belong to T4.
