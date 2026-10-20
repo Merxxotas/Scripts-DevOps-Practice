@@ -396,3 +396,50 @@ real host.
 **Delivery.** The branch holds 14 work-unit commits. Nothing has been pushed, and
 merging, pushing and the pull request remain the maintainer's decisions.
 
+**L11** — 2026-10-20. The pull request is where the last defects surfaced.
+**All 33 checks pass**, across Linux, macOS and Windows.
+
+Running the gates on Linux was never going to be enough, and it showed. The
+first run on the real runners failed three jobs, and every failure was a
+real defect that the local run could not have found:
+
+| Failure | Cause | Fix |
+| :--- | :--- | :--- |
+| `lint-bash` | A newer ShellCheck on the runner reports the trap-driven functions as unreachable (SC2317) | Suppressed alongside SC2329 on those two functions |
+| `lint-powershell` | `ps` is an alias for `Get-Process` on Windows | The calls use the full path |
+| `test-bash` on macOS | `date -Iseconds` is a GNU extension and BSD `date` rejects it | One `timestamp_iso` helper with the fallback, used everywhere |
+| `test-bash` on macOS | `declare -A` is Bash 4 and macOS still ships Bash 3.2 | The log level lookup became a `case` statement |
+| `test-bash` on macOS | macOS `df -h` inserts three numeric columns before the mount point, so the parser reported the inode count as the path | `df -P` asks for the POSIX column layout |
+| `test-bash` on macOS | `wc` pads its count to a fixed width on BSD | The whitespace is stripped before the comparison |
+
+Two of those deserve their own note.
+
+**The test suite was the reason the macOS failure was invisible.** It captured
+the output of a failing command and then died under `set -e` before a single
+assertion ran, so the job failed with no output at all. The suite now
+captures the exit code without tripping `set -e`, and prints what the script
+said when a check fails. Every other fix above was only possible because of
+that change, and a test that fails silently is a test that wastes the next
+person's afternoon.
+
+**A new check asserts that every reported mount point is an absolute path.**
+That is the check that would have caught the `df` parsing bug directly,
+instead of leaving it to be spotted in a CI log full of inode counts where
+the mount points should have been.
+
+**A defect the CI log exposed but nobody fixed yet.** The macOS runner
+reported **99.39 % memory used** on an idle machine with 14 GB of RAM. The
+native scripts count the file cache as used memory on macOS, because the
+macOS branch adds the inactive pages to the used total. The figure is wrong.
+It is recorded in `SPECS.md` §7, `ROADMAP.md` and `MODULES.md` rather than
+left to be rediscovered. Fixing it means deciding what counts as used on
+macOS and reading the page counts that support that definition, which is a
+design decision rather than a cleanup, so it is left for the maintainer.
+
+---
+
+## Close
+
+Module 5 ships. The module contract is satisfied, the CI matrix is green across all 33
+checks on Linux, macOS and Windows, and every task above is closed with observed evidence.
+

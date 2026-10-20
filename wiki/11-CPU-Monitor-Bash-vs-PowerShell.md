@@ -79,6 +79,14 @@ different things.
 The scripts report disk sizes as strings with a unit suffix, `"672G"`. The
 Python package reports numbers, `total_gb = 672.0`.
 
+### Memory usage on macOS
+
+The native scripts count the file cache as used memory on macOS, so an
+idle runner with 14 GB of RAM reports **99.39 % used**. The macOS branch
+adds the inactive pages to the used total, and on macOS the inactive pages
+hold the file cache. Linux and the Python package exclude the cache, which
+is why they agree with each other and not with the macOS branch.
+
 ### CSV quoting
 
 The Bash and Python implementations write bare fields. PowerShell's
