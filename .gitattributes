@@ -5,10 +5,18 @@
 # macOS. PowerShell is the exception: CRLF is its native form, so it is
 # stored as LF in the repository and checked out as CRLF.
 #
+# The base rule lets git detect text versus binary on its own, so images and
+# other binaries are never touched. The per-extension rules below state the
+# intent explicitly and override the base rule where it matters.
+#
 # See AGENTS.md section 9, gotcha 6.
+
+* text=auto eol=lf
 
 *.sh text eol=lf
 *.ps1 text eol=crlf
 *.py text eol=lf
 *.yml text eol=lf
 *.md text eol=lf
+*.toml text eol=lf
+*.txt text eol=lf
