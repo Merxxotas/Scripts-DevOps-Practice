@@ -24,3 +24,9 @@ htmlcov/
 .DS_Store
 .vscode/
 .idea/
+
+# gentle-ai suite
+.atl/
+
+# codegraph
+.codegraph/
