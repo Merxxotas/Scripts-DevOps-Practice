@@ -45,7 +45,7 @@
 
 #Requires -Version 5.1
 
-[CmdletBinding()]
+[CmdletBinding(SupportsShouldProcess = $true)]
 param(
     [ValidateRange(1, 1000)]
     [int]$TopProcesses = 100,
@@ -86,6 +86,11 @@ param(
 # ============================================================================
 $ErrorActionPreference = "Stop"
 $WarningPreference = "Continue"
+
+# Whether the caller asked for a confirmation prompt. The script's own
+# $Confirm variable is not a usable boolean, so the bound parameters are
+# inspected instead.
+$ConfirmRequested = $PSBoundParameters.ContainsKey("Confirm")
 
 # The JSON and CSV output always uses dot decimals, whatever the host
 # culture is. Under a culture such as es-CO or de-DE the decimal
@@ -464,21 +469,21 @@ function Stop-ProcessById {
         "Graceful" {
             # Try graceful first, then force
             try {
-                Stop-Process -Id $ProcessId -Force:$false -ErrorAction Stop
+                Stop-Process -Id $ProcessId -Force:$false -ErrorAction Stop -Confirm:$false
                 Start-Sleep -Milliseconds 500
                 # Check if still running
                 try {
                     $null = Get-Process -Id $ProcessId -ErrorAction Stop
                     # Still running, force kill
                     Write-Warning "Process still running, forcing termination..."
-                    Stop-Process -Id $ProcessId -Force -ErrorAction Stop
+                    Stop-Process -Id $ProcessId -Force -ErrorAction Stop -Confirm:$false
                 } catch {
                     # Process is gone, which is what we want
                     $success = $true
                 }
             } catch {
                 try {
-                    Stop-Process -Id $ProcessId -Force -ErrorAction Stop
+                    Stop-Process -Id $ProcessId -Force -ErrorAction Stop -Confirm:$false
                     $success = $true
                 } catch {
                     Write-Error "Failed to stop process: $_"
@@ -487,7 +492,7 @@ function Stop-ProcessById {
         }
         "Terminate" {
             try {
-                Stop-Process -Id $ProcessId -Force:$false -ErrorAction Stop
+                Stop-Process -Id $ProcessId -Force:$false -ErrorAction Stop -Confirm:$false
                 $success = $true
             } catch {
                 Write-Error "Failed to terminate process: $_"
@@ -495,7 +500,7 @@ function Stop-ProcessById {
         }
         "Kill" {
             try {
-                Stop-Process -Id $ProcessId -Force -ErrorAction Stop
+                Stop-Process -Id $ProcessId -Force -ErrorAction Stop -Confirm:$false
                 $success = $true
             } catch {
                 Write-Error "Failed to kill process: $_"
@@ -548,7 +553,7 @@ function Stop-ProcessByName {
             continue
         }
         
-        if (-not (Stop-ProcessById -ProcessId $proc.Id -Method $Method)) {
+        if (-not (Stop-ProcessById -ProcessId $proc.Id -Method $Method -WhatIf:([bool]$WhatIfPreference) -Confirm:([bool]$ConfirmRequested))) {
             $allSuccess = $false
         }
     }
@@ -803,16 +808,16 @@ if ($KillLog) {
 }
 
 if ($Restart) {
-    $success = Restart-ProcessTarget -Target $Restart -RestartCommand $RestartCommand -Method $KillMethod
+    $success = Restart-ProcessTarget -Target $Restart -RestartCommand $RestartCommand -Method $KillMethod -WhatIf:([bool]$WhatIfPreference) -Confirm:([bool]$ConfirmRequested)
     exit ([int](-not $success))
 }
 
 if ($Kill) {
     $success = $false
     if ($Kill -match '^\d+$') {
-        $success = Stop-ProcessById -ProcessId ([int]$Kill) -Method $KillMethod
+        $success = Stop-ProcessById -ProcessId ([int]$Kill) -Method $KillMethod -WhatIf:([bool]$WhatIfPreference) -Confirm:([bool]$ConfirmRequested)
     } else {
-        $success = Stop-ProcessByName -ProcessName $Kill -Method $KillMethod
+        $success = Stop-ProcessByName -ProcessName $Kill -Method $KillMethod -WhatIf:([bool]$WhatIfPreference) -Confirm:([bool]$ConfirmRequested)
     }
     exit ([int](-not $success))
 }

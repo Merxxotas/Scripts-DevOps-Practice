@@ -1,4 +1,4 @@
-#Requires -Version 5.1
+﻿#Requires -Version 5.1
 <#
 .SYNOPSIS
     Integration tests for the Stage 1 native PowerShell implementation.
@@ -207,6 +207,16 @@ function Test-CultureIndependence {
 }
 
 # ------------------------------------------------------------------------------
+# Test 9: -WhatIf previews a kill without performing it
+# ------------------------------------------------------------------------------
+function Test-WhatIfPreview {
+    # The suite's own PID always exists, and -WhatIf must not touch it.
+    $result = Invoke-Monitor @("-Kill", "$PID", "-WhatIf")
+    Assert-Equal 0 $result.ExitCode "Test 9a: -WhatIf exits with code 0"
+    Assert-Contains $result.Output "What if:" "Test 9b: -WhatIf previews the action instead of running it"
+}
+
+# ------------------------------------------------------------------------------
 # Run the suite
 # ------------------------------------------------------------------------------
 Setup-TestEnv
@@ -219,6 +229,7 @@ Test-CsvOutput
 Test-ExportToDirectory
 Test-KillMissingProcess
 Test-CultureIndependence
+Test-WhatIfPreview
 
 Teardown-TestEnv
 
