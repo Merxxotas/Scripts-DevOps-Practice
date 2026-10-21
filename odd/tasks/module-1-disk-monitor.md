@@ -4,8 +4,10 @@
 satisfies the repository's module contract, with a host-agnostic notification transport that hands
 alerts to the host's mail agent.
 **Branch:** `feat/1-disk-monitor`
-**Delivery strategy:** `ask-on-risk` (default) — the forecast is ~2,450 authored changed lines, so
-the chain strategy is asked once at the ~400-line crossing, before the next commit.
+**Delivery strategy:** `ask-on-risk` (default) — crossed at T1 with 754 authored changed lines in a
+single work unit. Resolved to `single-pr`: one pull request at the end, carried by work-unit
+commits on the feature branch, matching the repository's documented flow
+([`AGENTS.md` §4](../../AGENTS.md)) and module 5's precedent. See L6.
 **Test runner:** `bash` (tests/test_disk_monitor.sh) · `pwsh` (tests/test_disk_monitor.ps1) ·
 `shellcheck -x` · `PSScriptAnalyzer`.
 
@@ -107,6 +109,19 @@ default candidate list. The module holds **no** credentials and performs no netw
 The mail agent is resolved and the recipient validated **before** the check runs, so a broken
 alerting path is reported immediately rather than at the moment an alert is needed.
 
+The environment contract is identical on both sides, and it is what makes the
+suite deterministic on a platform whose disk source cannot be stubbed:
+
+| Variable | Purpose | Default |
+| :-- | :-- | :-- |
+| `DISK_MONITOR_TO` | The alert recipient | none — required when the backend is `mail` |
+| `DISK_MONITOR_MAIL_COMMAND` | The mail agent | `mail`, then `msmtp` |
+| `DISK_MONITOR_USAGE_COMMAND` | The measurement command | `df`, or the native volume API on Windows |
+| `DISK_MONITOR_USAGE_OVERRIDE` | A forced usage percentage | none — the disk is measured |
+
+A forced value is labelled `overridden` in both the report and the audit log, so
+it can never be mistaken for a measured one.
+
 **S10** — The module holds no secrets, quoted from [`AGENTS.md` §7](../../AGENTS.md):
 > "**Never hardcode secrets.** Read from the environment and fail loudly when unset."
 
@@ -114,12 +129,14 @@ alerting path is reported immediately rather than at the moment an alert is need
 > `USAGE=$(df -h $PARTITION | awk 'NR==2 {print $5}' | sed 's/%//')`
 
 which is the exact column-layout trap that already broke module 5 on macOS. The implementation uses
-the POSIX output format and takes the capacity from the second-to-last field, which is the only
-position that is stable across GNU and macOS:
+the POSIX output format and takes the capacity from the **fifth** field, which is its fixed position
+in that layout:
 > `df -P <path>` → six fields: filesystem, blocks, used, available, capacity, mount point.
 
-Verified on 2026-10-21: `df -P /` on GNU Linux yields `NF=6`, capacity at `$(NF-1)`, mount point at
-`$NF`. Taking `$(NF-1)` also survives mount points that contain spaces.
+Verified on 2026-10-21: `df -P /` on GNU Linux yields `NF=6`, capacity at `$5`, mount point at `$NF`.
+The mount point is last and may be several words long, so counting back from the end would read part
+of the mount point instead of the capacity. The fifth field is fixed however many words the mount
+point has, and a regression test drives a stub whose mount point contains a space.
 
 **S12** — Tests exercise the public interface, quoted from [`AGENTS.md` §6](../../AGENTS.md):
 > "Tests exercise the **public interface** (CLI flags, exit codes, emitted files), not internals."
@@ -164,13 +181,14 @@ repository.
 x86-only, and `ubuntu-24.04-arm` is free for public repositories, so aarch64 coverage is worth
 adding — but it touches a shipped module's pipeline, which is its own scope and its own risk line.
 
-**S18** — The seed's real defects are fixed, not inherited. The three verified ones:
+**S18** — The seed's real defects are fixed, not inherited. The four verified ones:
 
 | # | Defect | Evidence |
 | :-- | :-- | :-- |
 | 1 | The PowerShell side never sends. The `Send-MailMessage` call is commented out, so it only prints "prepared", while the Bash side sends for real. | `disk_monitor.ps1:35` |
 | 2 | `Get-WmiObject` was removed in PowerShell 7, but the file declares `#Requires -Version 7.0`. The fallback path is dead on the version it targets. | `disk_monitor.ps1:19` |
 | 3 | The Bash side reads `df -h` column 5, the macOS column-layout trap. | `disk_monitor.sh:15` |
+| 4 | The Bash side carries CRLF line endings, so the shebang reads `/bin/bash^M` and the script cannot execute at all. | verified 2026-10-21: `bad interpreter: /bin/bash^M` |
 
 **S19** — Deliberate non-goals for v1, recorded so they are decisions rather than omissions:
 one partition per invocation; no machine-readable output (`--json`/`--csv`); no direct SMTP or
@@ -201,16 +219,16 @@ cannot, so a design that only works on the author's Linux box is not a design ye
 
 | ID | Specs | Task | Route | Status | Evidence |
 | :--- | :--- | :-- | :-- | :-- | :-- |
-| T0 | S1, S2 | Create the branch; capture the seed baseline and the three defects | Inline | ⬜ | — |
-| T1 | S7, S8, S9, S10, S11, S12, S18 | Hardened Bash implementation + Bash test suite (RED → GREEN) | Inline | ⬜ | — |
-| T2 | S4, S7, S8, S9, S10, S11, S12, S18 | Hardened PowerShell implementation + PowerShell test suite, mirroring T1's observed behaviour | Inline | ⬜ | — |
-| T3 | S4 | Parity proof: same flags, defaults, validation, exit codes and messages on both sides | Inline | ⬜ | — |
-| T4 | S4 | Root CI workflow with path filters and a multi-OS matrix | Inline | ⬜ | — |
-| T5 | S3, S6, S7, S8, S13, S15 | `SPECS.md`, `ROADMAP.md`, `CODESTYLE.md`, `README.md` | Inline | ⬜ | — |
-| T6 | S9, S16 | `docs/ARCHITECTURE_COMPARISON.md`, `docs/SCENARIOS.md`, `docs/labs/LAB1-3.md` | Delegated | ⬜ | — |
-| T7 | S14 | Wiki pages 13–15, `_Sidebar.md`, `Home.md`, `wiki/01-Monorepo-Architecture.md` | Delegated | ⬜ | — |
-| T8 | S14, S15 | `MODULES.md`, `README.md` and `CHANGELOG.md` registration | Inline | ⬜ | — |
-| T9 | S12, S13 | Full local matrix verification; close with a `Risk:` line | Inline | ⬜ | — |
+| T0 | S1, S2 | Create the branch; capture the seed baseline and the three defects | Inline | ✅ | `078dda1` — the branch `feat/1-disk-monitor` and the seed tracked as the baseline |
+| T1 | S7, S8, S9, S10, S11, S12, S18 | Hardened Bash implementation + Bash test suite (RED → GREEN) | Inline | ✅ | `7572de6` — RED 16/26 against the seed, **GREEN 42 passed, 0 failed** |
+| T2 | S4, S7, S8, S9, S10, S11, S12, S18 | Hardened PowerShell implementation + PowerShell test suite, mirroring T1's observed behaviour | Inline | ✅ | `94d716a` — 25 scenarios, 55 assertions, green on Windows and Ubuntu in CI |
+| T3 | S4 | Parity proof: same flags, defaults, validation, exit codes and messages on both sides | Inline | ✅ | Both suites assert the same 25 scenarios and 55 assertions; the contract tables in `SPECS.md` and `docs/ARCHITECTURE_COMPARISON.md` are derived from the two implementations |
+| T4 | S4 | Root CI workflow with path filters and a multi-OS matrix | Inline | ✅ | `3bd7446` — 6 jobs, all green in run `39639801166` |
+| T5 | S3, S6, S7, S8, S13, S15 | `SPECS.md`, `ROADMAP.md`, `CODESTYLE.md`, `README.md` | Delegated | ✅ | All four written, every example executed and captured |
+| T6 | S9, S16 | `docs/ARCHITECTURE_COMPARISON.md`, `docs/SCENARIOS.md`, `docs/labs/LAB1-3.md` | Delegated | ✅ | 41 command invocations captured; every output in the labs is real |
+| T7 | S14 | Wiki pages 13–15, `_Sidebar.md`, `Home.md`, `wiki/01-Monorepo-Architecture.md` | Delegated | ✅ | Three pages plus the three shared pages; the shipped count moved from 3 to 4 |
+| T8 | S14, S15 | `MODULES.md`, `README.md` and `CHANGELOG.md` registration | Delegated | ✅ | Module 1 moved to the shipped group with a defect table; the counts agree across all three files |
+| T9 | S12, S13 | Full local matrix verification; close with a `Risk:` line | Inline | ✅ | Run `39639801166`: 6 of 6 jobs green, 55 assertions per suite on both platforms |
 
 > Task IDs are stable; the table is ordered by execution sequence.
 
@@ -286,8 +304,95 @@ seed modules; ten merged local branches were deleted and origin still carries th
 **L5** — 2026-10-21. Next step: **T0**. Create `feat/1-disk-monitor` from `main` and record the
 seed baseline in the first commit, then T1.
 
+**L6** — 2026-10-21. T0 and T1 executed on `feat/1-disk-monitor`.
+
+- **T0 — `078dda1`.** The seed entered git as the baseline, so the remediation has a visible before
+  and after. A fourth defect was found while committing it, and it is the reason the seed had never
+  worked: `disk_monitor.sh` carries **CRLF line endings**, so the shebang reads
+  `/bin/bash^M` and the script cannot execute. The committed blob is LF because `.gitattributes`
+  normalises it, but the module was never in git, so nobody ever ran the file. S18 is updated from
+  three defects to four.
+- **T1 — `7572de6`.** The Bash implementation and its suite. RED observed twice, and the two
+  observations answer different questions: against the untouched seed the suite reported **1 passed,
+  41 failed**, every failure caused by exit 126 (the CRLF shebang); with the line endings corrected
+  the suite reported **16 passed, 26 failed**, isolating the missing features from the broken
+  file. GREEN is **42 passed, 0 failed**. A real run against the actual disk reports 49 % and exits
+  0; the dry-run path reports the pending alert and hands nothing to the mail agent.
+- The first GREEN attempt was 38/42, and all four failures were in the test harness, not the
+  implementation: the harness created the capture file itself, so "the mail agent was never
+  invoked" could never be asserted by its absence. The assertion now checks the capture's
+  contents.
+- **The review budget was crossed here.** T1 is 754 authored changed lines (333 added, 28 removed
+  in the implementation, 393 added in the suite). The unit is not splittable: the work-unit rules
+  require the tests to ship with the behaviour they verify, and splitting a suite from its
+  implementation is the explicitly named weak split. The budget constrains slicing, never the
+  code, so the delivery shape was resolved instead: `single-pr`, one pull request at the end
+  carried by work-unit commits, which is what [`AGENTS.md` §4](../../AGENTS.md) documents and what
+  module 5 did with 21 work-unit commits. Stacked or chained pull requests remain available if the
+  maintainer prefers them.
+- **Local verification limit.** `shellcheck` and `pwsh` are both absent from this machine, so the
+  Bash lint gate and the whole PowerShell suite are CI-only. The branch push triggers the new
+  workflow on `feat/**`, which is how the PowerShell evidence will be obtained.
+
+**L7** — 2026-10-21. Next step: **T2**. The PowerShell implementation mirrors T1's observed
+behaviour, and T3 proves the parity.
+
+**L8** — 2026-10-21. The first CI run on the real runners found four defects that the development
+machine could not, and a delegated documentation writer found a fifth.
+
+- **The capacity was read from the wrong field.** The implementation took the second-to-last field of
+  the `df -P` output, which is only correct while the mount point is a single word: `awk` splits on
+  whitespace, so `/mnt/my disk` makes the second-to-last field part of the mount point. The
+  capacity is the **fifth** field, which is its fixed position in the POSIX layout. Both
+  implementations were corrected and a regression test now drives a stub whose mount point
+  contains a space. S11 was corrected to match.
+- **A PowerShell parameter was silently discarded.** Variable names are case-insensitive, so the
+  local `$mailCommand` and the parameter `$MailCommand` were the same variable, and the local was
+  assigned an empty string before the parameter was read. `-MailCommand` did nothing; only the
+  environment variable worked.
+- **The test harness reported assertions it never ran.** Under the strict mode a mandatory string
+  parameter rejects an empty value, so an assertion against empty output raised a binding error that
+  was printed and skipped. The suite could report a pass it had not earned.
+- **The harness shadowed the automatic `$LASTEXITCODE`.** A script-scoped variable whose name
+  differs from an automatic variable only in case still shadows it, so the harness read its own
+  zero instead of the exit code the tool had returned. Every exit-code assertion in the PowerShell
+  suite saw a false success — 43 assertions passed for the wrong reason while 12 failed with
+  `Got: '0'`.
+- **The analyzer rejected the harness.** Two unapproved verbs, two plural nouns, thirty global
+  variables and two state-changing verbs. The verbs were renamed to approved ones and the shared
+  state moved to the script scope, which is what the analyzer itself recommends.
+
+**L9** — 2026-10-21. The feature is complete on the branch. Run `39639801166` is green across all six
+jobs: ShellCheck, the Bash suite on Ubuntu and macOS, PSScriptAnalyzer, and the PowerShell suite on
+Windows and Ubuntu. Both suites assert the same 25 scenarios and 55 assertions. The module
+contract is satisfied, the repository index agrees on 11 modules with 4 shipped, and the four
+documentation tasks were delivered by delegated writers against disjoint edit surfaces.
+
+**L10** — 2026-10-21. Next step: the pull request and the merge, both of which are the maintainer's
+decision. Nothing else remains open inside this feature.
+
 ---
 
 ## Close
 
-Pending. Written at the end of the work, with the delivery record and the observed evidence.
+Module 1 ships. The module contract is satisfied, both implementations hold the same contract, and
+the pipeline is green on Linux, macOS and Windows.
+
+**What a reviewer should know.** The seed was 75 lines that had never been run, and the fourth
+defect was only visible because the module was tracked: its line endings were CRLF, so the shebang
+read `/bin/bash^M` and the script could not execute at all. The first CI run then found four more
+defects that no amount of local testing would have found, including two that would have shipped a
+suite reporting passes it never earned.
+
+**What is deliberately left open**, and is recorded rather than hidden:
+
+- The two implementations differ in how they measure. Bash reads `df -P`; PowerShell reads the
+  native volume API on Windows. Both report the same number for the same filesystem, but they are
+  two code paths.
+- The Windows volume path is exercised by the CI runner, not by a developer machine.
+- The mail hand-off contract is `<mail-command> -s <subject> <recipient>` with the body on stdin. An
+  agent that does not honour it — `sendmail`, for instance, which wants `-t` — has to be wrapped.
+
+**Delivery.** 13 work-unit commits on `feat/1-disk-monitor`, pushed. The pull request and the merge
+are the maintainer's decision. The wiki pages are committed to `main:wiki/`; the published wiki
+repository is a separate clone and is pushed separately, as it was for module 5.
