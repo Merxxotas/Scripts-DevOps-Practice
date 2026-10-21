@@ -32,3 +32,6 @@ htmlcov/
 
 # codegraph
 .codegraph/
+
+# The monitor configuration file may hold a token in a header, so it is never tracked.
+.diskmonitor.conf

@@ -27,12 +27,47 @@ PARTITION="/"
 THRESHOLD=80
 DRY_RUN=false
 NOTIFY_MODE="mail"
-MAIL_TO="${DISK_MONITOR_TO:-}"
-MAIL_COMMAND_OVERRIDE="${DISK_MONITOR_MAIL_COMMAND:-}"
-USAGE_OVERRIDE="${DISK_MONITOR_USAGE_OVERRIDE:-}"
-USAGE_COMMAND_OVERRIDE="${DISK_MONITOR_USAGE_COMMAND:-df}"
+MAIL_TO=""
+MAIL_COMMAND_OVERRIDE=""
+USAGE_OVERRIDE=""
+USAGE_COMMAND_OVERRIDE=""
 LOG_FILE=""
 VERBOSE=false
+
+# The configuration file and the values it supplied
+CONFIG_FILE=""
+CONFIG_PARTITION=""
+CONFIG_THRESHOLD=""
+CONFIG_NOTIFY=""
+CONFIG_TO=""
+CONFIG_MAIL_COMMAND=""
+CONFIG_LOG_FILE=""
+CONFIG_USAGE_COMMAND=""
+CONFIG_USAGE_OVERRIDE=""
+CONFIG_URL=""
+CONFIG_BODY_TEMPLATE=""
+CONFIG_TIMEOUT=""
+CONFIG_HEADERS=""
+
+# Whether the command line supplied each setting
+FLAG_PARTITION_SET=false
+FLAG_THRESHOLD_SET=false
+FLAG_NOTIFY_SET=false
+FLAG_TO_SET=false
+FLAG_MAIL_COMMAND_SET=false
+FLAG_LOG_FILE_SET=false
+FLAG_USAGE_COMMAND_SET=false
+FLAG_CONFIG_SET=false
+
+# Where each resolved value came from
+SOURCE_PARTITION="default"
+SOURCE_THRESHOLD="default"
+SOURCE_NOTIFY="default"
+SOURCE_TO="default"
+SOURCE_MAIL_COMMAND="default"
+SOURCE_LOG_FILE="default"
+SOURCE_USAGE_COMMAND="default"
+SOURCE_USAGE_OVERRIDE="default"
 
 # Resolved during the configuration check
 MAIL_COMMAND=""
@@ -51,8 +86,17 @@ Optional Arguments:
       --to <address>        Alert recipient (default: \$DISK_MONITOR_TO).
       --mail-command <cmd>  Mail agent to hand the alert to.
   -l, --log-file <file>     Path to append ISO-8601 audit records.
+      --config <file>       Configuration file to read (default: ./.diskmonitor.conf).
   -v, --verbose             Enable diagnostic output.
   -h, --help                Show this help and usage documentation.
+
+Configuration:
+  A flag wins over an environment variable, which wins over the
+  configuration file, which wins over the built-in default. The environment
+  variables are DISK_MONITOR_PARTITION, DISK_MONITOR_THRESHOLD,
+  DISK_MONITOR_NOTIFY, DISK_MONITOR_TO, DISK_MONITOR_MAIL_COMMAND,
+  DISK_MONITOR_LOG_FILE, DISK_MONITOR_USAGE_COMMAND,
+  DISK_MONITOR_USAGE_OVERRIDE and DISK_MONITOR_CONFIG.
 
 Exit Codes:
   0  The check completed; the alert was delivered, not needed, or suppressed.
@@ -85,6 +129,164 @@ log_message() {
     fi
 
     printf "%s [%s] %s\n" "$timestamp" "$level" "$message" >> "$LOG_FILE" 2>/dev/null || true
+}
+
+# Removes leading and trailing whitespace
+trim() {
+    local value="$1"
+    value="${value#"${value%%[![:space:]]*}"}"
+    value="${value%"${value##*[![:space:]]}"}"
+    printf '%s' "$value"
+}
+
+# Resolves one setting: the command line wins, then the environment, then the
+# configuration file, then the built-in default. The value and the source it
+# came from are printed, separated by a tab.
+resolve_value() {
+    local flag_value="$1"
+    local flag_set="$2"
+    local env_value="$3"
+    local config_value="$4"
+    local default_value="$5"
+
+    if [[ "$flag_set" == "true" ]]; then
+        printf '%s\t%s' "$flag_value" "flag"
+    elif [[ -n "$env_value" ]]; then
+        printf '%s\t%s' "$env_value" "environment"
+    elif [[ -n "$config_value" ]]; then
+        printf '%s\t%s' "$config_value" "config"
+    else
+        printf '%s\t%s' "$default_value" "default"
+    fi
+}
+
+# Assigns a resolved setting and the source it came from
+apply_setting() {
+    local target="$1"
+    local source_target="$2"
+    local resolved
+
+    resolved="$(resolve_value "$3" "$4" "$5" "$6" "$7")"
+    printf -v "$target" '%s' "${resolved%%$'\t'*}"
+    printf -v "$source_target" '%s' "${resolved##*$'\t'}"
+}
+
+# Parses the configuration file. A key is separated from its value by the
+# first equals sign. A line may be a comment, and a value may be quoted to
+# protect spaces or a hash.
+parse_config_file() {
+    local file="$1"
+    local line
+    local key
+    local value
+
+    while IFS= read -r line || [[ -n "$line" ]]; do
+        # A configuration file edited on Windows may carry carriage returns.
+        line="${line%$'\r'}"
+        line="$(trim "$line")"
+
+        if [[ -z "$line" || "${line:0:1}" == "#" ]]; then
+            continue
+        fi
+
+        if [[ "$line" != *"="* ]]; then
+            printf "%bWarning: ignoring malformed line in '%s': '%s'%b\n" \
+                "$COLOR_YELLOW" "$CONFIG_FILE" "$line" "$COLOR_RESET" >&2
+            continue
+        fi
+
+        key="$(trim "${line%%=*}")"
+        value="$(trim "${line#*=}")"
+
+        if [[ "${value:0:1}" == '"' ]]; then
+            value="${value#\"}"
+            value="${value%%\"*}"
+        elif [[ "${value:0:1}" == "'" ]]; then
+            value="${value#\'}"
+            value="${value%%\'*}"
+        fi
+
+        case "$key" in
+            partition) CONFIG_PARTITION="$value" ;;
+            threshold) CONFIG_THRESHOLD="$value" ;;
+            notify) CONFIG_NOTIFY="$value" ;;
+            to) CONFIG_TO="$value" ;;
+            mail_command) CONFIG_MAIL_COMMAND="$value" ;;
+            log_file) CONFIG_LOG_FILE="$value" ;;
+            usage_command) CONFIG_USAGE_COMMAND="$value" ;;
+            usage_override) CONFIG_USAGE_OVERRIDE="$value" ;;
+            url) CONFIG_URL="$value" ;;
+            body_template) CONFIG_BODY_TEMPLATE="$value" ;;
+            timeout) CONFIG_TIMEOUT="$value" ;;
+            header)
+                if [[ -n "$CONFIG_HEADERS" ]]; then
+                    CONFIG_HEADERS="${CONFIG_HEADERS}"$'\n'"${value}"
+                else
+                    CONFIG_HEADERS="$value"
+                fi
+                ;;
+            *)
+                printf "%bWarning: ignoring unknown configuration key '%s' in '%s'.%b\n" \
+                    "$COLOR_YELLOW" "$key" "$CONFIG_FILE" "$COLOR_RESET" >&2
+                ;;
+        esac
+    done < "$file"
+}
+
+# Loads the configuration file, if one was selected or found. A file named
+# explicitly must exist; a default one that is absent is not an error.
+load_configuration() {
+    local candidate=""
+    local explicit=false
+
+    if [[ "$FLAG_CONFIG_SET" == "true" ]]; then
+        candidate="$CONFIG_FILE"
+        explicit=true
+    elif [[ -n "${DISK_MONITOR_CONFIG:-}" ]]; then
+        candidate="$DISK_MONITOR_CONFIG"
+        explicit=true
+    elif [[ -f "./.diskmonitor.conf" ]]; then
+        candidate="./.diskmonitor.conf"
+    elif [[ -f "${HOME:-.}/.config/disk-monitor/config" ]]; then
+        candidate="${HOME:-.}/.config/disk-monitor/config"
+    fi
+
+    if [[ -z "$candidate" ]]; then
+        return 0
+    fi
+
+    if [[ ! -f "$candidate" ]]; then
+        if [[ "$explicit" == true ]]; then
+            printf "%bError: Configuration file '%s' does not exist.%b\n" \
+                "$COLOR_RED" "$candidate" "$COLOR_RESET" >&2
+            exit 1
+        fi
+        return 0
+    fi
+
+    CONFIG_FILE="$candidate"
+    parse_config_file "$candidate"
+}
+
+# Applies the precedence to every setting and records where each value came
+# from, so the doctor can report it.
+apply_precedence() {
+    apply_setting PARTITION SOURCE_PARTITION "$PARTITION" "$FLAG_PARTITION_SET" \
+        "${DISK_MONITOR_PARTITION:-}" "$CONFIG_PARTITION" "/"
+    apply_setting THRESHOLD SOURCE_THRESHOLD "$THRESHOLD" "$FLAG_THRESHOLD_SET" \
+        "${DISK_MONITOR_THRESHOLD:-}" "$CONFIG_THRESHOLD" "80"
+    apply_setting NOTIFY_MODE SOURCE_NOTIFY "$NOTIFY_MODE" "$FLAG_NOTIFY_SET" \
+        "${DISK_MONITOR_NOTIFY:-}" "$CONFIG_NOTIFY" "mail"
+    apply_setting MAIL_TO SOURCE_TO "$MAIL_TO" "$FLAG_TO_SET" \
+        "${DISK_MONITOR_TO:-}" "$CONFIG_TO" ""
+    apply_setting MAIL_COMMAND_OVERRIDE SOURCE_MAIL_COMMAND "$MAIL_COMMAND_OVERRIDE" \
+        "$FLAG_MAIL_COMMAND_SET" "${DISK_MONITOR_MAIL_COMMAND:-}" "$CONFIG_MAIL_COMMAND" ""
+    apply_setting LOG_FILE SOURCE_LOG_FILE "$LOG_FILE" "$FLAG_LOG_FILE_SET" \
+        "${DISK_MONITOR_LOG_FILE:-}" "$CONFIG_LOG_FILE" ""
+    apply_setting USAGE_COMMAND_OVERRIDE SOURCE_USAGE_COMMAND "$USAGE_COMMAND_OVERRIDE" \
+        "false" "${DISK_MONITOR_USAGE_COMMAND:-}" "$CONFIG_USAGE_COMMAND" "df"
+    apply_setting USAGE_OVERRIDE SOURCE_USAGE_OVERRIDE "$USAGE_OVERRIDE" \
+        "false" "${DISK_MONITOR_USAGE_OVERRIDE:-}" "$CONFIG_USAGE_OVERRIDE" ""
 }
 
 # Reads the usage percentage of the watched partition as an integer.
@@ -162,11 +364,13 @@ parse_arguments() {
             -p|--partition)
                 require_value "$1" "$#"
                 PARTITION="$2"
+                FLAG_PARTITION_SET=true
                 shift 2
                 ;;
             -t|--threshold)
                 require_value "$1" "$#"
                 THRESHOLD="$2"
+                FLAG_THRESHOLD_SET=true
                 shift 2
                 ;;
             -n|--dry-run)
@@ -176,26 +380,36 @@ parse_arguments() {
             --notify)
                 require_value "$1" "$#"
                 NOTIFY_MODE="$2"
+                FLAG_NOTIFY_SET=true
                 shift 2
                 ;;
             --to)
                 require_value "$1" "$#"
                 MAIL_TO="$2"
+                FLAG_TO_SET=true
                 shift 2
                 ;;
             --mail-command)
                 require_value "$1" "$#"
                 MAIL_COMMAND_OVERRIDE="$2"
+                FLAG_MAIL_COMMAND_SET=true
                 shift 2
                 ;;
             -l|--log-file)
                 require_value "$1" "$#"
                 LOG_FILE="$2"
+                FLAG_LOG_FILE_SET=true
                 shift 2
                 ;;
             -v|--verbose)
                 VERBOSE=true
                 shift
+                ;;
+            --config)
+                require_value "$1" "$#"
+                CONFIG_FILE="$2"
+                FLAG_CONFIG_SET=true
+                shift 2
                 ;;
             -h|--help)
                 show_help
@@ -281,6 +495,8 @@ validate_configuration() {
 # Main execution entrypoint
 main() {
     parse_arguments "$@"
+    load_configuration
+    apply_precedence
     validate_configuration
 
     local used_percent

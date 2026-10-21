@@ -71,6 +71,9 @@ param(
     [string]$LogFile = "",
 
     [Parameter(Mandatory = $false)]
+    [string]$Config = "",
+
+    [Parameter(Mandatory = $false)]
     [switch]$Help
 )
 
@@ -86,6 +89,42 @@ $script:VerboseEnabled = $PSBoundParameters.ContainsKey('Verbose') -and $Verbose
 # $LASTEXITCODE carries their status. It is initialised here so the strict
 # mode never trips over it before the first external call.
 $global:LASTEXITCODE = 0
+
+# The configuration file and the values it supplied
+$script:ConfigFilePath = ""
+$script:ConfigPartition = ""
+$script:ConfigThreshold = ""
+$script:ConfigNotify = ""
+$script:ConfigTo = ""
+$script:ConfigMailCommand = ""
+$script:ConfigLogFile = ""
+$script:ConfigUsageCommand = ""
+$script:ConfigUsageOverride = ""
+$script:ConfigUrl = ""
+$script:ConfigBodyTemplate = ""
+$script:ConfigTimeout = ""
+$script:ConfigHeaders = @()
+
+# Whether the command line supplied each setting. The binder knows, and it
+# is captured here in the script scope: inside a function $PSBoundParameters
+# would describe the function's own parameters, not the script's.
+$script:FlagPartitionSet = $PSBoundParameters.ContainsKey('Partition')
+$script:FlagThresholdSet = $PSBoundParameters.ContainsKey('Threshold')
+$script:FlagNotifySet = $PSBoundParameters.ContainsKey('Notify')
+$script:FlagToSet = $PSBoundParameters.ContainsKey('To')
+$script:FlagMailCommandSet = $PSBoundParameters.ContainsKey('MailCommand')
+$script:FlagLogFileSet = $PSBoundParameters.ContainsKey('LogFile')
+$script:FlagConfigSet = $PSBoundParameters.ContainsKey('Config')
+
+# Where each resolved value came from
+$script:SourcePartition = "default"
+$script:SourceThreshold = "default"
+$script:SourceNotify = "default"
+$script:SourceTo = "default"
+$script:SourceMailCommand = "default"
+$script:SourceLogFile = "default"
+$script:SourceUsageCommand = "default"
+$script:SourceUsageOverride = "default"
 
 # ANSI Color mapping
 $Colors = @{
@@ -112,8 +151,17 @@ Optional Arguments:
   -To <address>            Alert recipient (default: `$DISK_MONITOR_TO).
   -MailCommand <cmd>       Mail agent to hand the alert to.
   -LogFile <file>          Path to append ISO-8601 audit records.
+  -Config <file>           Configuration file to read (default: ./.diskmonitor.conf).
   -Verbose                 Enable diagnostic output.
   -Help                    Show this help and usage documentation.
+
+Configuration:
+  A flag wins over an environment variable, which wins over the
+  configuration file, which wins over the built-in default. The environment
+  variables are DISK_MONITOR_PARTITION, DISK_MONITOR_THRESHOLD,
+  DISK_MONITOR_NOTIFY, DISK_MONITOR_TO, DISK_MONITOR_MAIL_COMMAND,
+  DISK_MONITOR_LOG_FILE, DISK_MONITOR_USAGE_COMMAND,
+  DISK_MONITOR_USAGE_OVERRIDE and DISK_MONITOR_CONFIG.
 
 Exit Codes:
   0  The check completed; the alert was delivered, not needed, or suppressed.
@@ -160,6 +208,160 @@ function Write-AuditLog {
         # failure is still worth reporting to whoever asked for the detail.
         Write-Verbose "Audit log write failed: $($_.Exception.Message)"
     }
+}
+
+# Removes leading and trailing whitespace
+function Get-TrimmedValue {
+    param([string]$Value)
+
+    if ($null -eq $Value) {
+        return ""
+    }
+
+    return $Value.Trim()
+}
+
+# Reads the configuration file. A key is separated from its value by the
+# first equals sign. A line may be a comment, and a value may be quoted to
+# protect spaces or a hash.
+function Read-ConfigFile {
+    param([string]$Path)
+
+    $script:ConfigFilePath = $Path
+    $lines = Get-Content -LiteralPath $Path -ErrorAction Stop
+
+    foreach ($line in $lines) {
+        $trimmed = Get-TrimmedValue -Value $line
+
+        if ([string]::IsNullOrWhiteSpace($trimmed) -or $trimmed.StartsWith("#")) {
+            continue
+        }
+
+        if (-not $trimmed.Contains("=")) {
+            Write-ErrorLine "$($Colors.Yellow)Warning: ignoring malformed line in '$script:ConfigFilePath': '$trimmed'$($Colors.Reset)"
+            continue
+        }
+
+        $separator = $trimmed.IndexOf("=")
+        $key = Get-TrimmedValue -Value $trimmed.Substring(0, $separator)
+        $value = Get-TrimmedValue -Value $trimmed.Substring($separator + 1)
+
+        if ($value.StartsWith('"')) {
+            $closing = $value.IndexOf('"', 1)
+            if ($closing -gt 0) {
+                $value = $value.Substring(1, $closing - 1)
+            }
+        } elseif ($value.StartsWith("'")) {
+            $closing = $value.IndexOf("'", 1)
+            if ($closing -gt 0) {
+                $value = $value.Substring(1, $closing - 1)
+            }
+        }
+
+        switch ($key) {
+            "partition" { $script:ConfigPartition = $value }
+            "threshold" { $script:ConfigThreshold = $value }
+            "notify" { $script:ConfigNotify = $value }
+            "to" { $script:ConfigTo = $value }
+            "mail_command" { $script:ConfigMailCommand = $value }
+            "log_file" { $script:ConfigLogFile = $value }
+            "usage_command" { $script:ConfigUsageCommand = $value }
+            "usage_override" { $script:ConfigUsageOverride = $value }
+            "url" { $script:ConfigUrl = $value }
+            "body_template" { $script:ConfigBodyTemplate = $value }
+            "timeout" { $script:ConfigTimeout = $value }
+            "header" { $script:ConfigHeaders += $value }
+            default {
+                Write-ErrorLine "$($Colors.Yellow)Warning: ignoring unknown configuration key '$key' in '$script:ConfigFilePath'.$($Colors.Reset)"
+            }
+        }
+    }
+}
+
+# Resolves one setting: the command line wins, then the environment, then the
+# configuration file, then the built-in default.
+function Resolve-Setting {
+    param(
+        [string]$FlagValue,
+        [bool]$FlagSet,
+        [string]$EnvironmentValue,
+        [string]$ConfigValue,
+        [string]$DefaultValue
+    )
+
+    if ($FlagSet) {
+        return [pscustomobject]@{ Value = $FlagValue; Source = "flag" }
+    }
+    if (-not [string]::IsNullOrWhiteSpace($EnvironmentValue)) {
+        return [pscustomobject]@{ Value = $EnvironmentValue; Source = "environment" }
+    }
+    if (-not [string]::IsNullOrWhiteSpace($ConfigValue)) {
+        return [pscustomobject]@{ Value = $ConfigValue; Source = "config" }
+    }
+    return [pscustomobject]@{ Value = $DefaultValue; Source = "default" }
+}
+
+# Loads the configuration file and applies the precedence to every setting.
+# A file named explicitly must exist; a default one that is absent is not an
+# error.
+function Resolve-Settings {
+    $candidate = ""
+    $explicit = $false
+
+    if ($script:FlagConfigSet) {
+        $candidate = $Config
+        $explicit = $true
+    } elseif (-not [string]::IsNullOrWhiteSpace($env:DISK_MONITOR_CONFIG)) {
+        $candidate = $env:DISK_MONITOR_CONFIG
+        $explicit = $true
+    } elseif (Test-Path -LiteralPath "./.diskmonitor.conf" -PathType Leaf) {
+        $candidate = "./.diskmonitor.conf"
+    } elseif (Test-Path -LiteralPath "$env:HOME/.config/disk-monitor/config" -PathType Leaf) {
+        $candidate = "$env:HOME/.config/disk-monitor/config"
+    }
+
+    if (-not [string]::IsNullOrWhiteSpace($candidate)) {
+        if (-not (Test-Path -LiteralPath $candidate -PathType Leaf)) {
+            if ($explicit) {
+                Write-ErrorLine "$($Colors.Red)Error: Configuration file '$candidate' does not exist.$($Colors.Reset)"
+                exit 1
+            }
+        } else {
+            Read-ConfigFile -Path $candidate
+        }
+    }
+
+    $setting = Resolve-Setting -FlagValue $Partition -FlagSet $script:FlagPartitionSet -EnvironmentValue ([string]$env:DISK_MONITOR_PARTITION) -ConfigValue $script:ConfigPartition -DefaultValue "/"
+    $script:Partition = $setting.Value
+    $script:SourcePartition = $setting.Source
+
+    $setting = Resolve-Setting -FlagValue $Threshold -FlagSet $script:FlagThresholdSet -EnvironmentValue ([string]$env:DISK_MONITOR_THRESHOLD) -ConfigValue $script:ConfigThreshold -DefaultValue "80"
+    $script:Threshold = $setting.Value
+    $script:SourceThreshold = $setting.Source
+
+    $setting = Resolve-Setting -FlagValue $Notify -FlagSet $script:FlagNotifySet -EnvironmentValue ([string]$env:DISK_MONITOR_NOTIFY) -ConfigValue $script:ConfigNotify -DefaultValue "mail"
+    $script:Notify = $setting.Value
+    $script:SourceNotify = $setting.Source
+
+    $setting = Resolve-Setting -FlagValue $To -FlagSet $script:FlagToSet -EnvironmentValue ([string]$env:DISK_MONITOR_TO) -ConfigValue $script:ConfigTo -DefaultValue ""
+    $script:To = $setting.Value
+    $script:SourceTo = $setting.Source
+
+    $setting = Resolve-Setting -FlagValue $MailCommand -FlagSet $script:FlagMailCommandSet -EnvironmentValue ([string]$env:DISK_MONITOR_MAIL_COMMAND) -ConfigValue $script:ConfigMailCommand -DefaultValue ""
+    $script:MailCommand = $setting.Value
+    $script:SourceMailCommand = $setting.Source
+
+    $setting = Resolve-Setting -FlagValue $LogFile -FlagSet $script:FlagLogFileSet -EnvironmentValue ([string]$env:DISK_MONITOR_LOG_FILE) -ConfigValue $script:ConfigLogFile -DefaultValue ""
+    $script:LogFile = $setting.Value
+    $script:SourceLogFile = $setting.Source
+
+    $setting = Resolve-Setting -FlagValue "" -FlagSet $false -EnvironmentValue ([string]$env:DISK_MONITOR_USAGE_COMMAND) -ConfigValue $script:ConfigUsageCommand -DefaultValue "df"
+    $script:UsageCommand = $setting.Value
+    $script:SourceUsageCommand = $setting.Source
+
+    $setting = Resolve-Setting -FlagValue "" -FlagSet $false -EnvironmentValue ([string]$env:DISK_MONITOR_USAGE_OVERRIDE) -ConfigValue $script:ConfigUsageOverride -DefaultValue ""
+    $script:UsageOverride = $setting.Value
+    $script:SourceUsageOverride = $setting.Source
 }
 
 # Reads the usage percentage from the POSIX df output.
@@ -230,8 +432,8 @@ function Get-DiskUsagePercent {
         [string]$Command
     )
 
-    if (-not [string]::IsNullOrWhiteSpace($env:DISK_MONITOR_USAGE_OVERRIDE)) {
-        return [int]$env:DISK_MONITOR_USAGE_OVERRIDE
+    if (-not [string]::IsNullOrWhiteSpace($script:UsageOverride)) {
+        return [int]$script:UsageOverride
     }
 
     if (-not [string]::IsNullOrWhiteSpace($Command)) {
@@ -248,9 +450,6 @@ function Resolve-MailCommand {
     param([string]$Override)
 
     $candidate = $Override
-    if ([string]::IsNullOrWhiteSpace($candidate)) {
-        $candidate = $env:DISK_MONITOR_MAIL_COMMAND
-    }
 
     if (-not [string]::IsNullOrWhiteSpace($candidate)) {
         if (Test-Path -LiteralPath $candidate -PathType Leaf) {
@@ -297,6 +496,20 @@ function Invoke-DiskMonitor {
         exit 0
     }
 
+    Resolve-Settings
+
+    if ($script:Threshold -notmatch '^\d+$' -or [int]$script:Threshold -lt 1 -or [int]$script:Threshold -gt 100) {
+        Write-ErrorLine "$($Colors.Red)Error: Threshold must be an integer between 1 and 100.$($Colors.Reset)"
+        Write-AuditLog -Level "ERROR" -Message "Invalid threshold: '$script:Threshold'."
+        exit 1
+    }
+
+    if ($script:Notify -ne "none" -and $script:Notify -ne "mail") {
+        Write-ErrorLine "$($Colors.Red)Error: Notify backend must be 'none' or 'mail'.$($Colors.Reset)"
+        Write-AuditLog -Level "ERROR" -Message "Invalid notify backend: '$script:Notify'."
+        exit 1
+    }
+
     $resolvedPartition = $Partition
     if ([string]::IsNullOrWhiteSpace($resolvedPartition)) {
         if ($IsWindows) {
@@ -312,7 +525,7 @@ function Invoke-DiskMonitor {
         exit 1
     }
 
-    $usageOverride = $env:DISK_MONITOR_USAGE_OVERRIDE
+    $usageOverride = $script:UsageOverride
     if (-not [string]::IsNullOrWhiteSpace($usageOverride)) {
         $parsedOverride = 0
         $isNumeric = [int]::TryParse($usageOverride, [ref]$parsedOverride)
@@ -344,9 +557,6 @@ function Invoke-DiskMonitor {
     }
 
     $recipient = $To
-    if ([string]::IsNullOrWhiteSpace($recipient)) {
-        $recipient = $env:DISK_MONITOR_TO
-    }
 
     $resolvedMailCommand = ""
     if ($Notify -eq "mail") {
@@ -372,7 +582,7 @@ function Invoke-DiskMonitor {
     }
 
     $usageSource = "measured"
-    if (-not [string]::IsNullOrWhiteSpace($env:DISK_MONITOR_USAGE_OVERRIDE)) {
+    if (-not [string]::IsNullOrWhiteSpace($script:UsageOverride)) {
         $usageSource = "overridden"
     }
 

@@ -95,7 +95,7 @@ STUB
     export STUB_DF_USAGE=49
     export STUB_DF_FAIL=0
     export STUB_MAIL_FAIL=0
-    unset DISK_MONITOR_TO DISK_MONITOR_MAIL_COMMAND DISK_MONITOR_USAGE_OVERRIDE DISK_MONITOR_USAGE_COMMAND || true
+    unset DISK_MONITOR_TO DISK_MONITOR_MAIL_COMMAND DISK_MONITOR_USAGE_OVERRIDE DISK_MONITOR_USAGE_COMMAND DISK_MONITOR_CONFIG DISK_MONITOR_THRESHOLD DISK_MONITOR_PARTITION DISK_MONITOR_NOTIFY DISK_MONITOR_LOG_FILE || true
 }
 
 teardown() {
@@ -152,6 +152,20 @@ assert_file_exists() {
 
 # Asserts that the mail agent was never invoked. The capture file is created
 # by the harness itself, so the assertion is on its contents, not its absence.
+assert_not_contains() {
+    local haystack="$1"
+    local needle="$2"
+    local test_name="$3"
+
+    if [[ "$haystack" != *"$needle"* ]]; then
+        printf "%b[PASS]%b %s\n" "$GREEN" "$RESET" "$test_name"
+        ((PASSED_TESTS++)) || true
+    else
+        printf "%b[FAIL]%b %s (Expected NOT to contain: '%s')\n" "$RED" "$RESET" "$test_name" "$needle" >&2
+        ((FAILED_TESTS++)) || true
+    fi
+}
+
 assert_capture_empty() {
     local test_name="$1"
     local capture=""
@@ -443,6 +457,135 @@ test_mount_point_with_spaces() {
     teardown
 }
 
+# Test 26: A configuration file supplies the partition and the threshold.
+test_config_file_values() {
+    setup
+    local config_file="$TEST_SANDBOX/diskmonitor.conf"
+    printf '# a comment line\npartition = /tmp\nthreshold = 60\n' > "$config_file"
+    export STUB_DF_USAGE=70
+    run_monitor --config "$config_file" --notify none
+    assert_equals "0" "$LAST_EXIT_CODE" "Test 26a: A configuration file is accepted"
+    assert_contains "$LAST_STDOUT" "/tmp" "Test 26b: The configured partition is used"
+    assert_contains "$LAST_STDOUT" "WARNING" "Test 26c: The configured threshold is used"
+    teardown
+}
+
+# Test 27: A command line flag overrides the configuration file.
+test_config_precedence_flag() {
+    setup
+    local config_file="$TEST_SANDBOX/diskmonitor.conf"
+    printf 'threshold = 60\n' > "$config_file"
+    export STUB_DF_USAGE=70
+    run_monitor --config "$config_file" --threshold 90 --notify none
+    assert_equals "0" "$LAST_EXIT_CODE" "Test 27a: The run succeeds"
+    assert_not_contains "$LAST_STDOUT" "WARNING" "Test 27b: The flag overrides the configured threshold"
+    teardown
+}
+
+# Test 28: An environment variable overrides the configuration file.
+test_config_precedence_environment() {
+    setup
+    local config_file="$TEST_SANDBOX/diskmonitor.conf"
+    printf 'threshold = 60\n' > "$config_file"
+    export STUB_DF_USAGE=70
+    export DISK_MONITOR_THRESHOLD=90
+    run_monitor --config "$config_file" --notify none
+    assert_equals "0" "$LAST_EXIT_CODE" "Test 28a: The run succeeds"
+    assert_not_contains "$LAST_STDOUT" "WARNING" "Test 28b: The environment overrides the configured threshold"
+    teardown
+}
+
+# Test 29: A command line flag overrides the environment variable.
+test_config_precedence_flag_over_environment() {
+    setup
+    export STUB_DF_USAGE=70
+    export DISK_MONITOR_THRESHOLD=90
+    run_monitor --threshold 20 --notify none
+    assert_equals "0" "$LAST_EXIT_CODE" "Test 29a: The run succeeds"
+    assert_contains "$LAST_STDOUT" "WARNING" "Test 29b: The flag overrides the environment"
+    teardown
+}
+
+# Test 30: The configuration file supplies the recipient.
+test_config_file_recipient() {
+    setup
+    local config_file="$TEST_SANDBOX/diskmonitor.conf"
+    printf 'to = oncall@example.com\nthreshold = 60\n' > "$config_file"
+    export STUB_DF_USAGE=70
+    run_monitor --config "$config_file" --mail-command "$STUB_DIR/mail"
+    assert_equals "0" "$LAST_EXIT_CODE" "Test 30a: The run succeeds"
+    assert_contains "$(cat "$CAPTURE_FILE" 2>/dev/null || true)" "oncall@example.com" "Test 30b: The configured recipient is used"
+    teardown
+}
+
+# Test 31: A configuration file that does not exist is a configuration error.
+test_config_file_missing() {
+    setup
+    run_monitor --config "$TEST_SANDBOX/no-such-file.conf" --notify none
+    assert_equals "1" "$LAST_EXIT_CODE" "Test 31: A missing configuration file exits with code 1"
+    teardown
+}
+
+# Test 32: A malformed line is reported and ignored; the rest still applies.
+test_config_file_malformed_line() {
+    setup
+    local config_file="$TEST_SANDBOX/diskmonitor.conf"
+    printf 'this line has no separator\nthreshold = 60\n' > "$config_file"
+    export STUB_DF_USAGE=70
+    run_monitor --config "$config_file" --notify none
+    assert_equals "0" "$LAST_EXIT_CODE" "Test 32a: The run succeeds despite a malformed line"
+    assert_contains "$LAST_STDERR" "malformed" "Test 32b: The malformed line is reported"
+    assert_contains "$LAST_STDOUT" "WARNING" "Test 32c: The valid lines are still applied"
+    teardown
+}
+
+# Test 33: An unknown key is reported and ignored.
+test_config_file_unknown_key() {
+    setup
+    local config_file="$TEST_SANDBOX/diskmonitor.conf"
+    printf 'threshold = 60\nnot_a_real_key = value\n' > "$config_file"
+    export STUB_DF_USAGE=70
+    run_monitor --config "$config_file" --notify none
+    assert_equals "0" "$LAST_EXIT_CODE" "Test 33a: The run succeeds despite an unknown key"
+    assert_contains "$LAST_STDERR" "not_a_real_key" "Test 33b: The unknown key is reported"
+    teardown
+}
+
+# Test 34: A quoted value keeps its spaces.
+test_config_file_quoted_value() {
+    setup
+    local config_file="$TEST_SANDBOX/diskmonitor.conf"
+    printf 'to = "ops team@example.com"\nthreshold = 60\n' > "$config_file"
+    export STUB_DF_USAGE=70
+    run_monitor --config "$config_file" --mail-command "$STUB_DIR/mail"
+    assert_equals "0" "$LAST_EXIT_CODE" "Test 34a: The run succeeds"
+    assert_contains "$(cat "$CAPTURE_FILE" 2>/dev/null || true)" "ops team@example.com" "Test 34b: The quoted value keeps its spaces"
+    teardown
+}
+
+# Test 35: The configuration file path can come from the environment.
+test_config_file_from_environment() {
+    setup
+    local config_file="$TEST_SANDBOX/diskmonitor.conf"
+    printf 'threshold = 60\n' > "$config_file"
+    export STUB_DF_USAGE=70
+    export DISK_MONITOR_CONFIG="$config_file"
+    run_monitor --notify none
+    assert_equals "0" "$LAST_EXIT_CODE" "Test 35a: The run succeeds"
+    assert_contains "$LAST_STDOUT" "WARNING" "Test 35b: The configured threshold is used"
+    teardown
+}
+
+# Test 36: A configuration file without a separator is not a valid file.
+test_config_file_without_separator() {
+    setup
+    local config_file="$TEST_SANDBOX/diskmonitor.conf"
+    printf 'partition = /tmp\nthreshold = 60\n' > "$config_file"
+    run_monitor --config "$config_file" --notify none
+    assert_equals "0" "$LAST_EXIT_CODE" "Test 36a: A well formed configuration file is accepted"
+    teardown
+}
+
 # Run all tests
 printf "%bStarting Bash Disk Monitor Test Suite...%b\n" "$CYAN" "$RESET"
 test_help_menu
@@ -470,6 +613,17 @@ test_usage_command_override
 test_missing_usage_command
 test_default_measurement_source
 test_mount_point_with_spaces
+test_config_file_values
+test_config_precedence_flag
+test_config_precedence_environment
+test_config_precedence_flag_over_environment
+test_config_file_recipient
+test_config_file_missing
+test_config_file_malformed_line
+test_config_file_unknown_key
+test_config_file_quoted_value
+test_config_file_from_environment
+test_config_file_without_separator
 
 printf "============================================================\n"
 printf "Tests Summary: %b%d Passed%b, %b%d Failed%b\n" "$GREEN" "$PASSED_TESTS" "$RESET" "$RED" "$FAILED_TESTS" "$RESET"
