@@ -166,8 +166,8 @@ Windows behaviour of the HTTP transport provable rather than asserted.
 
 | ID | Specs | Task | Route | Status | Evidence |
 | :--- | :--- | :-- | :-- | :-- | :-- |
-| T0 | S1, S4 | Create the branch; record the module 1 baseline | Inline | ⬜ | — |
-| T1 | S9, S10, S11 | The configuration file: parser, precedence, secret handling, both implementations | Inline | ⬜ | — |
+| T0 | S1, S4 | Create the branch; record the module 1 baseline | Inline | ✅ | `feat/1-universal-transport`, baseline 55 passed, 0 failed |
+| T1 | S9, S10, S11 | The configuration file: parser, precedence, secret handling, both implementations | Inline | ✅ | `a3cea7a` + three fixes — **77 passed, 0 failed** on all four suite jobs in run `39646002248` |
 | T2 | S5, S6, S7, S8 | The HTTP transport: both implementations, with a stub client on `PATH` | Inline | ⬜ | — |
 | T3 | S12, S13 | The doctor command: both implementations, with the per-platform remedy | Inline | ⬜ | — |
 | T4 | S14, S15, S20 | Parity proof across the two implementations, including the transports that already existed | Inline | ⬜ | — |
@@ -226,6 +226,33 @@ the local-mail-agent limitation and the retrofit is paid seven times, on code th
 merged.
 
 **L5** — 2026-10-21. Next step: **T0**.
+
+**L6** — 2026-10-21. T0 and T1 executed on `feat/1-universal-transport`. The configuration file
+lands with the precedence it participates in: a flag, then an environment variable, then the file,
+then the built-in default, and every setting records where its value came from.
+
+- **RED:** 61 passed, 16 failed against module 1, because `--config` did not exist. **GREEN:** 77
+  passed, 0 failed, on all four suite jobs — Bash on Linux and macOS, PowerShell on Ubuntu and
+  Windows — in run `39646002248`.
+- **The binder knows which parameters were supplied, and it had to be captured in the script
+  scope.** Inside a function `$PSBoundParameters` describes the function's own parameters, so the
+  flags would have been silently ignored and only the environment variables would have worked.
+- **A configuration file can supply a value the binder never saw**, so the threshold and the notify
+  backend are validated again after the resolution, on both sides.
+- **Four defects were found by the CI runs, none of them locally.** The new PowerShell tests called
+  the environment helpers by names the file did not define. The measurement command default was the
+  same on every platform, so Windows looked for `df` and failed. The default partition became the
+  filesystem root on every platform, so Windows looked for a path that does not exist there and fell
+  through to the volume API with the wrong device. The analyzer returns a single object when it
+  finds a single issue, and adding a single object to an array fails.
+- **The shell linter rejected the recorded sources as unused.** They are now reported by the
+  verbose output, which is what the diagnostic flag is for and what the doctor will reuse.
+- The HTTP settings are not parsed yet, on either implementation, because the transport that reads
+  them is T2. The two sides stay in parity.
+
+**L7** — 2026-10-21. Next step: **T2**. The HTTP transport: one implementation that covers every
+HTTP notification service, with a stub client on `PATH` so the suite is deterministic on every
+platform.
 
 ---
 
