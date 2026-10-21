@@ -169,7 +169,7 @@ Windows behaviour of the HTTP transport provable rather than asserted.
 | T0 | S1, S4 | Create the branch; record the module 1 baseline | Inline | ✅ | `feat/1-universal-transport`, baseline 55 passed, 0 failed |
 | T1 | S9, S10, S11 | The configuration file: parser, precedence, secret handling, both implementations | Inline | ✅ | `a3cea7a` + three fixes — **77 passed, 0 failed** on all four suite jobs in run `39646002248` |
 | T2 | S5, S6, S7, S8 | The HTTP transport: both implementations, with a stub client on `PATH` | Inline | ✅ | `fd12e3e` + `aae787e` — **171 passed, 0 failed** on all four suite jobs in run `39654069737` |
-| T3 | S12, S13 | The doctor command: both implementations, with the per-platform remedy | Inline | ✅ | `cc99bd4` + `df29e38` — **240 passed, 0 failed** on the Bash suite; the PowerShell suite is a CI-only gate on this host and stays unproven until the branch runs in CI |
+| T3 | S12, S13 | The doctor command: both implementations, with the per-platform remedy | Inline | ✅ | `cc99bd4` + `df29e38` + `efba983` + `e5c32d5` — **243 passed, 0 failed** on the Bash suite and **green on all six CI jobs** (run `39677118704`: Bash on Linux and macOS, PowerShell on Ubuntu and Windows, both lint gates) |
 | T4 | S14, S15, S20 | Parity proof across the two implementations, including the transports that already existed | Inline | ⬜ | — |
 | T5 | S16, S19 | The CI pipeline: no new job needed, but the new behaviour must be proven on all three platforms | Inline | ⬜ | — |
 | T6 | S2, S3, S16 | `SPECS.md`, `ROADMAP.md`, `CODESTYLE.md`, `README.md` | Delegated | ⬜ | — |
@@ -349,6 +349,33 @@ defect that no local run could have found.
     who copies it keeps the exposure.
   - The remedy is built by pasting the path between single quotes, so a path that holds a
     quote produces a command that is broken when it is pasted.
+- The next step: **T4**, the parity proof across the two implementations, with T11 in the
+  queue behind it.
+
+**L12** — 2026-10-21. The branch was pushed, and the CI on three platforms found three
+defects that no local run could have found. All of them are fixed, and the CI is green on
+all six jobs: `39677118704`.
+
+- **The remedy of a missing dependency asked the kernel for its name with the `uname`
+  command**, and the doctor runs with a restricted PATH, where `uname` is not there. The
+  remedy of macOS therefore named no package manager at all. The kernel name comes from the
+  shell's own variable when the command is not on the PATH, and the platform name and the
+  install command read it from one place.
+- **The resolved threshold was stored in the variable of the command line parameter**, which
+  was bound to an integer, and the validation attribute of the parameter held the variable
+  and not only the binding. A threshold of the configuration file that was out of range was
+  therefore refused by the assignment, without a word, and the doctor reported the tool as
+  ready. The parameter is a string now, the attributes are gone, and the value of every
+  source is judged by the validation, which is what the doctor reports. The exit codes do
+  not change, and the two implementations now reject the same value with the same message.
+- **The test of the sanitised report asserted that the output holds no carriage return**,
+  and a host that ends its lines with one puts a carriage return in every line, so the
+  assertion could never hold on Windows. The test now asserts that the value opens no line
+  of the report and that the control character is gone, which holds on every platform.
+- **The evidence of T3 is now the CI and not only the local Bash suite**: 243 assertions on
+  Bash on Linux and macOS, and the PowerShell suite on Ubuntu and on Windows. The
+  withdrawal of the PowerShell claim of `cc99bd4` stands for that commit and is answered
+  from here on.
 - The next step: **T4**, the parity proof across the two implementations, with T11 in the
   queue behind it.
 
