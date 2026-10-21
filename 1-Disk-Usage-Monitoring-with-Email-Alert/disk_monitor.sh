@@ -44,9 +44,6 @@ CONFIG_MAIL_COMMAND=""
 CONFIG_LOG_FILE=""
 CONFIG_USAGE_COMMAND=""
 CONFIG_USAGE_OVERRIDE=""
-CONFIG_URL=""
-CONFIG_BODY_TEMPLATE=""
-CONFIG_TIMEOUT=""
 CONFIG_HEADERS=""
 
 # Whether the command line supplied each setting
@@ -214,9 +211,6 @@ parse_config_file() {
             log_file) CONFIG_LOG_FILE="$value" ;;
             usage_command) CONFIG_USAGE_COMMAND="$value" ;;
             usage_override) CONFIG_USAGE_OVERRIDE="$value" ;;
-            url) CONFIG_URL="$value" ;;
-            body_template) CONFIG_BODY_TEMPLATE="$value" ;;
-            timeout) CONFIG_TIMEOUT="$value" ;;
             header)
                 if [[ -n "$CONFIG_HEADERS" ]]; then
                     CONFIG_HEADERS="${CONFIG_HEADERS}"$'\n'"${value}"
@@ -544,7 +538,8 @@ main() {
         printf "%bDiagnostics        : %bpartition %s, threshold %s, notify %s, recipient %s, mail command %s, log file %s, usage command %s, usage override %s%b\n" \
             "$COLOR_BLUE" "$COLOR_RESET" \
             "$SOURCE_PARTITION" "$SOURCE_THRESHOLD" "$SOURCE_NOTIFY" "$SOURCE_TO" \
-            "$SOURCE_MAIL_COMMAND" "$SOURCE_LOG_FILE" "$SOURCE_USAGE_COMMAND" "$SOURCE_USAGE_OVERRIDE"
+            "$SOURCE_MAIL_COMMAND" "$SOURCE_LOG_FILE" "$SOURCE_USAGE_COMMAND" "$SOURCE_USAGE_OVERRIDE" \
+            "$COLOR_RESET"
     fi
 
     if [[ "$used_percent" -gt "$THRESHOLD" ]]; then

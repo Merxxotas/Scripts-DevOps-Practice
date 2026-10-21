@@ -100,9 +100,6 @@ $script:ConfigMailCommand = ""
 $script:ConfigLogFile = ""
 $script:ConfigUsageCommand = ""
 $script:ConfigUsageOverride = ""
-$script:ConfigUrl = ""
-$script:ConfigBodyTemplate = ""
-$script:ConfigTimeout = ""
 $script:ConfigHeaders = @()
 
 # Whether the command line supplied each setting. The binder knows, and it
@@ -267,9 +264,6 @@ function Read-ConfigFile {
             "log_file" { $script:ConfigLogFile = $value }
             "usage_command" { $script:ConfigUsageCommand = $value }
             "usage_override" { $script:ConfigUsageOverride = $value }
-            "url" { $script:ConfigUrl = $value }
-            "body_template" { $script:ConfigBodyTemplate = $value }
-            "timeout" { $script:ConfigTimeout = $value }
             "header" { $script:ConfigHeaders += $value }
             default {
                 Write-ErrorLine "$($Colors.Yellow)Warning: ignoring unknown configuration key '$key' in '$script:ConfigFilePath'.$($Colors.Reset)"
@@ -331,7 +325,11 @@ function Resolve-Settings {
         }
     }
 
-    $setting = Resolve-Setting -FlagValue $Partition -FlagSet $script:FlagPartitionSet -EnvironmentValue ([string]$env:DISK_MONITOR_PARTITION) -ConfigValue $script:ConfigPartition -DefaultValue "/"
+    $partitionDefault = "/"
+    if ($IsWindows) {
+        $partitionDefault = "$env:SystemDrive\"
+    }
+    $setting = Resolve-Setting -FlagValue $Partition -FlagSet $script:FlagPartitionSet -EnvironmentValue ([string]$env:DISK_MONITOR_PARTITION) -ConfigValue $script:ConfigPartition -DefaultValue $partitionDefault
     $script:Partition = $setting.Value
     $script:SourcePartition = $setting.Source
 
