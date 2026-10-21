@@ -177,7 +177,7 @@ Windows behaviour of the HTTP transport provable rather than asserted.
 | T8 | S3 | The wiki pages 13 to 15, the sidebar, the home page and the architecture page | Delegated | ⬜ | — |
 | T9 | S3, S16 | `MODULES.md`, the root `README.md` and `CHANGELOG.md` | Delegated | ⬜ | — |
 | T10 | S17, S18 | Full local matrix verification; close with a `Risk:` line | Inline | ⬜ | — |
-| T11 | S11, S13 | The advisory findings of the native review of the doctor work | Inline | ⬜ | 28 non-blocking findings, receipt `review-b79e589c5ce6f3ed` |
+| T11 | S11, S13 | The advisory findings of the two native reviews of the doctor work | Inline | ⬜ | 55 findings in all, none of them blocking; the list is in **L11** and **L13**; receipts `review-b79e589c5ce6f3ed` and `review-ae75ad75bbff3c98` |
 
 > Task IDs are stable; the table is ordered by execution sequence.
 
@@ -376,6 +376,39 @@ all six jobs: `39677118704`.
   Bash on Linux and macOS, and the PowerShell suite on Ubuntu and on Windows. The
   withdrawal of the PowerShell claim of `cc99bd4` stands for that commit and is answered
   from here on.
+- The next step: **T4**, the parity proof across the two implementations, with T11 in the
+  queue behind it.
+
+**L13** — 2026-10-21. The CI fixes went through the native review as well, and the review
+approved the candidate without a correction. The receipt is `review-ae75ad75bbff3c98`.
+
+- **The critical finding of the second review was refuted, and the refutation is right.**
+  The new assertion of the sanitised report no longer proves that the carriage return of a
+  value is removed, because a lone carriage return opens no line in a text that is split on
+  line feeds. The assertion still fails when the value reaches the report unsanitised,
+  because the injected value carries a backspace as well and the backspace is asserted to
+  be gone. The gap that is left, a value that carries a carriage return and no backspace, is
+  a follow-up and not a blocker.
+- **The advisories of the second review are the follow-up work of T11**, and none of them
+  blocks:
+  - The binder holds no range and no set any more, so the value of the threshold and the
+    value of the notify backend are judged by the validation of the tool, and the suite does
+    not yet cover the range boundaries, a threshold that is not a number, or a transport the
+    tool does not support. (`R1-notify-mode-binder-constraint-removed`,
+    `R1-threshold-binder-range-removed`, `R3-3`, `R3-4`, `R4-notify-set-guard-removed`.)
+  - The threshold of the environment is not covered by any case of either suite, although
+    the environment may hold a value that is not a number. (`R4-env-threshold-source-unproven`.)
+  - The new assertion of the sanitised report treats the marker as a regular expression on
+    the Bash side and as a literal on the PowerShell side, and it reads its verdict from a
+    pipeline that a large report can break. (`R1-sanitiser-assertion-narrowed`, `R2-006`,
+    `R3-6`, `R4-bash-assert-false-pass`.)
+  - The comment of the platform name still describes the lookup that moved to the helper,
+    and the helper does not say what it returns when neither source answers. (`R2-003`,
+    `R2-004`, `R3-5`.)
+  - The case of the configuration file does not name the invalid threshold, so a doctor that
+    failed with another error would satisfy the test. (`R3-2`.)
+  - The rationale of the removed attributes sits in the help text, where a reader of the
+    help has no use for it. (`R2-001`, `R2-002`, `R2-005`.)
 - The next step: **T4**, the parity proof across the two implementations, with T11 in the
   queue behind it.
 
