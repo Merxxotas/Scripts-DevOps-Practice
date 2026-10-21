@@ -308,8 +308,10 @@ function Read-ConfigFile {
 
     $script:ConfigFilePath = $Path
     $lines = Get-Content -LiteralPath $Path -ErrorAction Stop
+    $lineNumber = 0
 
     foreach ($line in $lines) {
+        $lineNumber++
         $trimmed = Get-TrimmedValue -Value $line
 
         if ([string]::IsNullOrWhiteSpace($trimmed) -or $trimmed.StartsWith("#")) {
@@ -317,7 +319,9 @@ function Read-ConfigFile {
         }
 
         if (-not $trimmed.Contains("=")) {
-            Write-ErrorLine "$($Colors.Yellow)Warning: ignoring malformed line in '$script:ConfigFilePath': '$trimmed'$($Colors.Reset)"
+            # The line is named, never shown: a line pasted into the file by
+            # mistake may hold a bearer token.
+            Write-ErrorLine "$($Colors.Yellow)Warning: ignoring malformed line $lineNumber in '$script:ConfigFilePath'.$($Colors.Reset)"
             continue
         }
 
@@ -372,10 +376,13 @@ function Resolve-Setting {
     if ($FlagSet) {
         return [pscustomobject]@{ Value = $FlagValue; Source = "flag" }
     }
-    if (-not [string]::IsNullOrWhiteSpace($EnvironmentValue)) {
+    # An environment variable or a configuration value that holds only
+    # whitespace is a value, not an absence. The Bash implementation reads it
+    # the same way, so the two sides resolve the same setting the same way.
+    if (-not [string]::IsNullOrEmpty($EnvironmentValue)) {
         return [pscustomobject]@{ Value = $EnvironmentValue; Source = "environment" }
     }
-    if (-not [string]::IsNullOrWhiteSpace($ConfigValue)) {
+    if (-not [string]::IsNullOrEmpty($ConfigValue)) {
         return [pscustomobject]@{ Value = $ConfigValue; Source = "config" }
     }
     return [pscustomobject]@{ Value = $DefaultValue; Source = "default" }
@@ -501,8 +508,11 @@ function Split-HeaderLine {
 function Resolve-HeaderList {
     $envHeader = [string]$env:DISK_MONITOR_HEADER
 
-    if ($script:FlagHeaderSet -and $Header.Count -gt 0) {
-        $script:ResolvedHeaders = @(Split-HeaderLine -HeaderValues $Header)
+    if ($script:FlagHeaderSet) {
+        $script:ResolvedHeaders = @()
+        if ($Header.Count -gt 0) {
+            $script:ResolvedHeaders = @(Split-HeaderLine -HeaderValues $Header)
+        }
         $script:SourceHeader = "flag"
         return
     }
@@ -792,7 +802,9 @@ function Send-HttpAlert {
     $clientArgs += @("--data-binary", "@-", $Endpoint)
 
     try {
-        $Body | & $Client @clientArgs 2>$null | Out-Null
+        # The client's own diagnostics are left on the error stream, so a
+        # failed request says why. The Bash implementation behaves the same.
+        $Body | & $Client @clientArgs | Out-Null
         return ($LASTEXITCODE -eq 0)
     } catch {
         return $false

@@ -227,8 +227,10 @@ parse_config_file() {
     local line
     local key
     local value
+    local line_number=0
 
     while IFS= read -r line || [[ -n "$line" ]]; do
+        line_number=$((line_number + 1))
         # A configuration file edited on Windows may carry carriage returns.
         line="${line%$'\r'}"
         line="$(trim "$line")"
@@ -238,8 +240,10 @@ parse_config_file() {
         fi
 
         if [[ "$line" != *"="* ]]; then
-            printf "%bWarning: ignoring malformed line in '%s': '%s'%b\n" \
-                "$COLOR_YELLOW" "$CONFIG_FILE" "$line" "$COLOR_RESET" >&2
+            # The line is named, never shown: a line pasted into the file by
+            # mistake may hold a bearer token.
+            printf "%bWarning: ignoring malformed line %d in '%s'.%b\n" \
+                "$COLOR_YELLOW" "$line_number" "$CONFIG_FILE" "$COLOR_RESET" >&2
             continue
         fi
 
@@ -431,8 +435,11 @@ resolve_headers() {
     local config_header="$CONFIG_HEADERS"
     local header_line=""
 
-    if [[ "$FLAG_HEADER_SET" == "true" && "${#HTTP_HEADER_ARGS[@]}" -gt 0 ]]; then
-        HTTP_HEADERS=("${HTTP_HEADER_ARGS[@]}")
+    if [[ "$FLAG_HEADER_SET" == "true" ]]; then
+        HTTP_HEADERS=()
+        if [[ "${#HTTP_HEADER_ARGS[@]}" -gt 0 ]]; then
+            HTTP_HEADERS=("${HTTP_HEADER_ARGS[@]}")
+        fi
         SOURCE_HEADER="flag"
         return 0
     fi
@@ -496,11 +503,14 @@ validate_headers() {
 
 # Resolves the HTTP client that carries the request. The contract is:
 #   --http-command  ->  DISK_MONITOR_HTTP_COMMAND  ->  curl
+# An override may be a path to a file or the name of a command on PATH. The
+# file is accepted when it exists: whether it can be run is decided when the
+# request is made, which is the same rule the other implementation follows.
 resolve_http_command() {
     local candidate=""
 
     if [[ -n "$HTTP_COMMAND_OVERRIDE" ]]; then
-        if [[ -x "$HTTP_COMMAND_OVERRIDE" ]]; then
+        if [[ -f "$HTTP_COMMAND_OVERRIDE" ]]; then
             printf '%s' "$HTTP_COMMAND_OVERRIDE"
             return 0
         fi

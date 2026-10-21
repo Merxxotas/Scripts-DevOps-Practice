@@ -686,7 +686,7 @@ test_http_transport_sends_the_request() {
 test_http_body_template_placeholders() {
     setup
     export STUB_DF_USAGE=95
-    run_monitor -t 80 --notify http --url "https://ntfy.sh/disk-alerts" \
+    run_monitor -p "$TEST_SANDBOX" -t 80 --notify http --url "https://ntfy.sh/disk-alerts" \
         --body-template '{host}|{partition}|{usage}|{threshold}|{recipient}|{timestamp}|{subject}' \
         --http-command "$STUB_DIR/curl"
     assert_equals "0" "$LAST_EXIT_CODE" "Test 38a: The run succeeds"
@@ -694,7 +694,7 @@ test_http_body_template_placeholders() {
     local capture=""
     capture="$(cat "$HTTP_CAPTURE_FILE" 2>/dev/null || true)"
     assert_contains "$capture" "|" "Test 38b: The template is rendered"
-    assert_contains "$capture" "|/" "Test 38c: The partition placeholder is substituted"
+    assert_contains "$capture" "|$TEST_SANDBOX|" "Test 38c: The partition placeholder is substituted"
     assert_contains "$capture" "|95%|80%|" "Test 38d: The usage and threshold placeholders are substituted"
     assert_contains "$capture" "https://ntfy.sh/disk-alerts|" "Test 38e: The recipient placeholder is the endpoint"
     assert_contains "$capture" "Disk Alert" "Test 38f: The subject placeholder is substituted"
@@ -706,13 +706,14 @@ test_http_body_template_placeholders() {
 test_http_default_body_template() {
     setup
     export STUB_DF_USAGE=95
-    run_monitor -t 80 --notify http --url "https://ntfy.sh/disk-alerts" --http-command "$STUB_DIR/curl"
+    run_monitor -p "$TEST_SANDBOX" -t 80 --notify http --url "https://ntfy.sh/disk-alerts" \
+        --http-command "$STUB_DIR/curl"
     assert_equals "0" "$LAST_EXIT_CODE" "Test 39a: The run succeeds"
 
     local capture=""
     capture="$(cat "$HTTP_CAPTURE_FILE" 2>/dev/null || true)"
     assert_contains "$capture" "Disk usage on" "Test 39b: The default body is the plain-text message"
-    assert_contains "$capture" "Partition : /" "Test 39c: The default body carries the partition"
+    assert_contains "$capture" "Partition : $TEST_SANDBOX" "Test 39c: The default body carries the partition"
     assert_contains "$capture" "Threshold: 80%" "Test 39d: The default body carries the threshold"
     teardown
 }
@@ -1031,6 +1032,103 @@ test_mail_transport_still_works() {
     teardown
 }
 
+# Test 64: The header comes from the environment variable.
+test_http_header_from_environment() {
+    setup
+    export STUB_DF_USAGE=95
+    export DISK_MONITOR_HEADER="X-From-Env: 1"
+    run_monitor -t 80 --notify http --url "https://ntfy.sh/disk-alerts" --http-command "$STUB_DIR/curl"
+    assert_equals "0" "$LAST_EXIT_CODE" "Test 64a: The run succeeds"
+
+    local capture=""
+    capture="$(cat "$HTTP_CAPTURE_FILE" 2>/dev/null || true)"
+    assert_contains "$capture" "ARG:X-From-Env: 1" "Test 64b: The environment header is used"
+    teardown
+}
+
+# Test 65: A header flag that was supplied wins over the environment, even
+# when its value is empty.
+test_http_empty_header_flag_wins() {
+    setup
+    export STUB_DF_USAGE=95
+    export DISK_MONITOR_HEADER="X-From-Env: 1"
+    run_monitor -t 80 --notify http --url "https://ntfy.sh/disk-alerts" --header "" \
+        --http-command "$STUB_DIR/curl"
+    assert_equals "0" "$LAST_EXIT_CODE" "Test 65a: The run succeeds"
+
+    local capture=""
+    capture="$(cat "$HTTP_CAPTURE_FILE" 2>/dev/null || true)"
+    assert_not_contains "$capture" "ARG:X-From-Env: 1" "Test 65b: The environment header is not used"
+    teardown
+}
+
+# Test 66: A client that exists but cannot be run is a partial failure.
+test_http_non_runnable_client() {
+    setup
+    export STUB_DF_USAGE=95
+    local unusable="$TEST_SANDBOX/not-executable.txt"
+    printf 'not a client\n' > "$unusable"
+    chmod 644 "$unusable"
+    run_monitor -t 80 --notify http --url "https://ntfy.sh/disk-alerts" --http-command "$unusable"
+    assert_equals "2" "$LAST_EXIT_CODE" "Test 66: A client that cannot be run exits with code 2"
+    teardown
+}
+
+# Test 67: A header value from the environment never reaches an output.
+test_http_environment_header_is_never_reported() {
+    setup
+    export STUB_DF_USAGE=95
+    local audit_file="$TEST_SANDBOX/logs/audit.log"
+    export DISK_MONITOR_HEADER="Authorization: Bearer env-secret-token"
+    run_monitor -t 80 --notify http --url "https://ntfy.sh/disk-alerts" --http-command "$STUB_DIR/curl" \
+        -l "$audit_file"
+    assert_equals "0" "$LAST_EXIT_CODE" "Test 67a: The run succeeds"
+
+    local audit_content=""
+    audit_content="$(cat "$audit_file" 2>/dev/null || true)"
+    assert_contains "$(cat "$HTTP_CAPTURE_FILE" 2>/dev/null || true)" "Authorization: Bearer env-secret-token" "Test 67b: The header does reach the request"
+    assert_not_contains "$LAST_STDOUT" "env-secret-token" "Test 67c: The header value is not printed"
+    assert_not_contains "$LAST_STDERR" "env-secret-token" "Test 67d: The header value is not reported as an error"
+    assert_not_contains "$audit_content" "env-secret-token" "Test 67e: The header value is not written to the audit log"
+    teardown
+}
+
+# Test 68: A header value from the configuration file never reaches an output.
+test_http_config_header_is_never_reported() {
+    setup
+    export STUB_DF_USAGE=95
+    local audit_file="$TEST_SANDBOX/logs/audit.log"
+    local config_file="$TEST_SANDBOX/diskmonitor.conf"
+    printf 'header = Authorization: Bearer config-secret-token\nurl = https://ntfy.sh/disk-alerts\n' > "$config_file"
+    run_monitor --config "$config_file" -t 80 --notify http --http-command "$STUB_DIR/curl" \
+        -l "$audit_file"
+    assert_equals "0" "$LAST_EXIT_CODE" "Test 68a: The run succeeds"
+
+    local audit_content=""
+    audit_content="$(cat "$audit_file" 2>/dev/null || true)"
+    assert_contains "$(cat "$HTTP_CAPTURE_FILE" 2>/dev/null || true)" "Authorization: Bearer config-secret-token" "Test 68b: The header does reach the request"
+    assert_not_contains "$LAST_STDOUT" "config-secret-token" "Test 68c: The header value is not printed"
+    assert_not_contains "$LAST_STDERR" "config-secret-token" "Test 68d: The header value is not reported as an error"
+    assert_not_contains "$audit_content" "config-secret-token" "Test 68e: The header value is not written to the audit log"
+    teardown
+}
+
+# Test 69: A malformed configuration line is named, never shown, because a
+# line pasted into the file by mistake may hold a token.
+test_http_malformed_config_line_is_not_echoed() {
+    setup
+    export STUB_DF_USAGE=95
+    local config_file="$TEST_SANDBOX/diskmonitor.conf"
+    printf 'Authorization: Bearer pasted-secret-token\nthreshold = 60\n' > "$config_file"
+    run_monitor --config "$config_file" -t 80 --notify http --url "https://ntfy.sh/disk-alerts" \
+        --http-command "$STUB_DIR/curl"
+    assert_equals "0" "$LAST_EXIT_CODE" "Test 69a: The run succeeds"
+
+    assert_contains "$LAST_STDERR" "malformed" "Test 69b: The malformed line is reported"
+    assert_not_contains "$LAST_STDERR" "pasted-secret-token" "Test 69c: The malformed line is not echoed"
+    teardown
+}
+
 # Run all tests
 printf "%bStarting Bash Disk Monitor Test Suite...%b\n" "$CYAN" "$RESET"
 test_help_menu
@@ -1096,6 +1194,12 @@ test_http_report_shows_the_endpoint_only
 test_http_below_threshold_sends_nothing
 test_http_dry_run_sends_nothing
 test_mail_transport_still_works
+test_http_header_from_environment
+test_http_empty_header_flag_wins
+test_http_non_runnable_client
+test_http_environment_header_is_never_reported
+test_http_config_header_is_never_reported
+test_http_malformed_config_line_is_not_echoed
 
 printf "============================================================\n"
 printf "Tests Summary: %b%d Passed%b, %b%d Failed%b\n" "$GREEN" "$PASSED_TESTS" "$RESET" "$RED" "$FAILED_TESTS" "$RESET"

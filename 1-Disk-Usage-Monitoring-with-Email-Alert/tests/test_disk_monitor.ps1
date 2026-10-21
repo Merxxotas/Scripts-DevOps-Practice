@@ -338,6 +338,27 @@ function Get-HttpCapture {
     return $capture
 }
 
+# Asserts that the text matches a regular expression
+function Assert-Regex {
+    param(
+        [Parameter(Mandatory = $false)][AllowNull()][AllowEmptyString()][string]$Haystack = "",
+        [Parameter(Mandatory = $true)][string]$Pattern,
+        [Parameter(Mandatory = $true)][string]$TestName
+    )
+
+    if ($null -eq $Haystack) {
+        $Haystack = ""
+    }
+
+    if ($Haystack -match $Pattern) {
+        Write-Host "$([char]27)[0;32m[PASS]$([char]27)[0m $TestName"
+        $script:PassedCount++
+    } else {
+        Write-Host "$([char]27)[0;31m[FAIL]$([char]27)[0m $TestName (Expected to match: '$Pattern')"
+        $script:FailedCount++
+    }
+}
+
 # Test 1: Help exits with code 0 and documents the flags
 function Test-HelpMenu {
     Enter-TestEnvironment
@@ -806,10 +827,11 @@ function Test-HttpTransportSendsTheRequest {
 }
 
 # Test 38: The body template placeholders are substituted.
-function Test-HttpBodyTemplatePlaceholders {
+function Test-HttpBodyTemplatePlaceholder {
     Enter-TestEnvironment
     $env:DISK_MONITOR_STUB_DF_USAGE = "95"
     Invoke-Monitor -Arguments @(
+        "-Partition", $TestSandbox,
         "-Threshold", "80",
         "-Notify", "http",
         "-Url", "https://ntfy.sh/disk-alerts",
@@ -820,11 +842,11 @@ function Test-HttpBodyTemplatePlaceholders {
 
     $capture = Get-HttpCapture
     Assert-Match -Haystack $capture -Needle "|" -TestName "Test 38b: The template is rendered"
-    Assert-Match -Haystack $capture -Needle "|/" -TestName "Test 38c: The partition placeholder is substituted"
+    Assert-Match -Haystack $capture -Needle "|$TestSandbox|" -TestName "Test 38c: The partition placeholder is substituted"
     Assert-Match -Haystack $capture -Needle "|95%|80%|" -TestName "Test 38d: The usage and threshold placeholders are substituted"
     Assert-Match -Haystack $capture -Needle "https://ntfy.sh/disk-alerts|" -TestName "Test 38e: The recipient placeholder is the endpoint"
     Assert-Match -Haystack $capture -Needle "Disk Alert" -TestName "Test 38f: The subject placeholder is substituted"
-    Assert-Match -Haystack $capture -Needle "T" -TestName "Test 38g: The timestamp placeholder is substituted"
+    Assert-Regex -Haystack $capture -Pattern '\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z' -TestName "Test 38g: The timestamp placeholder is substituted"
     Exit-TestEnvironment
 }
 
@@ -832,12 +854,12 @@ function Test-HttpBodyTemplatePlaceholders {
 function Test-HttpDefaultBodyTemplate {
     Enter-TestEnvironment
     $env:DISK_MONITOR_STUB_DF_USAGE = "95"
-    Invoke-Monitor -Arguments @("-Threshold", "80", "-Notify", "http", "-Url", "https://ntfy.sh/disk-alerts", "-HttpCommand", $HttpStub)
+    Invoke-Monitor -Arguments @("-Partition", $TestSandbox, "-Threshold", "80", "-Notify", "http", "-Url", "https://ntfy.sh/disk-alerts", "-HttpCommand", $HttpStub)
     Assert-Equal -Expected 0 -Actual $script:LastRunExitCode -TestName "Test 39a: The run succeeds"
 
     $capture = Get-HttpCapture
     Assert-Match -Haystack $capture -Needle "Disk usage on" -TestName "Test 39b: The default body is the plain-text message"
-    Assert-Match -Haystack $capture -Needle "Partition : " -TestName "Test 39c: The default body carries the partition"
+    Assert-Match -Haystack $capture -Needle "Partition : $TestSandbox" -TestName "Test 39c: The default body carries the partition"
     Assert-Match -Haystack $capture -Needle "Threshold: 80%" -TestName "Test 39d: The default body carries the threshold"
     Exit-TestEnvironment
 }
@@ -957,7 +979,7 @@ function Test-HttpValuesFromConfigFile {
 }
 
 # Test 48: The flag wins over the environment and the configuration file.
-function Test-HttpPrecedenceFlagWins {
+function Test-HttpPrecedenceFlag {
     Enter-TestEnvironment
     $configFile = Join-Path $TestSandbox "diskmonitor.conf"
     Set-Content -LiteralPath $configFile -Value "url = https://ntfy.sh/from-config"
@@ -1158,7 +1180,7 @@ function Test-HttpDryRunSendsNothing {
 }
 
 # Test 62: The mail transport keeps working next to the HTTP transport.
-function Test-MailTransportStillWorks {
+function Test-MailTransport {
     Enter-TestEnvironment
     $env:DISK_MONITOR_STUB_DF_USAGE = "95"
     Invoke-Monitor -Arguments @("-Threshold", "80", "-Notify", "mail", "-To", "ops@example.com", "-MailCommand", $MailStub)
@@ -1175,7 +1197,7 @@ function Test-MailTransportStillWorks {
 }
 
 # Test 63: One header value may carry several headers, one per line.
-function Test-HttpHeaderValueWithSeveralLines {
+function Test-HttpMultiHeaderValue {
     Enter-TestEnvironment
     $env:DISK_MONITOR_STUB_DF_USAGE = "95"
     $env:DISK_MONITOR_HEADER = "X-One: 1`nX-Two: 2"
@@ -1185,6 +1207,110 @@ function Test-HttpHeaderValueWithSeveralLines {
     $capture = Get-HttpCapture
     Assert-Match -Haystack $capture -Needle "ARG:X-One: 1" -TestName "Test 63b: The first header of the value is used"
     Assert-Match -Haystack $capture -Needle "ARG:X-Two: 2" -TestName "Test 63c: The second header of the value is used"
+    Exit-TestEnvironment
+}
+
+# Test 64: The header comes from the environment variable.
+function Test-HttpHeaderFromEnvironment {
+    Enter-TestEnvironment
+    $env:DISK_MONITOR_STUB_DF_USAGE = "95"
+    $env:DISK_MONITOR_HEADER = "X-From-Env: 1"
+    Invoke-Monitor -Arguments @("-Threshold", "80", "-Notify", "http", "-Url", "https://ntfy.sh/disk-alerts", "-HttpCommand", $HttpStub)
+    Assert-Equal -Expected 0 -Actual $script:LastRunExitCode -TestName "Test 64a: The run succeeds"
+
+    $capture = Get-HttpCapture
+    Assert-Match -Haystack $capture -Needle "ARG:X-From-Env: 1" -TestName "Test 64b: The environment header is used"
+    Exit-TestEnvironment
+}
+
+# Test 65: A header flag that was supplied wins over the environment, even
+# when its value is empty.
+function Test-HttpEmptyHeaderFlag {
+    Enter-TestEnvironment
+    $env:DISK_MONITOR_STUB_DF_USAGE = "95"
+    $env:DISK_MONITOR_HEADER = "X-From-Env: 1"
+    Invoke-Monitor -Arguments @("-Threshold", "80", "-Notify", "http", "-Url", "https://ntfy.sh/disk-alerts", "-Header", "", "-HttpCommand", $HttpStub)
+    Assert-Equal -Expected 0 -Actual $script:LastRunExitCode -TestName "Test 65a: The run succeeds"
+
+    $capture = Get-HttpCapture
+    Assert-Absent -Haystack $capture -Needle "ARG:X-From-Env: 1" -TestName "Test 65b: The environment header is not used"
+    Exit-TestEnvironment
+}
+
+# Test 66: A client that exists but cannot be run is a partial failure.
+function Test-HttpNonRunnableClient {
+    Enter-TestEnvironment
+    $env:DISK_MONITOR_STUB_DF_USAGE = "95"
+    $unusable = Join-Path $TestSandbox "not-executable.txt"
+    Set-Content -LiteralPath $unusable -Value "not a client"
+    Invoke-Monitor -Arguments @("-Threshold", "80", "-Notify", "http", "-Url", "https://ntfy.sh/disk-alerts", "-HttpCommand", $unusable)
+    Assert-Equal -Expected 2 -Actual $script:LastRunExitCode -TestName "Test 66: A client that cannot be run exits with code 2"
+    Exit-TestEnvironment
+}
+
+# Test 67: A header value from the environment never reaches an output.
+function Test-HttpEnvironmentHeaderIsNeverReported {
+    Enter-TestEnvironment
+    $env:DISK_MONITOR_STUB_DF_USAGE = "95"
+    $auditFile = Join-Path $TestSandbox "logs/audit.log"
+    $env:DISK_MONITOR_HEADER = "Authorization: Bearer env-secret-token"
+    Invoke-Monitor -Arguments @("-Threshold", "80", "-Notify", "http", "-Url", "https://ntfy.sh/disk-alerts", "-HttpCommand", $HttpStub, "-LogFile", $auditFile)
+    Assert-Equal -Expected 0 -Actual $script:LastRunExitCode -TestName "Test 67a: The run succeeds"
+
+    $audit = ""
+    if (Test-Path -LiteralPath $auditFile) {
+        $raw = Get-Content -Raw -LiteralPath $auditFile
+        if ($null -ne $raw) { $audit = $raw }
+    }
+    $capture = Get-HttpCapture
+    Assert-Match -Haystack $capture -Needle "Authorization: Bearer env-secret-token" -TestName "Test 67b: The header does reach the request"
+    Assert-Absent -Haystack $script:LastStdout -Needle "env-secret-token" -TestName "Test 67c: The header value is not printed"
+    Assert-Absent -Haystack $script:LastStderr -Needle "env-secret-token" -TestName "Test 67d: The header value is not reported as an error"
+    Assert-Absent -Haystack $audit -Needle "env-secret-token" -TestName "Test 67e: The header value is not written to the audit log"
+    Exit-TestEnvironment
+}
+
+# Test 68: A header value from the configuration file never reaches an output.
+function Test-HttpConfigHeaderIsNeverReported {
+    Enter-TestEnvironment
+    $env:DISK_MONITOR_STUB_DF_USAGE = "95"
+    $auditFile = Join-Path $TestSandbox "logs/audit.log"
+    $configFile = Join-Path $TestSandbox "diskmonitor.conf"
+    Set-Content -LiteralPath $configFile -Value @(
+        "header = Authorization: Bearer config-secret-token"
+        "url = https://ntfy.sh/disk-alerts"
+    )
+    Invoke-Monitor -Arguments @("-Config", $configFile, "-Threshold", "80", "-Notify", "http", "-HttpCommand", $HttpStub, "-LogFile", $auditFile)
+    Assert-Equal -Expected 0 -Actual $script:LastRunExitCode -TestName "Test 68a: The run succeeds"
+
+    $audit = ""
+    if (Test-Path -LiteralPath $auditFile) {
+        $raw = Get-Content -Raw -LiteralPath $auditFile
+        if ($null -ne $raw) { $audit = $raw }
+    }
+    $capture = Get-HttpCapture
+    Assert-Match -Haystack $capture -Needle "Authorization: Bearer config-secret-token" -TestName "Test 68b: The header does reach the request"
+    Assert-Absent -Haystack $script:LastStdout -Needle "config-secret-token" -TestName "Test 68c: The header value is not printed"
+    Assert-Absent -Haystack $script:LastStderr -Needle "config-secret-token" -TestName "Test 68d: The header value is not reported as an error"
+    Assert-Absent -Haystack $audit -Needle "config-secret-token" -TestName "Test 68e: The header value is not written to the audit log"
+    Exit-TestEnvironment
+}
+
+# Test 69: A malformed configuration line is named, never shown, because a
+# line pasted into the file by mistake may hold a token.
+function Test-HttpMalformedConfigLineIsNotEchoed {
+    Enter-TestEnvironment
+    $env:DISK_MONITOR_STUB_DF_USAGE = "95"
+    $configFile = Join-Path $TestSandbox "diskmonitor.conf"
+    Set-Content -LiteralPath $configFile -Value @(
+        "Authorization: Bearer pasted-secret-token"
+        "threshold = 60"
+    )
+    Invoke-Monitor -Arguments @("-Config", $configFile, "-Threshold", "80", "-Notify", "http", "-Url", "https://ntfy.sh/disk-alerts", "-HttpCommand", $HttpStub)
+    Assert-Equal -Expected 0 -Actual $script:LastRunExitCode -TestName "Test 69a: The run succeeds"
+
+    Assert-Match -Haystack $script:LastStderr -Needle "malformed" -TestName "Test 69b: The malformed line is reported"
+    Assert-Absent -Haystack $script:LastStderr -Needle "pasted-secret-token" -TestName "Test 69c: The malformed line is not echoed"
     Exit-TestEnvironment
 }
 
@@ -1227,7 +1353,7 @@ Test-ConfigFileQuotedValue
 Test-ConfigFileFromEnvironment
 Test-ConfigFileWellFormed
 Test-HttpTransportSendsTheRequest
-Test-HttpBodyTemplatePlaceholders
+Test-HttpBodyTemplatePlaceholder
 Test-HttpDefaultBodyTemplate
 Test-HttpMissingEndpoint
 Test-HttpMissingClient
@@ -1237,7 +1363,7 @@ Test-HttpEndpointFromEnvironment
 Test-HttpBodyTemplateFromEnvironment
 Test-HttpTimeoutFromEnvironment
 Test-HttpValuesFromConfigFile
-Test-HttpPrecedenceFlagWins
+Test-HttpPrecedenceFlag
 Test-HttpClientCanBeReplaced
 Test-HttpDefaultClientIsAnApplication
 Test-HttpPathClientIsPreferred
@@ -1251,8 +1377,14 @@ Test-HttpHeadersFromConfigFile
 Test-HttpReportShowsTheEndpointOnly
 Test-HttpBelowThresholdSendsNothing
 Test-HttpDryRunSendsNothing
-Test-MailTransportStillWorks
-Test-HttpHeaderValueWithSeveralLines
+Test-MailTransport
+Test-HttpMultiHeaderValue
+Test-HttpHeaderFromEnvironment
+Test-HttpEmptyHeaderFlag
+Test-HttpNonRunnableClient
+Test-HttpEnvironmentHeaderIsNeverReported
+Test-HttpConfigHeaderIsNeverReported
+Test-HttpMalformedConfigLineIsNotEchoed
 
 Write-Host "============================================================"
 Write-Host "Tests Summary: $([char]27)[0;32m$script:PassedCount Passed$([char]27)[0m, $([char]27)[0;31m$script:FailedCount Failed$([char]27)[0m"
