@@ -29,6 +29,7 @@ DRY_RUN=false
 NOTIFY_MODE="mail"
 MAIL_TO="${DISK_MONITOR_TO:-}"
 MAIL_COMMAND_OVERRIDE="${DISK_MONITOR_MAIL_COMMAND:-}"
+USAGE_OVERRIDE="${DISK_MONITOR_USAGE_OVERRIDE:-}"
 LOG_FILE=""
 VERBOSE=false
 
@@ -89,9 +90,15 @@ log_message() {
 # The POSIX output format is used because it is the only one whose column
 # layout is identical on GNU and macOS. The capacity is read from the
 # second-to-last field, so a mount point containing spaces cannot shift it.
+# A forced value short-circuits the measurement and is reported as such.
 get_disk_usage() {
     local output
     local capacity
+
+    if [[ -n "$USAGE_OVERRIDE" ]]; then
+        printf '%s' "$USAGE_OVERRIDE"
+        return 0
+    fi
 
     if ! output="$(df -P "$PARTITION" 2>/dev/null)"; then
         return 1
@@ -227,6 +234,15 @@ validate_configuration() {
         exit 1
     fi
 
+    if [[ -n "$USAGE_OVERRIDE" ]]; then
+        if [[ ! "$USAGE_OVERRIDE" =~ ^[0-9]+$ ]] || [[ "$USAGE_OVERRIDE" -gt 100 ]]; then
+            printf "%bError: DISK_MONITOR_USAGE_OVERRIDE must be an integer between 0 and 100.%b\n" \
+                "$COLOR_RED" "$COLOR_RESET" >&2
+            log_message "ERROR" "Invalid usage override: '$USAGE_OVERRIDE'."
+            exit 1
+        fi
+    fi
+
     if [[ ! -d "$PARTITION" ]]; then
         printf "%bError: Partition '%s' does not exist.%b\n" \
             "$COLOR_RED" "$PARTITION" "$COLOR_RESET" >&2
@@ -266,6 +282,11 @@ main() {
         exit 2
     fi
 
+    local usage_source="measured"
+    if [[ -n "$USAGE_OVERRIDE" ]]; then
+        usage_source="overridden"
+    fi
+
     local mode_label
     if [[ "$DRY_RUN" == true ]]; then
         mode_label="$(printf "%bDRY RUN (Simulation)%b" "$COLOR_YELLOW" "$COLOR_RESET")"
@@ -284,7 +305,7 @@ main() {
     printf "%b                DevOps Disk Usage Monitor                  %b\n" "$COLOR_BLUE" "$COLOR_RESET"
     printf "%b============================================================%b\n" "$COLOR_BLUE" "$COLOR_RESET"
     printf "Partition         : %b%s%b\n" "$COLOR_CYAN" "$PARTITION" "$COLOR_RESET"
-    printf "Usage             : %b%s%%%b\n" "$COLOR_BOLD" "$used_percent" "$COLOR_RESET"
+    printf "Usage             : %b%s%%%b (%s)\n" "$COLOR_BOLD" "$used_percent" "$COLOR_RESET" "$usage_source"
     printf "Threshold         : %b%s%%%b\n" "$COLOR_YELLOW" "$THRESHOLD" "$COLOR_RESET"
     printf "Mail Agent        : %b%s%b\n" "$COLOR_CYAN" "$mail_label" "$COLOR_RESET"
     if [[ "$NOTIFY_MODE" == "mail" ]]; then
@@ -314,24 +335,24 @@ main() {
         if [[ "$DRY_RUN" == true ]]; then
             printf "%b[DRY RUN]%b Would send an alert to %s\n" \
                 "$COLOR_YELLOW" "$COLOR_RESET" "$MAIL_TO"
-            log_message "INFO" "[DRY RUN] Would send an alert to $MAIL_TO (Usage: ${used_percent}%, Threshold: ${THRESHOLD}%)"
+            log_message "INFO" "[DRY RUN] Would send an alert to $MAIL_TO (Usage: ${used_percent}%, Source: ${usage_source}, Threshold: ${THRESHOLD}%)"
         elif [[ "$NOTIFY_MODE" == "mail" ]]; then
             if send_alert "$subject" "$body"; then
                 printf "%bAlert sent to %s%b\n" "$COLOR_GREEN" "$MAIL_TO" "$COLOR_RESET"
-                log_message "INFO" "ALERT SENT to $MAIL_TO (Usage: ${used_percent}%, Threshold: ${THRESHOLD}%)"
+                log_message "INFO" "ALERT SENT to $MAIL_TO (Usage: ${used_percent}%, Source: ${usage_source}, Threshold: ${THRESHOLD}%)"
             else
                 printf "%bError: The alert could not be handed to the mail agent.%b\n" \
                     "$COLOR_RED" "$COLOR_RESET" >&2
-                log_message "ERROR" "FAILED to hand the alert to the mail agent (Usage: ${used_percent}%)"
+                log_message "ERROR" "FAILED to hand the alert to the mail agent (Usage: ${used_percent}%, Source: ${usage_source})"
                 exit 2
             fi
         else
             printf "%bAlert suppressed by --notify none.%b\n" "$COLOR_CYAN" "$COLOR_RESET"
-            log_message "INFO" "Alert suppressed by --notify none (Usage: ${used_percent}%)"
+            log_message "INFO" "Alert suppressed by --notify none (Usage: ${used_percent}%, Source: ${usage_source})"
         fi
     else
         printf "%bDisk usage is within the threshold.%b\n" "$COLOR_GREEN" "$COLOR_RESET"
-        log_message "INFO" "Usage within threshold (Usage: ${used_percent}%, Threshold: ${THRESHOLD}%)"
+        log_message "INFO" "Usage within threshold (Usage: ${used_percent}%, Source: ${usage_source}, Threshold: ${THRESHOLD}%)"
     fi
 
     exit 0

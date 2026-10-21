@@ -76,7 +76,7 @@ STUB
     export STUB_DF_USAGE=49
     export STUB_DF_FAIL=0
     export STUB_MAIL_FAIL=0
-    unset DISK_MONITOR_TO DISK_MONITOR_MAIL_COMMAND || true
+    unset DISK_MONITOR_TO DISK_MONITOR_MAIL_COMMAND DISK_MONITOR_USAGE_OVERRIDE || true
 }
 
 teardown() {
@@ -361,6 +361,27 @@ test_verbose() {
     teardown
 }
 
+# Test 20: A forced usage value is honoured and labelled as such.
+test_usage_override() {
+    setup
+    export DISK_MONITOR_USAGE_OVERRIDE=91
+    run_monitor -t 80 --to ops@example.com
+    assert_equals "0" "$LAST_EXIT_CODE" "Test 20a: A forced usage value is accepted"
+    assert_contains "$LAST_STDOUT" "91%" "Test 20b: The forced value is reported"
+    assert_contains "$LAST_STDOUT" "overridden" "Test 20c: The report labels the value as overridden"
+    assert_contains "$(cat "$CAPTURE_FILE" 2>/dev/null || true)" "91%" "Test 20d: The alert carries the forced value"
+    teardown
+}
+
+# Test 21: An invalid forced usage value is a configuration error.
+test_invalid_usage_override() {
+    setup
+    export DISK_MONITOR_USAGE_OVERRIDE=abc
+    run_monitor -t 80 --to ops@example.com
+    assert_equals "1" "$LAST_EXIT_CODE" "Test 21: An invalid usage override exits with code 1"
+    teardown
+}
+
 # Run all tests
 printf "%bStarting Bash Disk Monitor Test Suite...%b\n" "$CYAN" "$RESET"
 test_help_menu
@@ -382,6 +403,8 @@ test_alert_handoff_failure
 test_recipient_from_environment
 test_mail_command_from_environment
 test_verbose
+test_usage_override
+test_invalid_usage_override
 
 printf "============================================================\n"
 printf "Tests Summary: %b%d Passed%b, %b%d Failed%b\n" "$GREEN" "$PASSED_TESTS" "$RESET" "$RED" "$FAILED_TESTS" "$RESET"
