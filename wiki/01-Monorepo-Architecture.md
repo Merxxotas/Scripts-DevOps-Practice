@@ -24,20 +24,46 @@ Scripts-DevOps-Practice/
 ├── .github/workflows/                             # Segregated CI/CD workflows per module
 │   ├── ci-cleanup-logs.yml                        # Pipeline for Module 2
 │   ├── ci-cpu-monitor.yml                         # Pipeline for Module 5
+│   ├── ci-disk-monitor.yml                        # Pipeline for Module 1
 │   └── ci-eventops.yml                            # Pipeline for Module 11
-├── 1-Disk-Usage-Monitoring-with-Email-Alert/      # Bash / PowerShell disk monitors
-├── 2-Log-Cleanup-Script-(Delete-Files-Older-Than-X-Days)/  # Enterprise Log Cleanup
-├── 5-CPU-and-Memory-Usage-Monitor/              # CPU & Memory Monitor (capstone)
-│   ├── cleanup_logs.sh                            # POSIX Bash script
-│   ├── cleanup_logs.ps1                           # PowerShell script
+├── 1-Disk-Usage-Monitoring-with-Email-Alert/      # Disk Usage Monitor (sensor)
+│   ├── disk_monitor.sh                            # POSIX Bash script
+│   ├── disk_monitor.ps1                           # PowerShell script
 │   ├── tests/                                     # Automated test suites
 │   └── docs/                                      # Technical specs, architecture & labs
+├── 2-Log-Cleanup-Script-(Delete-Files-Older-Than-X-Days)/  # Enterprise Log Cleanup
+├── 5-CPU-and-Memory-Usage-Monitor/              # CPU & Memory Monitor (capstone)
+│   ├── Stage1-Native-Scripts/                   # Bash & PowerShell native scripts
+│   ├── Stage2-Python-Unified/                   # Python orchestration package
+│   ├── Stage3-Containerization/                 # Container image and compose profiles
+│   ├── Stage4-CI-CD-Pipeline/                   # Pipeline definition
+│   ├── tests/                                   # Automated test suites
+│   └── docs/                                    # Technical specs, architecture & labs
 ├── ...                                            # Modules 3 to 10
 └── 11-Scheduling-And-Automation/                  # EventOps Automation Daemon
     ├── EventOps/                                  # Python daemon implementation
     ├── EventOps-Go/                               # Go daemon implementation
     └── docs/                                      # Production scenarios & interactive labs
 ```
+
+---
+
+## 📦 Shipped Module Inventory
+
+**Four modules are shipped** — committed, CI-covered, tested and documented:
+modules **1**, **2**, **5** and **11**. The remaining seven are seeds on the
+working disk: a raw script pair each, with no contract yet.
+
+| Folder / Module | Primary Technologies | Purpose & Architecture |
+| :--- | :--- | :--- |
+| `1-Disk-Usage-Monitoring-with-Email-Alert` | Bash / PowerShell | **Disk Monitor:** threshold disk monitoring & a credential-free hand-off to the host's mail agent |
+| `2-Log-Cleanup-Script-(Delete-Files-Older-Than-X-Days)` | Bash / PowerShell | Automated log retention & directory purging |
+| `5-CPU-and-Memory-Usage-Monitor` | Bash / PowerShell / Python / Docker | **CPU Monitor:** resource monitoring & process kill/restart, in three implementations sharing one data contract |
+| `11-Scheduling-And-Automation` | **Python & Go** | **EventOps:** cross-platform event-driven automation daemon (Webhooks + File Watcher) |
+
+Each shipped module owns its own pipeline, so changing one module never
+triggers another's. The live status of every module — shipped, seed or
+planned — is in [`MODULES.md`](https://github.com/Merxxotas/Scripts-DevOps-Practice/blob/main/MODULES.md).
 
 ---
 

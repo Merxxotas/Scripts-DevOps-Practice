@@ -9,18 +9,17 @@ This wiki provides comprehensive architecture guides, deep-dive comparisons, ste
 ## 🗺️ Knowledge Base Architecture
 
 ```
-+----------------------------------------------------------------------------------------------------+
-|                                    DevOps Monorepo Architecture                                     |
-+---------------------------------+----------------------------------+-------------------------------+
-                                  |                                  |
-                                  v                                  v
-+---------------------------------+--+     +-------------------------+---+     +---------------------+
-|   Module 11: EventOps Daemon       |     |   Module 2: Log Cleanup     |     |   CI/CD & Standards |
-| - Event-driven automation          |     | - Enterprise log retention  |     | - GitHub Actions    |
-| - Python & Go Implementations      |     | - Bash & PowerShell Parity  |     | - Multi-OS Matrices |
-| - Webhook + File Watcher triggers  |     | - Multi-layer safety guards |     | - Static Linters    |
-| - 3 Interactive Hands-on Labs      |     | - 3 Interactive Labs        |     | - B2 English Style  |
-+------------------------------------+     +-----------------------------+     +---------------------+
++------------------------------------------------------------------------------------------------------------------------------------+
+|                                                    DevOps Monorepo Architecture                                                    |
++------------------------------+   ------------------------------+   ------------------------------+   ------------------------------+
+                                                                  |
+                                                                  v
++------------------------------+   ------------------------------+   ------------------------------+   ------------------------------+
+| Module 11: EventOps          |    Module 2: Log Cleanup        |    Module 1: Disk Monitor       |    CI/CD & Standards            |
+| - Event-driven automation    |    - Enterprise log retention   |    - Threshold disk monitoring  |    - GitHub Actions             |
+| - Python & Go ports          |    - Bash & PowerShell parity   |    - Bash & PowerShell parity   |    - Multi-OS matrices          |
+| - Webhook + file watcher     |    - Multi-layer safety guards  |    - Credential-free alert path |    - Static linters             |
++------------------------------+   ------------------------------+   ------------------------------+   ------------------------------+
 ```
 
 ---
@@ -45,7 +44,12 @@ This wiki provides comprehensive architecture guides, deep-dive comparisons, ste
 - **[[11-CPU-Monitor-Bash-vs-PowerShell|11. Bash vs PowerShell vs Python]]**: The dependency-free argument for the native scripts, and where the three implementations still disagree.
 - **[[12-CPU-Monitor-Scenarios-and-Labs|12. CPU Monitor Scenarios & Interactive Labs]]**: Scheduled checks, runaway-process triage, and 3 hands-on labs that run the real commands.
 
-### 5. Quality & Engineering Standards
+### 5. Module 1: Disk Usage Monitor
+- **[[13-Disk-Monitor-Overview|13. Disk Usage Monitor — Overview & Specs]]**: The sensor half of the disk loop, the shared exit-code contract, and the credential-free hand-off to the host's mail agent.
+- **[[14-Disk-Monitor-Bash-vs-PowerShell|14. Disk Monitor — Bash vs PowerShell]]**: One contract in two runtimes, what the parity guarantees, and where the two legitimately differ.
+- **[[15-Disk-Monitor-Scenarios-and-Labs|15. Disk Monitor Scenarios & Interactive Labs]]**: Scheduled checks, the dry run before go-live, the VPS mail relay, and 3 hands-on labs.
+
+### 6. Quality & Engineering Standards
 - **[[08-CI-CD-Pipelines|08. CI/CD Pipelines & Testing Philosophy]]**: Path-based GitHub Actions monorepo isolation and multi-OS validation.
 - **[[09-Code-Style-and-Standards|09. Code Style & Engineering Standards]]**: B2 English conventions, commenting strategy, and branching workflow.
 

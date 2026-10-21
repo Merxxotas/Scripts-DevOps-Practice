@@ -29,3 +29,10 @@
 - **[[11-CPU-Monitor-Bash-vs-PowerShell|📊 Bash vs PowerShell vs Python]]**
 - **[[12-CPU-Monitor-Scenarios-and-Labs|🧪 Scenarios & Labs]]**
 
+---
+
+### 💾 Module 1: Disk Monitor
+- **[[13-Disk-Monitor-Overview|📖 Disk Monitor Overview]]**
+- **[[14-Disk-Monitor-Bash-vs-PowerShell|📊 Bash vs PowerShell]]**
+- **[[15-Disk-Monitor-Scenarios-and-Labs|🧪 Scenarios & Labs]]**
+
