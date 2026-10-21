@@ -17,6 +17,8 @@ STUB_DIR="$TEST_SANDBOX/stubs"
 CAPTURE_FILE="$TEST_SANDBOX/mail_capture.txt"
 HTTP_CAPTURE_FILE="$TEST_SANDBOX/http_capture.txt"
 HTTP_ALT_CAPTURE_FILE="$TEST_SANDBOX/http_capture_alt.txt"
+USAGE_CAPTURE_FILE="$TEST_SANDBOX/usage_capture.txt"
+LIMITED_BIN="$TEST_SANDBOX/limited_bin"
 ORIGINAL_PATH="$PATH"
 
 # ANSI colors
@@ -43,7 +45,9 @@ setup() {
     cat > "$STUB_DIR/df" <<'STUB'
 #!/bin/bash
 # Fake df. Emits the POSIX six-field layout so the module's parser is
-# exercised exactly as it would be on a real host.
+# exercised exactly as it would be on a real host. The invocation is
+# recorded, so a test can prove the measurement never happened.
+printf 'DF-CALLED\n' >> "${STUB_DF_CAPTURE:-/dev/null}"
 if [[ "${STUB_DF_FAIL:-0}" == "1" ]]; then
     echo "df: simulated failure" >&2
     exit 1
@@ -128,9 +132,11 @@ STUB
     : > "$CAPTURE_FILE"
     : > "$HTTP_CAPTURE_FILE"
     : > "$HTTP_ALT_CAPTURE_FILE"
+    : > "$USAGE_CAPTURE_FILE"
     export STUB_MAIL_CAPTURE="$CAPTURE_FILE"
     export STUB_HTTP_CAPTURE="$HTTP_CAPTURE_FILE"
     export STUB_HTTP_CAPTURE_ALT="$HTTP_ALT_CAPTURE_FILE"
+    export STUB_DF_CAPTURE="$USAGE_CAPTURE_FILE"
     export STUB_DF_USAGE=49
     export STUB_DF_FAIL=0
     export STUB_MAIL_FAIL=0
@@ -139,6 +145,57 @@ STUB
         DISK_MONITOR_CONFIG DISK_MONITOR_THRESHOLD DISK_MONITOR_PARTITION DISK_MONITOR_NOTIFY \
         DISK_MONITOR_LOG_FILE DISK_MONITOR_URL DISK_MONITOR_BODY_TEMPLATE DISK_MONITOR_HEADER \
         DISK_MONITOR_TIMEOUT DISK_MONITOR_HTTP_COMMAND || true
+}
+
+# Creates a directory that holds only the package managers of this host, so
+# the doctor can name the install command of this platform while the HTTP
+# client stays unresolvable. The manager is the one that is really
+# installed, so the remedy the doctor prints is the one the reader can run.
+setup_limited_bin() {
+    local manager=""
+    local manager_path=""
+
+    mkdir -p "$LIMITED_BIN"
+
+    for manager in apt-get dnf yum pacman apk zypper brew; do
+        manager_path="$(command -v "$manager" 2>/dev/null || true)"
+        if [[ -n "$manager_path" && -f "$manager_path" ]]; then
+            ln -sf "$manager_path" "$LIMITED_BIN/$manager"
+        fi
+    done
+}
+
+# The install command the doctor must name for a package on this platform.
+# The package manager is the first one the limited directory holds, in the
+# order the implementation looks for them.
+expected_install_command() {
+    local package="$1"
+    local manager=""
+
+    if [[ "$(uname -s 2>/dev/null || printf 'unknown')" == "Darwin" ]]; then
+        if [[ -x "$LIMITED_BIN/brew" ]]; then
+            printf 'brew install %s' "$package"
+            return 0
+        fi
+        printf 'Install %s with your package manager' "$package"
+        return 0
+    fi
+
+    for manager in apt-get dnf yum pacman apk zypper; do
+        if [[ -x "$LIMITED_BIN/$manager" ]]; then
+            case "$manager" in
+                apt-get) printf 'sudo apt-get install %s' "$package" ;;
+                dnf) printf 'sudo dnf install %s' "$package" ;;
+                yum) printf 'sudo yum install %s' "$package" ;;
+                pacman) printf 'sudo pacman -S %s' "$package" ;;
+                apk) printf 'sudo apk add %s' "$package" ;;
+                zypper) printf 'sudo zypper install %s' "$package" ;;
+            esac
+            return 0
+        fi
+    done
+
+    printf 'Install %s with your package manager' "$package"
 }
 
 teardown() {
@@ -246,6 +303,25 @@ assert_http_capture_empty() {
     fi
 }
 
+# Asserts that the disk was never measured.
+assert_usage_capture_empty() {
+    local test_name="$1"
+    local capture=""
+
+    if [[ -f "$USAGE_CAPTURE_FILE" ]]; then
+        capture="$(cat "$USAGE_CAPTURE_FILE" 2>/dev/null || true)"
+    fi
+
+    if [[ -z "$capture" ]]; then
+        printf "%b[PASS]%b %s\n" "$GREEN" "$RESET" "$test_name"
+        ((PASSED_TESTS++)) || true
+    else
+        printf "%b[FAIL]%b %s (Expected no measurement, got: '%s')\n" \
+            "$RED" "$RESET" "$test_name" "$capture" >&2
+        ((FAILED_TESTS++)) || true
+    fi
+}
+
 # Asserts that the text matches an extended regular expression.
 assert_matches() {
     local haystack="$1"
@@ -275,7 +351,45 @@ run_monitor() {
     LAST_EXIT_CODE="$exit_code"
 }
 
+# Runs the monitor with a PATH the test chooses, so a dependency can be made
+# unresolvable while the package manager of the host stays reachable.
+run_monitor_with_path() {
+    local search_path="$1"
+    local stdout_file="$TEST_SANDBOX/stdout.txt"
+    local stderr_file="$TEST_SANDBOX/stderr.txt"
+    local exit_code=0
+
+    shift
+    PATH="$search_path" "$MONITOR_SCRIPT" "$@" >"$stdout_file" 2>"$stderr_file" || exit_code=$?
+
+    LAST_STDOUT="$(strip_ansi < "$stdout_file")"
+    LAST_STDERR="$(strip_ansi < "$stderr_file")"
+    LAST_EXIT_CODE="$exit_code"
+}
+
 # Test 1: Help menu exits with code 0 and documents the flags.
+# Test 82: The configuration file names the measurement command
+test_config_file_names_the_measurement_command() {
+    setup
+    local config_file="$TEST_SANDBOX/monitor.conf"
+    printf 'usage_command = %s\n' "$STUB_DIR/df_alt" > "$config_file"
+    run_monitor --config "$config_file" -t 80 --notify http --url https://ntfy.sh/disk-alerts
+    assert_equals "0" "$LAST_EXIT_CODE" "Test 82a: The run accepts the measurement command of the configuration file"
+    assert_contains "$LAST_STDOUT" "77%" "Test 82b: The measurement command of the configuration file is used"
+    teardown
+}
+
+# Test 83: A partition that holds only whitespace is a configuration error
+test_whitespace_partition_is_rejected() {
+    setup
+    export DISK_MONITOR_PARTITION="   "
+    run_monitor -t 80 --notify http --url https://ntfy.sh/disk-alerts
+    assert_equals "1" "$LAST_EXIT_CODE" "Test 83a: A partition that holds only whitespace exits with code 1"
+    run_monitor --doctor --notify http --url https://ntfy.sh/disk-alerts
+    assert_equals "1" "$LAST_EXIT_CODE" "Test 83b: The doctor rejects the same partition"
+    teardown
+}
+
 test_help_menu() {
     setup
     run_monitor -h
@@ -1129,6 +1243,180 @@ test_http_malformed_config_line_is_not_echoed() {
     teardown
 }
 
+# Test 70: The doctor reports the resolved configuration and its source
+test_doctor_reports_the_configuration() {
+    setup
+    run_monitor --doctor --notify http --url https://ntfy.sh/disk-alerts
+    assert_equals "0" "$LAST_EXIT_CODE" "Test 70a: The doctor exits with code 0 when the tool is ready"
+    assert_contains "$LAST_STDOUT" "Disk Usage Monitor - Doctor" "Test 70b: The doctor names its report"
+    assert_contains "$LAST_STDOUT" "Platform" "Test 70c: The doctor names the platform"
+    assert_contains "$LAST_STDOUT" "Partition" "Test 70d: The doctor reports the partition"
+    assert_contains "$LAST_STDOUT" "Threshold" "Test 70e: The doctor reports the threshold"
+    assert_contains "$LAST_STDOUT" "Notify backend" "Test 70f: The doctor reports the notify backend"
+    assert_contains "$LAST_STDOUT" "Endpoint" "Test 70g: The doctor reports the endpoint"
+    assert_contains "$LAST_STDOUT" "HTTP client" "Test 70h: The doctor reports the transport client"
+    assert_contains "$LAST_STDOUT" "Measurement command" "Test 70i: The doctor reports the measurement command"
+    assert_contains "$LAST_STDOUT" "READY" "Test 70j: The doctor reports that the tool is ready"
+    teardown
+}
+
+# Test 71: The doctor changes nothing: it does not measure and does not send
+test_doctor_changes_nothing() {
+    setup
+    local audit_file="$TEST_SANDBOX/logs/audit.log"
+    run_monitor --doctor --notify http --url https://ntfy.sh/disk-alerts -l "$audit_file"
+    assert_equals "0" "$LAST_EXIT_CODE" "Test 71a: The doctor exits with code 0"
+    assert_usage_capture_empty "Test 71b: The doctor does not measure the disk"
+    assert_http_capture_empty "Test 71c: The doctor sends nothing"
+    assert_capture_empty "Test 71d: The doctor hands nothing to the mail agent"
+    assert_not_contains "$LAST_STDOUT" "Usage  " "Test 71e: The doctor reports no usage"
+    if [[ -f "$audit_file" ]]; then
+        printf "%b[FAIL]%b %s (The audit log was written)\n" "$RED" "$RESET" "Test 71f: The doctor writes no audit line" >&2
+        ((FAILED_TESTS++)) || true
+    else
+        printf "%b[PASS]%b %s\n" "$GREEN" "$RESET" "Test 71f: The doctor writes no audit line"
+        ((PASSED_TESTS++)) || true
+    fi
+    teardown
+}
+
+# Test 72: The doctor names the source of every resolved value
+test_doctor_reports_the_source_of_each_value() {
+    setup
+    run_monitor --doctor --notify http --url https://ntfy.sh/disk-alerts -t 90
+    assert_contains "$LAST_STDOUT" "(flag)" "Test 72a: A value from the command line names the flag"
+    assert_contains "$LAST_STDOUT" "(default)" "Test 72b: A value from the built-in default names the default"
+
+    export DISK_MONITOR_THRESHOLD=85
+    run_monitor --doctor --notify http --url https://ntfy.sh/disk-alerts
+    assert_contains "$LAST_STDOUT" "(environment)" "Test 72c: A value from the environment names the environment"
+
+    unset DISK_MONITOR_THRESHOLD
+    local config_file="$TEST_SANDBOX/monitor.conf"
+    printf 'threshold = 70\n' > "$config_file"
+    run_monitor --doctor --config "$config_file" --notify http --url https://ntfy.sh/disk-alerts
+    assert_contains "$LAST_STDOUT" "(config)" "Test 72d: A value from the configuration file names the config"
+    teardown
+}
+
+# Test 73: A missing endpoint is reported with its remedy
+test_doctor_reports_a_missing_endpoint() {
+    setup
+    run_monitor --doctor --notify http
+    assert_equals "1" "$LAST_EXIT_CODE" "Test 73a: A missing endpoint exits with code 1"
+    assert_contains "$LAST_STDOUT" "NOT READY" "Test 73b: The doctor reports that the tool is not ready"
+    assert_contains "$LAST_STDOUT" "--url" "Test 73c: The remedy names the command line flag"
+    assert_contains "$LAST_STDOUT" "DISK_MONITOR_URL" "Test 73d: The remedy names the environment variable"
+    teardown
+}
+
+# Test 74: A missing recipient is reported with its remedy
+test_doctor_reports_a_missing_recipient() {
+    setup
+    run_monitor --doctor --notify mail
+    assert_equals "1" "$LAST_EXIT_CODE" "Test 74a: A missing recipient exits with code 1"
+    assert_contains "$LAST_STDOUT" "--to" "Test 74b: The remedy names the command line flag"
+    assert_contains "$LAST_STDOUT" "DISK_MONITOR_TO" "Test 74c: The remedy names the environment variable"
+    teardown
+}
+
+# Test 75: A missing HTTP client is reported with the install command of the
+# platform the tool was found on
+test_doctor_reports_a_missing_http_client() {
+    setup
+    setup_limited_bin
+    run_monitor_with_path "$LIMITED_BIN" --doctor --notify http --url https://ntfy.sh/disk-alerts
+    assert_equals "1" "$LAST_EXIT_CODE" "Test 75a: A missing HTTP client exits with code 1"
+    assert_contains "$LAST_STDOUT" "curl was not found" "Test 75b: The doctor names the missing dependency"
+    assert_contains "$LAST_STDOUT" "$(expected_install_command curl)" "Test 75c: The remedy names the install command of this platform"
+    teardown
+}
+
+# Test 76: A missing mail agent is reported with the install command of the
+# platform the tool was found on
+test_doctor_reports_a_missing_mail_agent() {
+    setup
+    setup_limited_bin
+    run_monitor_with_path "$LIMITED_BIN" --doctor --notify mail --to ops@example.com
+    assert_equals "1" "$LAST_EXIT_CODE" "Test 76a: A missing mail agent exits with code 1"
+    assert_contains "$LAST_STDOUT" "No mail agent was found" "Test 76b: The doctor names the missing dependency"
+    assert_contains "$LAST_STDOUT" "$(expected_install_command msmtp)" "Test 76c: The remedy names the install command of this platform"
+    teardown
+}
+
+# Test 77: The doctor never prints a header value
+test_doctor_never_prints_a_header_value() {
+    setup
+    run_monitor --doctor --notify http --url https://ntfy.sh/disk-alerts \
+        --header 'Authorization: Bearer super-secret-token'
+    assert_equals "0" "$LAST_EXIT_CODE" "Test 77a: The doctor exits with code 0"
+    assert_not_contains "$LAST_STDOUT" "super-secret-token" "Test 77b: The header value is not printed"
+    assert_contains "$LAST_STDOUT" "HTTP headers" "Test 77c: The doctor reports the number of headers"
+    teardown
+}
+
+# Test 78: A configuration file that was named but does not exist is reported
+test_doctor_reports_a_missing_config_file() {
+    setup
+    run_monitor --doctor --config "$TEST_SANDBOX/no-such-file.conf" --notify http --url https://ntfy.sh/disk-alerts
+    assert_equals "1" "$LAST_EXIT_CODE" "Test 78a: A missing configuration file exits with code 1"
+    assert_contains "$LAST_STDOUT" "was not found" "Test 78b: The doctor names the missing file"
+    assert_contains "$LAST_STDOUT" "--config" "Test 78c: The remedy names the command line flag"
+    teardown
+}
+
+# Test 79: A malformed configuration line is reported by its number and its
+# content is never echoed
+test_doctor_reports_malformed_config_lines() {
+    setup
+    local config_file="$TEST_SANDBOX/monitor.conf"
+    printf 'this line has no separator and holds a token\n' > "$config_file"
+    run_monitor --doctor --config "$config_file" --notify http --url https://ntfy.sh/disk-alerts
+    assert_equals "1" "$LAST_EXIT_CODE" "Test 79a: A malformed configuration line exits with code 1"
+    assert_contains "$LAST_STDOUT" "malformed line at line 1" "Test 79b: The doctor names the malformed line"
+    assert_not_contains "$LAST_STDOUT" "no separator" "Test 79c: The malformed line is not echoed"
+    teardown
+}
+
+# Test 80: The doctor and the run agree on whether the tool is ready
+test_doctor_agrees_with_the_run() {
+    setup
+    run_monitor --doctor --notify http --url https://ntfy.sh/disk-alerts
+    assert_equals "0" "$LAST_EXIT_CODE" "Test 80a: The doctor accepts a working configuration"
+    run_monitor -t 80 --notify http --url https://ntfy.sh/disk-alerts
+    assert_equals "0" "$LAST_EXIT_CODE" "Test 80b: The run accepts the same configuration"
+
+    run_monitor --doctor --notify http
+    assert_equals "1" "$LAST_EXIT_CODE" "Test 80c: The doctor rejects a missing endpoint"
+    run_monitor -t 80 --notify http
+    assert_equals "1" "$LAST_EXIT_CODE" "Test 80d: The run rejects the same configuration"
+
+    run_monitor --doctor --notify mail
+    assert_equals "1" "$LAST_EXIT_CODE" "Test 80e: The doctor rejects a missing recipient"
+    run_monitor -t 80 --notify mail
+    assert_equals "1" "$LAST_EXIT_CODE" "Test 80f: The run rejects the same configuration"
+
+    run_monitor --doctor -p "$TEST_SANDBOX/does-not-exist" --notify http --url https://ntfy.sh/disk-alerts
+    assert_equals "1" "$LAST_EXIT_CODE" "Test 80g: The doctor rejects a missing partition"
+    run_monitor -p "$TEST_SANDBOX/does-not-exist" --notify http --url https://ntfy.sh/disk-alerts
+    assert_equals "1" "$LAST_EXIT_CODE" "Test 80h: The run rejects the same configuration"
+
+    run_monitor --doctor --notify http --url https://ntfy.sh/disk-alerts --timeout 0
+    assert_equals "1" "$LAST_EXIT_CODE" "Test 80i: The doctor rejects an invalid timeout"
+    run_monitor --notify http --url https://ntfy.sh/disk-alerts --timeout 0
+    assert_equals "1" "$LAST_EXIT_CODE" "Test 80j: The run rejects the same configuration"
+    teardown
+}
+
+# Test 81: The help documents the doctor
+test_doctor_help_documents_the_flag() {
+    setup
+    run_monitor -h
+    assert_contains "$LAST_STDOUT" "--doctor" "Test 81a: The help menu documents --doctor"
+    assert_contains "$LAST_STDOUT" "Doctor:" "Test 81b: The help menu explains the doctor"
+    teardown
+}
+
 # Run all tests
 printf "%bStarting Bash Disk Monitor Test Suite...%b\n" "$CYAN" "$RESET"
 test_help_menu
@@ -1200,6 +1488,20 @@ test_http_non_runnable_client
 test_http_environment_header_is_never_reported
 test_http_config_header_is_never_reported
 test_http_malformed_config_line_is_not_echoed
+test_doctor_reports_the_configuration
+test_doctor_changes_nothing
+test_doctor_reports_the_source_of_each_value
+test_doctor_reports_a_missing_endpoint
+test_doctor_reports_a_missing_recipient
+test_doctor_reports_a_missing_http_client
+test_doctor_reports_a_missing_mail_agent
+test_doctor_never_prints_a_header_value
+test_doctor_reports_a_missing_config_file
+test_doctor_reports_malformed_config_lines
+test_doctor_agrees_with_the_run
+test_doctor_help_documents_the_flag
+test_config_file_names_the_measurement_command
+test_whitespace_partition_is_rejected
 
 printf "============================================================\n"
 printf "Tests Summary: %b%d Passed%b, %b%d Failed%b\n" "$GREEN" "$PASSED_TESTS" "$RESET" "$RED" "$FAILED_TESTS" "$RESET"

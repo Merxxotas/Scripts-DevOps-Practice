@@ -96,6 +96,19 @@ HTTP_HEADERS=()
 # The rendered request body
 RENDERED_BODY=""
 
+# The doctor mode
+DOCTOR_MODE=false
+
+# The configuration file was named explicitly but does not exist
+CONFIG_FILE_MISSING=false
+
+# The problem found in the resolved headers, and the audit line it writes
+HEADER_PROBLEM=""
+HEADER_AUDIT_MESSAGE=""
+
+# The problems the doctor found
+DOCTOR_PROBLEMS=()
+
 # Prints usage and help message
 show_help() {
     cat <<EOF
@@ -121,6 +134,7 @@ Optional Arguments:
       --http-command <cmd>  HTTP client to send the request with (default: curl).
   -l, --log-file <file>     Path to append ISO-8601 audit records.
       --config <file>       Configuration file to read (default: ./.diskmonitor.conf).
+      --doctor              Report what is configured and what is missing.
   -v, --verbose             Enable diagnostic output.
   -h, --help                Show this help and usage documentation.
 
@@ -145,6 +159,15 @@ HTTP transport:
   input, followed by a newline. A header value is never printed and never
   written to the audit log, because it may carry a token.
 
+Doctor:
+  --doctor reports the resolved configuration and where each value came
+  from, whether the measurement command and the transport client can be
+  resolved, and whether the recipient or the endpoint is set. It measures
+  nothing and sends nothing. It exits 0 when the tool is ready to run and 1
+  when something is missing, with one line per problem and the remedy for
+  it. A missing dependency is named with the install command of the platform
+  the tool was found on.
+
 Exit Codes:
   0  The check completed; the alert was delivered, not needed, or suppressed.
   1  Configuration or safety error (bad flag, threshold, partition, recipient,
@@ -156,6 +179,7 @@ Examples:
   $0 -p / -t 80 --to ops@example.com
   $0 -p /home -t 90 -n -v
   $0 --notify http --url https://ntfy.sh/disk-alerts
+  $0 --doctor
 EOF
 }
 
@@ -242,8 +266,7 @@ parse_config_file() {
         if [[ "$line" != *"="* ]]; then
             # The line is named, never shown: a line pasted into the file by
             # mistake may hold a bearer token.
-            printf "%bWarning: ignoring malformed line %d in '%s'.%b\n" \
-                "$COLOR_YELLOW" "$line_number" "$CONFIG_FILE" "$COLOR_RESET" >&2
+            report_config_problem "malformed" "$line_number" ""
             continue
         fi
 
@@ -279,11 +302,37 @@ parse_config_file() {
                 fi
                 ;;
             *)
-                printf "%bWarning: ignoring unknown configuration key '%s' in '%s'.%b\n" \
-                    "$COLOR_YELLOW" "$key" "$CONFIG_FILE" "$COLOR_RESET" >&2
+                report_config_problem "unknown" "$line_number" "$key"
                 ;;
         esac
     done < "$file"
+}
+
+# Reports one problem found in the configuration file. A malformed line is
+# named by its number and never shown, because a line pasted into the file by
+# mistake may hold a bearer token. The doctor carries the problem in its own
+# report; a run reports it as a warning.
+report_config_problem() {
+    local kind="$1"
+    local line_number="$2"
+    local key="$3"
+
+    if [[ "$kind" == "malformed" ]]; then
+        if [[ "$DOCTOR_MODE" == true ]]; then
+            DOCTOR_PROBLEMS+=("The configuration file has a malformed line at line $line_number, which was ignored. Fix the line, or remove it.")
+        else
+            printf "%bWarning: ignoring malformed line %d in '%s'.%b\n" \
+                "$COLOR_YELLOW" "$line_number" "$CONFIG_FILE" "$COLOR_RESET" >&2
+        fi
+        return 0
+    fi
+
+    if [[ "$DOCTOR_MODE" == true ]]; then
+        DOCTOR_PROBLEMS+=("The configuration file has an unknown key '$key' at line $line_number, which was ignored. Remove the key, or check its spelling.")
+    else
+        printf "%bWarning: ignoring unknown configuration key '%s' in '%s'.%b\n" \
+            "$COLOR_YELLOW" "$key" "$CONFIG_FILE" "$COLOR_RESET" >&2
+    fi
 }
 
 # Loads the configuration file, if one was selected or found. A file named
@@ -310,9 +359,8 @@ load_configuration() {
 
     if [[ ! -f "$candidate" ]]; then
         if [[ "$explicit" == true ]]; then
-            printf "%bError: Configuration file '%s' does not exist.%b\n" \
-                "$COLOR_RED" "$candidate" "$COLOR_RESET" >&2
-            exit 1
+            CONFIG_FILE="$candidate"
+            CONFIG_FILE_MISSING=true
         fi
         return 0
     fi
@@ -473,10 +521,14 @@ resolve_headers() {
 
 # Validates the resolved headers. A header is a name and a value, and it must
 # not carry a line break, which would let it inject a second header. The
-# value is never reported: it may carry a bearer token.
-validate_headers() {
+# value is never reported: it may carry a bearer token. The problem is handed
+# to the caller, which decides whether to fail the run or to report it.
+check_headers() {
     local header=""
     local header_number=0
+
+    HEADER_PROBLEM=""
+    HEADER_AUDIT_MESSAGE=""
 
     if [[ "${#HTTP_HEADERS[@]}" -eq 0 ]]; then
         return 0
@@ -486,19 +538,30 @@ validate_headers() {
         header_number=$((header_number + 1))
 
         if [[ "$header" == *$'\n'* || "$header" == *$'\r'* ]]; then
-            printf "%bError: Header %d carries a line break.%b\n" \
-                "$COLOR_RED" "$header_number" "$COLOR_RESET" >&2
-            log_message "ERROR" "Malformed HTTP header: it carries a line break."
-            exit 1
+            HEADER_PROBLEM="Header $header_number carries a line break."
+            HEADER_AUDIT_MESSAGE="Malformed HTTP header: it carries a line break."
+            return 1
         fi
 
         if [[ ! "$header" =~ ^[^:[:space:]]+:.*$ ]]; then
-            printf "%bError: Header %d is malformed. Expected 'Name: value'.%b\n" \
-                "$COLOR_RED" "$header_number" "$COLOR_RESET" >&2
-            log_message "ERROR" "Malformed HTTP header."
-            exit 1
+            HEADER_PROBLEM="Header $header_number is malformed. Expected 'Name: value'."
+            HEADER_AUDIT_MESSAGE="Malformed HTTP header."
+            return 1
         fi
     done
+
+    return 0
+}
+
+# Fails the run when a header is malformed
+validate_headers() {
+    if check_headers; then
+        return 0
+    fi
+
+    printf "%bError: %s%b\n" "$COLOR_RED" "$HEADER_PROBLEM" "$COLOR_RESET" >&2
+    log_message "ERROR" "$HEADER_AUDIT_MESSAGE"
+    exit 1
 }
 
 # Resolves the HTTP client that carries the request. The contract is:
@@ -528,6 +591,140 @@ resolve_http_command() {
     fi
 
     return 1
+}
+
+# Resolves the measurement command to the program that runs it. The command
+# is an external program, so it is resolved the way the mail agent and the
+# HTTP client are resolved: by name on PATH.
+resolve_usage_command() {
+    local candidate="$1"
+
+    if [[ -z "$candidate" ]]; then
+        return 1
+    fi
+
+    if command -v "$candidate" >/dev/null 2>&1; then
+        command -v "$candidate"
+        return 0
+    fi
+
+    return 1
+}
+
+# Reads the identifier of the distribution from the os-release file. The file
+# is only read: the tool does not need it, it names the system in the report.
+read_os_release_identifier() {
+    local line=""
+
+    if [[ ! -r /etc/os-release ]]; then
+        return 1
+    fi
+
+    while IFS= read -r line || [[ -n "$line" ]]; do
+        if [[ "$line" == ID=* ]]; then
+            line="${line#ID=}"
+            line="${line%\"}"
+            line="${line#\"}"
+            line="${line%\'}"
+            line="${line#\'}"
+            printf '%s' "$line"
+            return 0
+        fi
+    done < /etc/os-release
+
+    return 1
+}
+
+# Names the platform the tool is running on. The distribution is read from
+# the file every Linux distribution ships, so the report names the system the
+# tool was found on and not only the kernel.
+resolve_platform_name() {
+    local kernel=""
+    local identifier=""
+
+    kernel="$(uname -s 2>/dev/null || printf 'unknown')"
+
+    case "$kernel" in
+        Darwin)
+            printf 'macOS'
+            return 0
+            ;;
+        Linux)
+            ;;
+        *)
+            printf '%s' "$kernel"
+            return 0
+            ;;
+    esac
+
+    identifier="$(read_os_release_identifier || true)"
+    if [[ -n "$identifier" ]]; then
+        printf 'Linux (%s)' "$identifier"
+        return 0
+    fi
+
+    printf 'Linux'
+}
+
+# Prints the command that installs a package on this platform. The package
+# manager is the one that is installed, so the remedy names a command the
+# reader can run. The package name is the same on every distribution, only
+# the syntax of the command differs.
+resolve_install_command() {
+    local package="$1"
+    local kernel=""
+    local manager=""
+
+    kernel="$(uname -s 2>/dev/null || printf 'unknown')"
+
+    if [[ "$kernel" == "Darwin" ]]; then
+        printf 'brew install %s' "$package"
+        return 0
+    fi
+
+    for manager in apt-get dnf yum pacman apk zypper; do
+        if command -v "$manager" >/dev/null 2>&1; then
+            case "$manager" in
+                apt-get) printf 'sudo apt-get install %s' "$package" ;;
+                dnf) printf 'sudo dnf install %s' "$package" ;;
+                yum) printf 'sudo yum install %s' "$package" ;;
+                pacman) printf 'sudo pacman -S %s' "$package" ;;
+                apk) printf 'sudo apk add %s' "$package" ;;
+                zypper) printf 'sudo zypper install %s' "$package" ;;
+            esac
+            return 0
+        fi
+    done
+
+    return 1
+}
+
+# The remedy for a dependency that is not installed. The install command is
+# the one of the platform the tool was found on, because a generic suggestion
+# is not an instruction the reader can run.
+dependency_remedy() {
+    local dependency="$1"
+    local package="coreutils"
+    local alternative="or set DISK_MONITOR_USAGE_COMMAND to another measurement command"
+    local install_command=""
+
+    case "$dependency" in
+        curl)
+            package="curl"
+            alternative="or set --http-command to another HTTP client"
+            ;;
+        msmtp)
+            package="msmtp"
+            alternative="or set --mail-command to another mail agent"
+            ;;
+    esac
+
+    if install_command="$(resolve_install_command "$package")"; then
+        printf 'Install it with: %s' "$install_command"
+        return 0
+    fi
+
+    printf 'Install %s with your package manager, %s.' "$package" "$alternative"
 }
 
 # Renders the body template into the target variable.
@@ -716,6 +913,10 @@ parse_arguments() {
                 FLAG_CONFIG_SET=true
                 shift 2
                 ;;
+            --doctor)
+                DOCTOR_MODE=true
+                shift
+                ;;
             -h|--help)
                 show_help
                 exit 0
@@ -771,7 +972,7 @@ validate_configuration() {
         exit 1
     fi
 
-    if ! command -v "$USAGE_COMMAND_OVERRIDE" >/dev/null 2>&1; then
+    if ! resolve_usage_command "$USAGE_COMMAND_OVERRIDE" >/dev/null; then
         printf "%bError: Measurement command '%s' was not found.%b\n" \
             "$COLOR_RED" "$USAGE_COMMAND_OVERRIDE" "$COLOR_RESET" >&2
         log_message "ERROR" "Measurement command not found: '$USAGE_COMMAND_OVERRIDE'."
@@ -838,12 +1039,206 @@ validate_configuration() {
     validate_headers
 }
 
+# Prints one field of the doctor report. The source of the value is shown
+# with it, so the reader can see where a setting came from.
+doctor_field() {
+    local label="$1"
+    local value="$2"
+    local source="${3:-}"
+
+    if [[ -n "$source" ]]; then
+        printf "%-20s: %s (%s)\n" "$label" "$value" "$source"
+        return 0
+    fi
+
+    printf "%-20s: %s\n" "$label" "$value"
+}
+
+# Records one problem the doctor found. Every problem carries its own
+# remedy, on one line.
+add_doctor_problem() {
+    DOCTOR_PROBLEMS+=("$1")
+}
+
+# Reports what is configured and what is missing, and changes nothing. The
+# disk is not measured and nothing is sent: the report is the whole point.
+# The exit code tells the reader whether the tool is ready to run.
+run_doctor() {
+    local platform=""
+    local usage_command=""
+    local http_client=""
+    local mail_command=""
+
+    platform="$(resolve_platform_name)"
+
+    # The configuration file
+    if [[ "$CONFIG_FILE_MISSING" == true ]]; then
+        add_doctor_problem "The configuration file '$CONFIG_FILE' was not found. Create it, or point --config at a file that exists."
+    fi
+
+    # The threshold
+    if [[ ! "$THRESHOLD" =~ ^[0-9]+$ ]] || [[ "$THRESHOLD" -lt 1 ]] || [[ "$THRESHOLD" -gt 100 ]]; then
+        add_doctor_problem "The threshold '$THRESHOLD' is not an integer between 1 and 100. Set --threshold to a number between 1 and 100."
+    fi
+
+    # The notify backend
+    if [[ "$NOTIFY_MODE" != "none" && "$NOTIFY_MODE" != "mail" && "$NOTIFY_MODE" != "http" ]]; then
+        add_doctor_problem "The notify backend '$NOTIFY_MODE' is not supported. Set --notify to none, mail or http."
+    fi
+
+    # The partition
+    if [[ ! -d "$PARTITION" ]]; then
+        add_doctor_problem "The partition '$PARTITION' does not exist. Set --partition to a mount point that exists."
+    fi
+
+    # The measurement command
+    if ! usage_command="$(resolve_usage_command "$USAGE_COMMAND_OVERRIDE")"; then
+        add_doctor_problem "The measurement command '$USAGE_COMMAND_OVERRIDE' was not found. $(dependency_remedy coreutils)"
+    fi
+
+    # The transport
+    if [[ "$NOTIFY_MODE" == "mail" ]]; then
+        if [[ -z "$MAIL_TO" ]]; then
+            add_doctor_problem "No recipient is configured. Set --to, or DISK_MONITOR_TO, or the 'to' key in the configuration file."
+        fi
+
+        if ! mail_command="$(resolve_mail_command)"; then
+            add_doctor_problem "No mail agent was found. $(dependency_remedy msmtp)"
+        fi
+    elif [[ "$NOTIFY_MODE" == "http" ]]; then
+        if [[ -z "$HTTP_URL" ]]; then
+            add_doctor_problem "No endpoint is configured. Set --url, or DISK_MONITOR_URL, or the 'url' key in the configuration file."
+        elif [[ ! "$HTTP_URL" =~ ^https?://[^[:space:]]+$ ]]; then
+            add_doctor_problem "The endpoint '$HTTP_URL' is not a valid http or https URL. Set --url to a URL that starts with http:// or https://."
+        fi
+
+        if [[ ! "$HTTP_TIMEOUT" =~ ^[0-9]+$ ]] || [[ "$HTTP_TIMEOUT" -lt 1 ]]; then
+            add_doctor_problem "The HTTP timeout '$HTTP_TIMEOUT' is not a whole number of seconds above zero. Set --timeout to a whole number of seconds."
+        fi
+
+        if [[ ! "$HTTP_METHOD" =~ ^[A-Za-z][A-Za-z0-9_-]*$ ]]; then
+            add_doctor_problem "The HTTP method '$HTTP_METHOD' is not a valid token. Set the method to a name such as POST."
+        fi
+
+        if ! check_headers; then
+            add_doctor_problem "$HEADER_PROBLEM"
+        fi
+
+        if ! http_client="$(resolve_http_command)"; then
+            if [[ -n "$HTTP_COMMAND_OVERRIDE" ]]; then
+                add_doctor_problem "The HTTP client '$HTTP_COMMAND_OVERRIDE' was not found. Install it, or set --http-command to another HTTP client."
+            else
+                add_doctor_problem "curl was not found. $(dependency_remedy curl)"
+            fi
+        fi
+    fi
+
+    # The report
+    printf "%b============================================================%b\n" "$COLOR_BLUE" "$COLOR_RESET"
+    printf "%b                 Disk Usage Monitor - Doctor                 %b\n" "$COLOR_BLUE" "$COLOR_RESET"
+    printf "%b============================================================%b\n" "$COLOR_BLUE" "$COLOR_RESET"
+
+    doctor_field "Platform" "$platform"
+
+    if [[ "$CONFIG_FILE_MISSING" == true ]]; then
+        doctor_field "Config file" "(not found: $CONFIG_FILE)"
+    elif [[ -n "$CONFIG_FILE" ]]; then
+        doctor_field "Config file" "$CONFIG_FILE"
+    else
+        doctor_field "Config file" "(none found)"
+    fi
+
+    doctor_field "Partition" "$PARTITION" "$SOURCE_PARTITION"
+    doctor_field "Threshold" "${THRESHOLD}%" "$SOURCE_THRESHOLD"
+    doctor_field "Notify backend" "$NOTIFY_MODE" "$SOURCE_NOTIFY"
+
+    if [[ "$NOTIFY_MODE" == "http" ]]; then
+        if [[ -n "$HTTP_URL" ]]; then
+            doctor_field "Endpoint" "$HTTP_URL" "$SOURCE_URL"
+        else
+            doctor_field "Endpoint" "(not set)"
+        fi
+        doctor_field "Recipient" "(not required)"
+        if [[ -n "$http_client" ]]; then
+            doctor_field "HTTP client" "$http_client" "$SOURCE_HTTP_COMMAND"
+        else
+            doctor_field "HTTP client" "(not found)"
+        fi
+    elif [[ "$NOTIFY_MODE" == "mail" ]]; then
+        doctor_field "Endpoint" "(not required)"
+        if [[ -n "$MAIL_TO" ]]; then
+            doctor_field "Recipient" "$MAIL_TO" "$SOURCE_TO"
+        else
+            doctor_field "Recipient" "(not set)"
+        fi
+        doctor_field "HTTP client" "(not required)"
+    else
+        doctor_field "Endpoint" "(not required)"
+        doctor_field "Recipient" "(not required)"
+        doctor_field "HTTP client" "(not required)"
+    fi
+
+    if [[ "$NOTIFY_MODE" == "mail" ]]; then
+        if [[ -n "$mail_command" ]]; then
+            doctor_field "Mail agent" "$mail_command" "$SOURCE_MAIL_COMMAND"
+        else
+            doctor_field "Mail agent" "(not found)"
+        fi
+    else
+        doctor_field "Mail agent" "(not required)"
+    fi
+
+    if [[ -n "$usage_command" ]]; then
+        doctor_field "Measurement command" "$usage_command" "$SOURCE_USAGE_COMMAND"
+    else
+        doctor_field "Measurement command" "(not found)"
+    fi
+
+    if [[ -n "$LOG_FILE" ]]; then
+        doctor_field "Audit log file" "$LOG_FILE" "$SOURCE_LOG_FILE"
+    else
+        doctor_field "Audit log file" "(not set)"
+    fi
+
+    doctor_field "HTTP headers" "${#HTTP_HEADERS[@]}" "$SOURCE_HEADER"
+
+    printf "%b------------------------------------------------------------%b\n" "$COLOR_BLUE" "$COLOR_RESET"
+
+    if [[ "${#DOCTOR_PROBLEMS[@]}" -eq 0 ]]; then
+        printf "%-20s: %bREADY%b\n" "Status" "$COLOR_GREEN" "$COLOR_RESET"
+        return 0
+    fi
+
+    printf "%-20s: %bNOT READY%b\n" "Status" "$COLOR_YELLOW" "$COLOR_RESET"
+    for problem in "${DOCTOR_PROBLEMS[@]}"; do
+        printf "  - %s\n" "$problem"
+    done
+
+    return 1
+}
+
 # Main execution entrypoint
 main() {
     parse_arguments "$@"
+    DOCTOR_PROBLEMS=()
     load_configuration
+
+    if [[ "$CONFIG_FILE_MISSING" == true && "$DOCTOR_MODE" != true ]]; then
+        printf "%bError: Configuration file '%s' does not exist.%b\n" \
+            "$COLOR_RED" "$CONFIG_FILE" "$COLOR_RESET" >&2
+        exit 1
+    fi
+
     apply_precedence
     resolve_headers
+
+    if [[ "$DOCTOR_MODE" == true ]]; then
+        if run_doctor; then
+            exit 0
+        fi
+        exit 1
+    fi
+
     validate_configuration
 
     local used_percent

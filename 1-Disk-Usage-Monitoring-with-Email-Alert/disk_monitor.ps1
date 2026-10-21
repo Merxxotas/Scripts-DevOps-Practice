@@ -55,6 +55,10 @@
     HTTP client to send the request with. Defaults to the
     DISK_MONITOR_HTTP_COMMAND environment variable, and to curl.
 
+.PARAMETER Doctor
+    Report what is configured and what is missing. The disk is not measured
+    and nothing is sent.
+
 .PARAMETER Help
     Show the help and usage documentation.
 
@@ -110,6 +114,9 @@ param(
 
     [Parameter(Mandatory = $false)]
     [string]$HttpCommand = "",
+
+    [Parameter(Mandatory = $false)]
+    [switch]$Doctor,
 
     [Parameter(Mandatory = $false)]
     [switch]$Help
@@ -185,6 +192,16 @@ $script:ResolvedHttpCommand = ""
 $script:ResolvedHttpClient = ""
 $script:ResolvedHeaders = @()
 
+# The configuration file was named explicitly but does not exist
+$script:ConfigFileMissing = $false
+
+# The problems the doctor found
+$script:DoctorProblem = @()
+
+# The problem found in the resolved headers, and the audit line it writes
+$script:HeaderProblem = ""
+$script:HeaderAuditMessage = ""
+
 # ANSI Color mapping
 $Colors = @{
     Red    = "$([char]27)[0;31m"
@@ -217,6 +234,7 @@ Optional Arguments:
   -HttpCommand <cmd>       HTTP client to send the request with (default: curl).
   -LogFile <file>          Path to append ISO-8601 audit records.
   -Config <file>           Configuration file to read (default: ./.diskmonitor.conf).
+  -Doctor                  Report what is configured and what is missing.
   -Verbose                 Enable diagnostic output.
   -Help                    Show this help and usage documentation.
 
@@ -241,6 +259,15 @@ HTTP transport:
   input, followed by a newline. A header value is never printed and never
   written to the audit log, because it may carry a token.
 
+Doctor:
+  -Doctor reports the resolved configuration and where each value came
+  from, whether the measurement command and the transport client can be
+  resolved, and whether the recipient or the endpoint is set. It measures
+  nothing and sends nothing. It exits 0 when the tool is ready to run and 1
+  when something is missing, with one line per problem and the remedy for
+  it. A missing dependency is named with the install command of the platform
+  the tool was found on.
+
 Exit Codes:
   0  The check completed; the alert was delivered, not needed, or suppressed.
   1  Configuration or safety error (bad flag, threshold, partition, recipient,
@@ -252,6 +279,7 @@ Examples:
   $PSCommandPath -Partition / -Threshold 80 -To ops@example.com
   $PSCommandPath -Partition /home -Threshold 90 -DryRun -Verbose
   $PSCommandPath -Notify http -Url https://ntfy.sh/disk-alerts
+  $PSCommandPath -Doctor
 "@
 }
 
@@ -321,7 +349,7 @@ function Read-ConfigFile {
         if (-not $trimmed.Contains("=")) {
             # The line is named, never shown: a line pasted into the file by
             # mistake may hold a bearer token.
-            Write-ErrorLine "$($Colors.Yellow)Warning: ignoring malformed line $lineNumber in '$script:ConfigFilePath'.$($Colors.Reset)"
+            Write-ConfigProblem -Kind "malformed" -LineNumber $lineNumber
             continue
         }
 
@@ -356,9 +384,36 @@ function Read-ConfigFile {
             "timeout" { $script:ConfigTimeout = $value }
             "header" { $script:ConfigHeaders += $value }
             default {
-                Write-ErrorLine "$($Colors.Yellow)Warning: ignoring unknown configuration key '$key' in '$script:ConfigFilePath'.$($Colors.Reset)"
+                Write-ConfigProblem -Kind "unknown" -LineNumber $lineNumber -Key $key
             }
         }
+    }
+}
+
+# Reports one problem found in the configuration file. A malformed line is
+# named by its number and never shown, because a line pasted into the file by
+# mistake may hold a bearer token. The doctor carries the problem in its own
+# report; a run reports it as a warning.
+function Write-ConfigProblem {
+    param(
+        [string]$Kind,
+        [int]$LineNumber,
+        [string]$Key = ""
+    )
+
+    if ($Kind -eq "malformed") {
+        if ($Doctor) {
+            Add-DoctorProblem "The configuration file has a malformed line at line $LineNumber, which was ignored. Fix the line, or remove it."
+        } else {
+            Write-ErrorLine "$($Colors.Yellow)Warning: ignoring malformed line $LineNumber in '$script:ConfigFilePath'.$($Colors.Reset)"
+        }
+        return
+    }
+
+    if ($Doctor) {
+        Add-DoctorProblem "The configuration file has an unknown key '$Key' at line $LineNumber, which was ignored. Remove the key, or check its spelling."
+    } else {
+        Write-ErrorLine "$($Colors.Yellow)Warning: ignoring unknown configuration key '$Key' in '$script:ConfigFilePath'.$($Colors.Reset)"
     }
 }
 
@@ -410,8 +465,8 @@ function Resolve-Configuration {
     if (-not [string]::IsNullOrWhiteSpace($candidate)) {
         if (-not (Test-Path -LiteralPath $candidate -PathType Leaf)) {
             if ($explicit) {
-                Write-ErrorLine "$($Colors.Red)Error: Configuration file '$candidate' does not exist.$($Colors.Reset)"
-                exit 1
+                $script:ConfigFilePath = $candidate
+                $script:ConfigFileMissing = $true
             }
         } else {
             Read-ConfigFile -Path $candidate
@@ -688,29 +743,210 @@ function Resolve-HttpCommand {
     return $null
 }
 
+# Resolves the measurement command to the program that runs it. The command
+# is an external program, so it is resolved the way the mail agent and the
+# HTTP client are resolved.
+function Resolve-UsageCommand {
+    param([string]$Command)
+
+    if ([string]::IsNullOrEmpty($Command)) {
+        return $null
+    }
+
+    $resolved = @(Get-Command $Command -ErrorAction SilentlyContinue)
+    if ($resolved.Count -gt 0) {
+        return $resolved[0].Source
+    }
+
+    return $null
+}
+
+# Returns the partition the tool watches. The default is the root of the
+# current drive on Windows and "/" elsewhere.
+function Get-ResolvedPartition {
+    $value = $Partition
+
+    if ([string]::IsNullOrEmpty($value)) {
+        if ($IsWindows) {
+            return "$env:SystemDrive\"
+        }
+        return "/"
+    }
+
+    return $value
+}
+
+# Names the platform the tool is running on. The distribution is read from
+# the file every Linux distribution ships, so the report names the system the
+# tool was found on and not only the kernel.
+function Get-PlatformName {
+    if ($IsWindows) {
+        return "Windows"
+    }
+
+    if ($IsMacOS) {
+        return "macOS"
+    }
+
+    $identifier = ""
+    if (Test-Path -LiteralPath "/etc/os-release" -PathType Leaf) {
+        foreach ($line in (Get-Content -LiteralPath "/etc/os-release")) {
+            if ($line.StartsWith("ID=")) {
+                $identifier = $line.Substring(3).Trim().Trim('"').Trim("'")
+                break
+            }
+        }
+    }
+
+    if ($identifier -ne "") {
+        return "Linux ($identifier)"
+    }
+
+    return "Linux"
+}
+
+# Prints the command that installs a package on this platform. The package
+# manager is the one that is installed, so the remedy names a command the
+# reader can run. The package name is the same on every distribution, only
+# the syntax of the command differs.
+function Resolve-InstallCommand {
+    param([string]$Package)
+
+    if ($IsWindows) {
+        return $null
+    }
+
+    if ($IsMacOS) {
+        return "brew install $Package"
+    }
+
+    $manager = @(
+        @{ Name = "apt-get"; Command = "sudo apt-get install" },
+        @{ Name = "dnf"; Command = "sudo dnf install" },
+        @{ Name = "yum"; Command = "sudo yum install" },
+        @{ Name = "pacman"; Command = "sudo pacman -S" },
+        @{ Name = "apk"; Command = "sudo apk add" },
+        @{ Name = "zypper"; Command = "sudo zypper install" }
+    )
+
+    foreach ($entry in $manager) {
+        $resolved = @(Get-Command $entry.Name -CommandType Application -ErrorAction SilentlyContinue)
+        if ($resolved.Count -gt 0) {
+            return "$($entry.Command) $Package"
+        }
+    }
+
+    return $null
+}
+
+# The remedy for a dependency that is not installed. The install command is
+# the one of the platform the tool was found on, because a generic suggestion
+# is not an instruction the reader can run.
+function Get-DependencyRemedy {
+    param([string]$Dependency)
+
+    $package = "coreutils"
+    $alternative = "or set DISK_MONITOR_USAGE_COMMAND to another measurement command"
+
+    switch ($Dependency) {
+        "curl" {
+            $package = "curl"
+            $alternative = "or set -HttpCommand to another HTTP client"
+        }
+        "msmtp" {
+            $package = "msmtp"
+            $alternative = "or set -MailCommand to another mail agent"
+        }
+    }
+
+    if ($IsWindows) {
+        switch ($Dependency) {
+            "curl" {
+                return "curl.exe ships with Windows 10 (1803) and later. Run 'curl.exe --version' to confirm it, or set -HttpCommand to another client."
+            }
+            "msmtp" {
+                return "Windows has no mail agent. Use -Notify http with -Url, which needs no local agent."
+            }
+            default {
+                return "Install coreutils, or set DISK_MONITOR_USAGE_COMMAND to another measurement command."
+            }
+        }
+    }
+
+    $installCommand = Resolve-InstallCommand -Package $package
+    if ($null -ne $installCommand) {
+        return "Install it with: $installCommand"
+    }
+
+    return "Install $package with your package manager, $alternative."
+}
+
+# Writes one field of the doctor report. The source of the value is shown
+# with it, so the reader can see where a setting came from.
+function Write-DoctorField {
+    param(
+        [string]$Label,
+        [string]$Value,
+        [string]$Source = ""
+    )
+
+    if ($Source -ne "") {
+        Write-Host ("{0,-20}: {1} ({2})" -f $Label, $Value, $Source)
+        return
+    }
+
+    Write-Host ("{0,-20}: {1}" -f $Label, $Value)
+}
+
+# Records one problem the doctor found. Every problem carries its own
+# remedy, on one line.
+function Add-DoctorProblem {
+    param([string]$Message)
+
+    $script:DoctorProblem += $Message
+}
+
 # Validates the resolved headers. A header is a name and a value, and it must
 # not carry a line break, which would let it inject a second header. The
-# value is never reported: it may carry a bearer token.
+# value is never reported: it may carry a bearer token. The problem is handed
+# to the caller, which decides whether to fail the run or to report it.
 function Test-HttpHeader {
     param([string[]]$HeaderList)
 
     $headerNumber = 0
+    $script:HeaderProblem = ""
+    $script:HeaderAuditMessage = ""
 
     foreach ($headerText in $HeaderList) {
         $headerNumber++
 
         if ($headerText.Contains("`n") -or $headerText.Contains("`r")) {
-            Write-ErrorLine "$($Colors.Red)Error: Header $headerNumber carries a line break.$($Colors.Reset)"
-            Write-AuditLog -Level "ERROR" -Message "Malformed HTTP header: it carries a line break."
-            exit 1
+            $script:HeaderProblem = "Header $headerNumber carries a line break."
+            $script:HeaderAuditMessage = "Malformed HTTP header: it carries a line break."
+            return $false
         }
 
         if ($headerText -notmatch '^[^:\s]+:.*$') {
-            Write-ErrorLine "$($Colors.Red)Error: Header $headerNumber is malformed. Expected 'Name: value'.$($Colors.Reset)"
-            Write-AuditLog -Level "ERROR" -Message "Malformed HTTP header."
-            exit 1
+            $script:HeaderProblem = "Header $headerNumber is malformed. Expected 'Name: value'."
+            $script:HeaderAuditMessage = "Malformed HTTP header."
+            return $false
         }
     }
+
+    return $true
+}
+
+# Fails the run when a header is malformed
+function Assert-HttpHeader {
+    param([string[]]$HeaderList)
+
+    if (Test-HttpHeader -HeaderList $HeaderList) {
+        return
+    }
+
+    Write-ErrorLine "$($Colors.Red)Error: $($script:HeaderProblem)$($Colors.Reset)"
+    Write-AuditLog -Level "ERROR" -Message $script:HeaderAuditMessage
+    exit 1
 }
 
 # Renders the body template.
@@ -811,6 +1047,169 @@ function Send-HttpAlert {
     }
 }
 
+# Reports what is configured and what is missing, and changes nothing. The
+# disk is not measured and nothing is sent: the report is the whole point.
+# The exit code tells the reader whether the tool is ready to run.
+function Invoke-Doctor {
+    $platform = Get-PlatformName
+    $usageCommand = $null
+    $httpClient = $null
+    $mailCommand = $null
+    $resolvedPartition = Get-ResolvedPartition
+
+    # The configuration file
+    if ($script:ConfigFileMissing) {
+        Add-DoctorProblem "The configuration file '$($script:ConfigFilePath)' was not found. Create it, or point -Config at a file that exists."
+    }
+
+    # The threshold
+    if ($script:Threshold -notmatch '^\d+$' -or [int]$script:Threshold -lt 1 -or [int]$script:Threshold -gt 100) {
+        Add-DoctorProblem "The threshold '$($script:Threshold)' is not an integer between 1 and 100. Set -Threshold to a number between 1 and 100."
+    }
+
+    # The notify backend
+    if ($script:Notify -ne "none" -and $script:Notify -ne "mail" -and $script:Notify -ne "http") {
+        Add-DoctorProblem "The notify backend '$($script:Notify)' is not supported. Set -Notify to none, mail or http."
+    }
+
+    # The partition
+    if (-not (Test-Path -LiteralPath $resolvedPartition -PathType Container)) {
+        Add-DoctorProblem "The partition '$resolvedPartition' does not exist. Set -Partition to a mount point that exists."
+    }
+
+    # The measurement command
+    if (-not [string]::IsNullOrEmpty($script:UsageCommand)) {
+        $usageCommand = Resolve-UsageCommand -Command $script:UsageCommand
+        if ($null -eq $usageCommand) {
+            Add-DoctorProblem "The measurement command '$($script:UsageCommand)' was not found. $(Get-DependencyRemedy -Dependency 'coreutils')"
+        }
+    }
+
+    # The transport
+    if ($script:Notify -eq "mail") {
+        if ([string]::IsNullOrEmpty($script:To)) {
+            Add-DoctorProblem "No recipient is configured. Set -To, or DISK_MONITOR_TO, or the 'to' key in the configuration file."
+        }
+
+        $mailCommand = Resolve-MailCommand -Override $script:MailCommand
+        if ($null -eq $mailCommand) {
+            Add-DoctorProblem "No mail agent was found. $(Get-DependencyRemedy -Dependency 'msmtp')"
+        }
+    } elseif ($script:Notify -eq "http") {
+        if ([string]::IsNullOrEmpty($script:ResolvedUrl)) {
+            Add-DoctorProblem "No endpoint is configured. Set -Url, or DISK_MONITOR_URL, or the 'url' key in the configuration file."
+        } elseif ($script:ResolvedUrl -notmatch '^https?://\S+$') {
+            Add-DoctorProblem "The endpoint '$($script:ResolvedUrl)' is not a valid http or https URL. Set -Url to a URL that starts with http:// or https://."
+        }
+
+        if ($script:ResolvedTimeout -notmatch '^\d+$' -or [int]$script:ResolvedTimeout -lt 1) {
+            Add-DoctorProblem "The HTTP timeout '$($script:ResolvedTimeout)' is not a whole number of seconds above zero. Set -Timeout to a whole number of seconds."
+        }
+
+        if ($script:ResolvedMethod -notmatch '^[A-Za-z][A-Za-z0-9_-]*$') {
+            Add-DoctorProblem "The HTTP method '$($script:ResolvedMethod)' is not a valid token. Set the method to a name such as POST."
+        }
+
+        if (-not (Test-HttpHeader -HeaderList $script:ResolvedHeaders)) {
+            Add-DoctorProblem $script:HeaderProblem
+        }
+
+        $httpClient = Resolve-HttpCommand -Override $script:ResolvedHttpCommand
+        if ($null -eq $httpClient) {
+            if (-not [string]::IsNullOrEmpty($script:ResolvedHttpCommand)) {
+                Add-DoctorProblem "The HTTP client '$($script:ResolvedHttpCommand)' was not found. Install it, or set -HttpCommand to another HTTP client."
+            } else {
+                Add-DoctorProblem "curl was not found. $(Get-DependencyRemedy -Dependency 'curl')"
+            }
+        }
+    }
+
+    # The report
+    Write-Host "$($Colors.Blue)============================================================$($Colors.Reset)"
+    Write-Host "$($Colors.Blue)                 Disk Usage Monitor - Doctor                 $($Colors.Reset)"
+    Write-Host "$($Colors.Blue)============================================================$($Colors.Reset)"
+
+    Write-DoctorField -Label "Platform" -Value $platform
+
+    if ($script:ConfigFileMissing) {
+        Write-DoctorField -Label "Config file" -Value "(not found: $($script:ConfigFilePath))"
+    } elseif (-not [string]::IsNullOrEmpty($script:ConfigFilePath)) {
+        Write-DoctorField -Label "Config file" -Value $script:ConfigFilePath
+    } else {
+        Write-DoctorField -Label "Config file" -Value "(none found)"
+    }
+
+    Write-DoctorField -Label "Partition" -Value $resolvedPartition -Source $script:SourcePartition
+    Write-DoctorField -Label "Threshold" -Value "$($script:Threshold)%" -Source $script:SourceThreshold
+    Write-DoctorField -Label "Notify backend" -Value $script:Notify -Source $script:SourceNotify
+
+    if ($script:Notify -eq "http") {
+        if (-not [string]::IsNullOrEmpty($script:ResolvedUrl)) {
+            Write-DoctorField -Label "Endpoint" -Value $script:ResolvedUrl -Source $script:SourceUrl
+        } else {
+            Write-DoctorField -Label "Endpoint" -Value "(not set)"
+        }
+        Write-DoctorField -Label "Recipient" -Value "(not required)"
+        if ($null -ne $httpClient) {
+            Write-DoctorField -Label "HTTP client" -Value $httpClient -Source $script:SourceHttpCommand
+        } else {
+            Write-DoctorField -Label "HTTP client" -Value "(not found)"
+        }
+    } elseif ($script:Notify -eq "mail") {
+        Write-DoctorField -Label "Endpoint" -Value "(not required)"
+        if (-not [string]::IsNullOrEmpty($script:To)) {
+            Write-DoctorField -Label "Recipient" -Value $script:To -Source $script:SourceTo
+        } else {
+            Write-DoctorField -Label "Recipient" -Value "(not set)"
+        }
+        Write-DoctorField -Label "HTTP client" -Value "(not required)"
+    } else {
+        Write-DoctorField -Label "Endpoint" -Value "(not required)"
+        Write-DoctorField -Label "Recipient" -Value "(not required)"
+        Write-DoctorField -Label "HTTP client" -Value "(not required)"
+    }
+
+    if ($script:Notify -eq "mail") {
+        if ($null -ne $mailCommand) {
+            Write-DoctorField -Label "Mail agent" -Value $mailCommand -Source $script:SourceMailCommand
+        } else {
+            Write-DoctorField -Label "Mail agent" -Value "(not found)"
+        }
+    } else {
+        Write-DoctorField -Label "Mail agent" -Value "(not required)"
+    }
+
+    if ($IsWindows -and [string]::IsNullOrEmpty($script:UsageCommand)) {
+        Write-DoctorField -Label "Measurement command" -Value "(not required: the native volume API is used)"
+    } elseif ($null -ne $usageCommand) {
+        Write-DoctorField -Label "Measurement command" -Value $usageCommand -Source $script:SourceUsageCommand
+    } else {
+        Write-DoctorField -Label "Measurement command" -Value "(not found)"
+    }
+
+    if (-not [string]::IsNullOrEmpty($script:LogFile)) {
+        Write-DoctorField -Label "Audit log file" -Value $script:LogFile -Source $script:SourceLogFile
+    } else {
+        Write-DoctorField -Label "Audit log file" -Value "(not set)"
+    }
+
+    Write-DoctorField -Label "HTTP headers" -Value "$($script:ResolvedHeaders.Count)" -Source $script:SourceHeader
+
+    Write-Host "$($Colors.Blue)------------------------------------------------------------$($Colors.Reset)"
+
+    if ($script:DoctorProblem.Count -eq 0) {
+        Write-Host ("{0,-20}: {1}READY{2}" -f "Status", $Colors.Green, $Colors.Reset)
+        return $true
+    }
+
+    Write-Host ("{0,-20}: {1}NOT READY{2}" -f "Status", $Colors.Yellow, $Colors.Reset)
+    foreach ($problem in $script:DoctorProblem) {
+        Write-Host "  - $problem"
+    }
+
+    return $false
+}
+
 # Main script orchestration
 function Invoke-DiskMonitor {
     if ($Help) {
@@ -819,6 +1218,18 @@ function Invoke-DiskMonitor {
     }
 
     Resolve-Configuration
+
+    if ($script:ConfigFileMissing -and -not $Doctor) {
+        Write-ErrorLine "$($Colors.Red)Error: Configuration file '$($script:ConfigFilePath)' does not exist.$($Colors.Reset)"
+        exit 1
+    }
+
+    if ($Doctor) {
+        if (Invoke-Doctor) {
+            exit 0
+        }
+        exit 1
+    }
 
     if ($script:Threshold -notmatch '^\d+$' -or [int]$script:Threshold -lt 1 -or [int]$script:Threshold -gt 100) {
         Write-ErrorLine "$($Colors.Red)Error: Threshold must be an integer between 1 and 100.$($Colors.Reset)"
@@ -832,14 +1243,7 @@ function Invoke-DiskMonitor {
         exit 1
     }
 
-    $resolvedPartition = $Partition
-    if ([string]::IsNullOrWhiteSpace($resolvedPartition)) {
-        if ($IsWindows) {
-            $resolvedPartition = "$env:SystemDrive\"
-        } else {
-            $resolvedPartition = "/"
-        }
-    }
+    $resolvedPartition = Get-ResolvedPartition
 
     if (-not (Test-Path -LiteralPath $resolvedPartition -PathType Container)) {
         Write-ErrorLine "$($Colors.Red)Error: Partition '$resolvedPartition' does not exist.$($Colors.Reset)"
@@ -859,23 +1263,13 @@ function Invoke-DiskMonitor {
     }
 
     $resolvedUsageCommand = ""
-    $commandOverride = $env:DISK_MONITOR_USAGE_COMMAND
-    if (-not [string]::IsNullOrWhiteSpace($commandOverride)) {
-        $resolvedCommand = Get-Command $commandOverride -ErrorAction SilentlyContinue
-        if ($null -eq $resolvedCommand) {
-            Write-ErrorLine "$($Colors.Red)Error: Measurement command '$commandOverride' was not found.$($Colors.Reset)"
-            Write-AuditLog -Level "ERROR" -Message "Measurement command not found: '$commandOverride'."
+    if (-not [string]::IsNullOrEmpty($script:UsageCommand)) {
+        $resolvedUsageCommand = Resolve-UsageCommand -Command $script:UsageCommand
+        if ($null -eq $resolvedUsageCommand) {
+            Write-ErrorLine "$($Colors.Red)Error: Measurement command '$($script:UsageCommand)' was not found.$($Colors.Reset)"
+            Write-AuditLog -Level "ERROR" -Message "Measurement command not found: '$($script:UsageCommand)'."
             exit 1
         }
-        $resolvedUsageCommand = $resolvedCommand.Source
-    } elseif (-not $IsWindows) {
-        $resolvedCommand = Get-Command "df" -ErrorAction SilentlyContinue
-        if ($null -eq $resolvedCommand) {
-            Write-ErrorLine "$($Colors.Red)Error: Measurement command 'df' was not found.$($Colors.Reset)"
-            Write-AuditLog -Level "ERROR" -Message "Measurement command not found: 'df'."
-            exit 1
-        }
-        $resolvedUsageCommand = $resolvedCommand.Source
     }
 
     $recipient = $To
@@ -928,7 +1322,7 @@ function Invoke-DiskMonitor {
             exit 1
         }
 
-        Test-HttpHeader -HeaderList $script:ResolvedHeaders
+        Assert-HttpHeader -HeaderList $script:ResolvedHeaders
     }
 
     $usedPercent = Get-DiskUsagePercent -Path $resolvedPartition -Command $resolvedUsageCommand

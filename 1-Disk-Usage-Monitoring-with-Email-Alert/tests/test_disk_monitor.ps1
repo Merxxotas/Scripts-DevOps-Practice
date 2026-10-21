@@ -27,12 +27,22 @@ $TestSandbox = Join-Path ([System.IO.Path]::GetTempPath()) ("test_ps1_disk_" + [
 $StubDir = Join-Path $TestSandbox "stubs"
 $CaptureFile = Join-Path $TestSandbox "mail_capture.txt"
 $HttpCaptureFile = Join-Path $TestSandbox "http_capture.txt"
+$UsageCaptureFile = Join-Path $TestSandbox "usage_capture.txt"
+$LimitedBin = Join-Path $TestSandbox "limited_bin"
 $OutFile = Join-Path $TestSandbox "stdout.txt"
 $ErrFile = Join-Path $TestSandbox "stderr.txt"
 $UsageStub = Join-Path $StubDir "usage_stub.ps1"
 $MailStub = Join-Path $StubDir "mail_stub.ps1"
 $HttpStub = Join-Path $StubDir "http_stub.ps1"
 $script:OriginalPath = $env:PATH
+
+# The interpreter is resolved once, by its own path, so the suite can run a
+# case with a PATH the test chooses without losing the interpreter.
+$script:PwshPath = "pwsh"
+$pwshCommand = @(Get-Command pwsh -CommandType Application -ErrorAction SilentlyContinue)
+if ($pwshCommand.Count -gt 0) {
+    $script:PwshPath = $pwshCommand[0].Source
+}
 
 $script:PassedCount = 0
 $script:FailedCount = 0
@@ -48,12 +58,18 @@ function Enter-TestEnvironment {
     New-Item -ItemType Directory -Path $StubDir -Force | Out-Null
 
     # Measurement stub. It emits the POSIX six-field layout, so the module's
-    # parser is exercised exactly as it would be on a real host.
+    # parser is exercised exactly as it would be on a real host. The
+    # invocation is recorded, so a test can prove the measurement never
+    # happened.
     @'
 param(
     [Parameter(Mandatory = $false, Position = 1)][string]$P = "",
     [Parameter(Mandatory = $false, Position = 2)][string]$Partition = ""
 )
+
+if (-not [string]::IsNullOrWhiteSpace($env:DISK_MONITOR_STUB_USAGE_CAPTURE)) {
+    Add-Content -LiteralPath $env:DISK_MONITOR_STUB_USAGE_CAPTURE -Value "USAGE-CALLED"
+}
 
 if ($env:DISK_MONITOR_STUB_DF_FAIL -eq "1") {
     [Console]::Error.WriteLine("measurement stub: simulated failure")
@@ -83,6 +99,19 @@ Write-Output "Filesystem     1024-blocks      Used Available Capacity Mounted on
 Write-Output "/dev/stub0        1000000  500000    500000      63% /mnt/my disk"
 exit 0
 '@ | Set-Content -LiteralPath (Join-Path $StubDir "usage_spaced_stub.ps1") -Encoding utf8
+
+    # Measurement stub whose usage is a distinct value, so a test can prove
+    # which command was used.
+    @'
+param(
+    [Parameter(Mandatory = $false, Position = 1)][string]$P = "",
+    [Parameter(Mandatory = $false, Position = 2)][string]$Partition = ""
+)
+
+Write-Output "Filesystem     1024-blocks      Used Available Capacity Mounted on"
+Write-Output "/dev/stub0        1000000  500000    500000      77% /"
+exit 0
+'@ | Set-Content -LiteralPath (Join-Path $StubDir "usage_alt_stub.ps1") -Encoding utf8
 
     # Mail stub. It records the subject, the recipient and the body, so the
     # test can assert on the composed message without sending anything.
@@ -146,9 +175,11 @@ exit 0
 
     Set-Content -LiteralPath $CaptureFile -Value "" -NoNewline
     Set-Content -LiteralPath $HttpCaptureFile -Value "" -NoNewline
+    Set-Content -LiteralPath $UsageCaptureFile -Value "" -NoNewline
 
     $env:DISK_MONITOR_STUB_CAPTURE = $CaptureFile
     $env:DISK_MONITOR_STUB_HTTP_CAPTURE = $HttpCaptureFile
+    $env:DISK_MONITOR_STUB_USAGE_CAPTURE = $UsageCaptureFile
     $env:DISK_MONITOR_STUB_DF_USAGE = "49"
     $env:DISK_MONITOR_STUB_DF_FAIL = "0"
     $env:DISK_MONITOR_STUB_MAIL_FAIL = "0"
@@ -174,6 +205,7 @@ function Exit-TestEnvironment {
     Remove-Item -LiteralPath $TestSandbox -Recurse -Force -ErrorAction SilentlyContinue
     Remove-Item Env:DISK_MONITOR_STUB_CAPTURE -ErrorAction SilentlyContinue
     Remove-Item Env:DISK_MONITOR_STUB_HTTP_CAPTURE -ErrorAction SilentlyContinue
+    Remove-Item Env:DISK_MONITOR_STUB_USAGE_CAPTURE -ErrorAction SilentlyContinue
     Remove-Item Env:DISK_MONITOR_STUB_DF_USAGE -ErrorAction SilentlyContinue
     Remove-Item Env:DISK_MONITOR_STUB_DF_FAIL -ErrorAction SilentlyContinue
     Remove-Item Env:DISK_MONITOR_STUB_MAIL_FAIL -ErrorAction SilentlyContinue
@@ -201,7 +233,7 @@ function Invoke-Monitor {
 
     $code = 0
     try {
-        & pwsh -NoProfile -File $MonitorScript @Arguments 1> $OutFile 2> $ErrFile
+        & $script:PwshPath -NoProfile -File $MonitorScript @Arguments 1> $OutFile 2> $ErrFile
         $code = $LASTEXITCODE
     } catch {
         $code = 1
@@ -210,6 +242,84 @@ function Invoke-Monitor {
     $script:LastRunExitCode = $code
     $script:LastStdout = Read-Stripped -Path $OutFile
     $script:LastStderr = Read-Stripped -Path $ErrFile
+}
+
+# Runs the monitor with a PATH the test chooses, so a dependency can be made
+# unresolvable while the package manager of the host stays reachable.
+function Invoke-MonitorWithPath {
+    param(
+        [string]$SearchPath,
+        [string[]]$Arguments = @()
+    )
+
+    $code = 0
+    $savedPath = $env:PATH
+    try {
+        $env:PATH = $SearchPath
+        & $script:PwshPath -NoProfile -File $MonitorScript @Arguments 1> $OutFile 2> $ErrFile
+        $code = $LASTEXITCODE
+    } catch {
+        $code = 1
+    } finally {
+        $env:PATH = $savedPath
+    }
+
+    $script:LastRunExitCode = $code
+    $script:LastStdout = Read-Stripped -Path $OutFile
+    $script:LastStderr = Read-Stripped -Path $ErrFile
+}
+
+# Creates a directory that holds only the package managers of this host, so
+# the doctor can name the install command of this platform while the HTTP
+# client stays unresolvable. The manager is the one that is really
+# installed, so the remedy the doctor prints is the one the reader can run.
+function Enter-LimitedPath {
+    if (-not (Test-Path -LiteralPath $LimitedBin)) {
+        New-Item -ItemType Directory -Path $LimitedBin -Force | Out-Null
+    }
+
+    if ($IsWindows) {
+        # Windows has no package manager, so the doctor names the platform
+        # itself. The directory stays empty on purpose.
+        return
+    }
+
+    foreach ($manager in @("apt-get", "dnf", "yum", "pacman", "apk", "zypper", "brew")) {
+        $resolved = @(Get-Command $manager -CommandType Application -ErrorAction SilentlyContinue)
+        if ($resolved.Count -gt 0) {
+            $shim = Join-Path $LimitedBin $manager
+            Set-Content -LiteralPath $shim -Value "#!/bin/sh`nexit 0`n" -NoNewline
+            & chmod +x $shim
+        }
+    }
+}
+
+# The install command the doctor must name for a package on this platform.
+# The package manager is the first one the limited directory holds, in the
+# order the implementation looks for them.
+function Get-ExpectedInstallCommand {
+    param([string]$Package)
+
+    if ($IsMacOS) {
+        return "brew install $Package"
+    }
+
+    $manager = @(
+        @{ Name = "apt-get"; Command = "sudo apt-get install" },
+        @{ Name = "dnf"; Command = "sudo dnf install" },
+        @{ Name = "yum"; Command = "sudo yum install" },
+        @{ Name = "pacman"; Command = "sudo pacman -S" },
+        @{ Name = "apk"; Command = "sudo apk add" },
+        @{ Name = "zypper"; Command = "sudo zypper install" }
+    )
+
+    foreach ($entry in $manager) {
+        if (Test-Path -LiteralPath (Join-Path $LimitedBin $entry.Name)) {
+            return "$($entry.Command) $Package"
+        }
+    }
+
+    return "Install $Package with your package manager"
 }
 
 # Reads a captured file and removes the ANSI escape sequences
@@ -322,6 +432,27 @@ function Assert-HttpCaptureEmpty {
         $script:PassedCount++
     } else {
         Write-Host "$([char]27)[0;31m[FAIL]$([char]27)[0m $TestName (Expected no HTTP activity, got: '$capture')"
+        $script:FailedCount++
+    }
+}
+
+# Asserts that the disk was never measured
+function Assert-UsageCaptureEmpty {
+    param([Parameter(Mandatory = $true)][string]$TestName)
+
+    $capture = ""
+    if (Test-Path -LiteralPath $UsageCaptureFile) {
+        $raw = Get-Content -Raw -LiteralPath $UsageCaptureFile
+        if ($null -ne $raw) {
+            $capture = $raw
+        }
+    }
+
+    if ([string]::IsNullOrWhiteSpace($capture)) {
+        Write-Host "$([char]27)[0;32m[PASS]$([char]27)[0m $TestName"
+        $script:PassedCount++
+    } else {
+        Write-Host "$([char]27)[0;31m[FAIL]$([char]27)[0m $TestName (Expected no measurement, got: '$capture')"
         $script:FailedCount++
     }
 }
@@ -1384,7 +1515,230 @@ Test-HttpEmptyHeaderFlag
 Test-HttpNonRunnableClient
 Test-HttpEnvironmentHeaderIsNeverReported
 Test-HttpConfigHeaderIsNeverReported
+# Test 82: The configuration file names the measurement command
+function Test-ConfigFileNamesTheMeasurementCommand {
+    Enter-TestEnvironment
+    # The environment variable outranks the configuration file, so it is
+    # removed: the file is what has to name the command here.
+    Remove-Item Env:DISK_MONITOR_USAGE_COMMAND -ErrorAction SilentlyContinue
+    $altStub = Join-Path $StubDir "usage_alt_stub.ps1"
+    $configFile = Join-Path $TestSandbox "diskmonitor.conf"
+    Set-Content -LiteralPath $configFile -Value "usage_command = $altStub"
+    Invoke-Monitor -Arguments @("-Config", $configFile, "-Threshold", "80", "-Notify", "http", "-Url", "https://ntfy.sh/disk-alerts")
+    Assert-Equal -Expected 0 -Actual $script:LastRunExitCode -TestName "Test 82a: The run accepts the measurement command of the configuration file"
+    Assert-Match -Haystack $script:LastStdout -Needle "77%" -TestName "Test 82b: The measurement command of the configuration file is used"
+    Exit-TestEnvironment
+}
+
+# Test 83: A partition that holds only whitespace is a configuration error
+function Test-WhitespacePartitionIsRejected {
+    Enter-TestEnvironment
+    $env:DISK_MONITOR_PARTITION = "   "
+    Invoke-Monitor -Arguments @("-Threshold", "80", "-Notify", "http", "-Url", "https://ntfy.sh/disk-alerts")
+    Assert-Equal -Expected 1 -Actual $script:LastRunExitCode -TestName "Test 83a: A partition that holds only whitespace exits with code 1"
+    Invoke-Monitor -Arguments @("-Doctor", "-Notify", "http", "-Url", "https://ntfy.sh/disk-alerts")
+    Assert-Equal -Expected 1 -Actual $script:LastRunExitCode -TestName "Test 83b: The doctor rejects the same partition"
+    Exit-TestEnvironment
+}
+
+# Test 70: The doctor reports the resolved configuration and its source
+function Test-DoctorReportsTheConfiguration {
+    Enter-TestEnvironment
+    Invoke-Monitor -Arguments @("-Doctor", "-Notify", "http", "-Url", "https://ntfy.sh/disk-alerts")
+    Assert-Equal -Expected 0 -Actual $script:LastRunExitCode -TestName "Test 70a: The doctor exits with code 0 when the tool is ready"
+    Assert-Match -Haystack $script:LastStdout -Needle "Disk Usage Monitor - Doctor" -TestName "Test 70b: The doctor names its report"
+    Assert-Match -Haystack $script:LastStdout -Needle "Platform" -TestName "Test 70c: The doctor names the platform"
+    Assert-Match -Haystack $script:LastStdout -Needle "Partition" -TestName "Test 70d: The doctor reports the partition"
+    Assert-Match -Haystack $script:LastStdout -Needle "Threshold" -TestName "Test 70e: The doctor reports the threshold"
+    Assert-Match -Haystack $script:LastStdout -Needle "Notify backend" -TestName "Test 70f: The doctor reports the notify backend"
+    Assert-Match -Haystack $script:LastStdout -Needle "Endpoint" -TestName "Test 70g: The doctor reports the endpoint"
+    Assert-Match -Haystack $script:LastStdout -Needle "HTTP client" -TestName "Test 70h: The doctor reports the transport client"
+    Assert-Match -Haystack $script:LastStdout -Needle "Measurement command" -TestName "Test 70i: The doctor reports the measurement command"
+    Assert-Match -Haystack $script:LastStdout -Needle "READY" -TestName "Test 70j: The doctor reports that the tool is ready"
+    Exit-TestEnvironment
+}
+
+# Test 71: The doctor changes nothing: it does not measure and does not send
+function Test-DoctorChangesNothing {
+    Enter-TestEnvironment
+    $auditFile = Join-Path $TestSandbox "logs/audit.log"
+    Invoke-Monitor -Arguments @("-Doctor", "-Notify", "http", "-Url", "https://ntfy.sh/disk-alerts", "-LogFile", $auditFile)
+    Assert-Equal -Expected 0 -Actual $script:LastRunExitCode -TestName "Test 71a: The doctor exits with code 0"
+    Assert-UsageCaptureEmpty -TestName "Test 71b: The doctor does not measure the disk"
+    Assert-HttpCaptureEmpty -TestName "Test 71c: The doctor sends nothing"
+    Assert-CaptureEmpty -TestName "Test 71d: The doctor hands nothing to the mail agent"
+    Assert-Absent -Haystack $script:LastStdout -Needle "Usage  " -TestName "Test 71e: The doctor reports no usage"
+    if (Test-Path -LiteralPath $auditFile) {
+        Write-Host "$([char]27)[0;31m[FAIL]$([char]27)[0m Test 71f: The doctor writes no audit line (The audit log was written)"
+        $script:FailedCount++
+    } else {
+        Write-Host "$([char]27)[0;32m[PASS]$([char]27)[0m Test 71f: The doctor writes no audit line"
+        $script:PassedCount++
+    }
+    Exit-TestEnvironment
+}
+
+# Test 72: The doctor names the source of every resolved value
+function Test-DoctorReportsTheSourceOfEachValue {
+    Enter-TestEnvironment
+    Invoke-Monitor -Arguments @("-Doctor", "-Notify", "http", "-Url", "https://ntfy.sh/disk-alerts", "-Threshold", "90")
+    Assert-Match -Haystack $script:LastStdout -Needle "(flag)" -TestName "Test 72a: A value from the command line names the flag"
+    Assert-Match -Haystack $script:LastStdout -Needle "(default)" -TestName "Test 72b: A value from the built-in default names the default"
+
+    $env:DISK_MONITOR_THRESHOLD = "85"
+    Invoke-Monitor -Arguments @("-Doctor", "-Notify", "http", "-Url", "https://ntfy.sh/disk-alerts")
+    Assert-Match -Haystack $script:LastStdout -Needle "(environment)" -TestName "Test 72c: A value from the environment names the environment"
+
+    Remove-Item Env:DISK_MONITOR_THRESHOLD -ErrorAction SilentlyContinue
+    $configFile = Join-Path $TestSandbox "diskmonitor.conf"
+    Set-Content -LiteralPath $configFile -Value "threshold = 70"
+    Invoke-Monitor -Arguments @("-Doctor", "-Config", $configFile, "-Notify", "http", "-Url", "https://ntfy.sh/disk-alerts")
+    Assert-Match -Haystack $script:LastStdout -Needle "(config)" -TestName "Test 72d: A value from the configuration file names the config"
+    Exit-TestEnvironment
+}
+
+# Test 73: A missing endpoint is reported with its remedy
+function Test-DoctorReportsAMissingEndpoint {
+    Enter-TestEnvironment
+    Invoke-Monitor -Arguments @("-Doctor", "-Notify", "http")
+    Assert-Equal -Expected 1 -Actual $script:LastRunExitCode -TestName "Test 73a: A missing endpoint exits with code 1"
+    Assert-Match -Haystack $script:LastStdout -Needle "NOT READY" -TestName "Test 73b: The doctor reports that the tool is not ready"
+    Assert-Match -Haystack $script:LastStdout -Needle "-Url" -TestName "Test 73c: The remedy names the command line parameter"
+    Assert-Match -Haystack $script:LastStdout -Needle "DISK_MONITOR_URL" -TestName "Test 73d: The remedy names the environment variable"
+    Exit-TestEnvironment
+}
+
+# Test 74: A missing recipient is reported with its remedy
+function Test-DoctorReportsAMissingRecipient {
+    Enter-TestEnvironment
+    Invoke-Monitor -Arguments @("-Doctor", "-Notify", "mail")
+    Assert-Equal -Expected 1 -Actual $script:LastRunExitCode -TestName "Test 74a: A missing recipient exits with code 1"
+    Assert-Match -Haystack $script:LastStdout -Needle "-To" -TestName "Test 74b: The remedy names the command line parameter"
+    Assert-Match -Haystack $script:LastStdout -Needle "DISK_MONITOR_TO" -TestName "Test 74c: The remedy names the environment variable"
+    Exit-TestEnvironment
+}
+
+# Test 75: A missing HTTP client is reported with the install command of the
+# platform the tool was found on
+function Test-DoctorReportsAMissingHttpClient {
+    Enter-TestEnvironment
+    Enter-LimitedPath
+    Invoke-MonitorWithPath -SearchPath $LimitedBin -Arguments @("-Doctor", "-Notify", "http", "-Url", "https://ntfy.sh/disk-alerts")
+    Assert-Equal -Expected 1 -Actual $script:LastRunExitCode -TestName "Test 75a: A missing HTTP client exits with code 1"
+    Assert-Match -Haystack $script:LastStdout -Needle "curl was not found" -TestName "Test 75b: The doctor names the missing dependency"
+    if ($IsWindows) {
+        Assert-Match -Haystack $script:LastStdout -Needle "curl.exe ships with Windows 10" -TestName "Test 75c: The remedy names the platform it was found on"
+    } else {
+        Assert-Match -Haystack $script:LastStdout -Needle (Get-ExpectedInstallCommand -Package "curl") -TestName "Test 75c: The remedy names the install command of this platform"
+    }
+    Exit-TestEnvironment
+}
+
+# Test 76: A missing mail agent is reported with the install command of the
+# platform the tool was found on
+function Test-DoctorReportsAMissingMailAgent {
+    Enter-TestEnvironment
+    Enter-LimitedPath
+    Invoke-MonitorWithPath -SearchPath $LimitedBin -Arguments @("-Doctor", "-Notify", "mail", "-To", "ops@example.com")
+    Assert-Equal -Expected 1 -Actual $script:LastRunExitCode -TestName "Test 76a: A missing mail agent exits with code 1"
+    Assert-Match -Haystack $script:LastStdout -Needle "No mail agent was found" -TestName "Test 76b: The doctor names the missing dependency"
+    if ($IsWindows) {
+        Assert-Match -Haystack $script:LastStdout -Needle "Windows has no mail agent" -TestName "Test 76c: The remedy names the platform it was found on"
+    } else {
+        Assert-Match -Haystack $script:LastStdout -Needle (Get-ExpectedInstallCommand -Package "msmtp") -TestName "Test 76c: The remedy names the install command of this platform"
+    }
+    Exit-TestEnvironment
+}
+
+# Test 77: The doctor never prints a header value
+function Test-DoctorNeverPrintsAHeaderValue {
+    Enter-TestEnvironment
+    Invoke-Monitor -Arguments @("-Doctor", "-Notify", "http", "-Url", "https://ntfy.sh/disk-alerts", "-Header", "Authorization: Bearer super-secret-token")
+    Assert-Equal -Expected 0 -Actual $script:LastRunExitCode -TestName "Test 77a: The doctor exits with code 0"
+    Assert-Absent -Haystack $script:LastStdout -Needle "super-secret-token" -TestName "Test 77b: The header value is not printed"
+    Assert-Match -Haystack $script:LastStdout -Needle "HTTP headers" -TestName "Test 77c: The doctor reports the number of headers"
+    Exit-TestEnvironment
+}
+
+# Test 78: A configuration file that was named but does not exist is reported
+function Test-DoctorReportsAMissingConfigFile {
+    Enter-TestEnvironment
+    $missing = Join-Path $TestSandbox "no-such-file.conf"
+    Invoke-Monitor -Arguments @("-Doctor", "-Config", $missing, "-Notify", "http", "-Url", "https://ntfy.sh/disk-alerts")
+    Assert-Equal -Expected 1 -Actual $script:LastRunExitCode -TestName "Test 78a: A missing configuration file exits with code 1"
+    Assert-Match -Haystack $script:LastStdout -Needle "was not found" -TestName "Test 78b: The doctor names the missing file"
+    Assert-Match -Haystack $script:LastStdout -Needle "-Config" -TestName "Test 78c: The remedy names the command line parameter"
+    Exit-TestEnvironment
+}
+
+# Test 79: A malformed configuration line is reported by its number and its
+# content is never echoed
+function Test-DoctorReportsMalformedConfigLine {
+    Enter-TestEnvironment
+    $configFile = Join-Path $TestSandbox "diskmonitor.conf"
+    Set-Content -LiteralPath $configFile -Value "this line has no separator and holds a token"
+    Invoke-Monitor -Arguments @("-Doctor", "-Config", $configFile, "-Notify", "http", "-Url", "https://ntfy.sh/disk-alerts")
+    Assert-Equal -Expected 1 -Actual $script:LastRunExitCode -TestName "Test 79a: A malformed configuration line exits with code 1"
+    Assert-Match -Haystack $script:LastStdout -Needle "malformed line at line 1" -TestName "Test 79b: The doctor names the malformed line"
+    Assert-Absent -Haystack $script:LastStdout -Needle "no separator" -TestName "Test 79c: The malformed line is not echoed"
+    Exit-TestEnvironment
+}
+
+# Test 80: The doctor and the run agree on whether the tool is ready
+function Test-DoctorAgreesWithTheRun {
+    Enter-TestEnvironment
+    Invoke-Monitor -Arguments @("-Doctor", "-Notify", "http", "-Url", "https://ntfy.sh/disk-alerts")
+    Assert-Equal -Expected 0 -Actual $script:LastRunExitCode -TestName "Test 80a: The doctor accepts a working configuration"
+    Invoke-Monitor -Arguments @("-Threshold", "80", "-Notify", "http", "-Url", "https://ntfy.sh/disk-alerts")
+    Assert-Equal -Expected 0 -Actual $script:LastRunExitCode -TestName "Test 80b: The run accepts the same configuration"
+
+    Invoke-Monitor -Arguments @("-Doctor", "-Notify", "http")
+    Assert-Equal -Expected 1 -Actual $script:LastRunExitCode -TestName "Test 80c: The doctor rejects a missing endpoint"
+    Invoke-Monitor -Arguments @("-Threshold", "80", "-Notify", "http")
+    Assert-Equal -Expected 1 -Actual $script:LastRunExitCode -TestName "Test 80d: The run rejects the same configuration"
+
+    Invoke-Monitor -Arguments @("-Doctor", "-Notify", "mail")
+    Assert-Equal -Expected 1 -Actual $script:LastRunExitCode -TestName "Test 80e: The doctor rejects a missing recipient"
+    Invoke-Monitor -Arguments @("-Threshold", "80", "-Notify", "mail")
+    Assert-Equal -Expected 1 -Actual $script:LastRunExitCode -TestName "Test 80f: The run rejects the same configuration"
+
+    $missing = Join-Path $TestSandbox "does-not-exist"
+    Invoke-Monitor -Arguments @("-Doctor", "-Partition", $missing, "-Notify", "http", "-Url", "https://ntfy.sh/disk-alerts")
+    Assert-Equal -Expected 1 -Actual $script:LastRunExitCode -TestName "Test 80g: The doctor rejects a missing partition"
+    Invoke-Monitor -Arguments @("-Partition", $missing, "-Notify", "http", "-Url", "https://ntfy.sh/disk-alerts")
+    Assert-Equal -Expected 1 -Actual $script:LastRunExitCode -TestName "Test 80h: The run rejects the same configuration"
+
+    Invoke-Monitor -Arguments @("-Doctor", "-Notify", "http", "-Url", "https://ntfy.sh/disk-alerts", "-Timeout", "0")
+    Assert-Equal -Expected 1 -Actual $script:LastRunExitCode -TestName "Test 80i: The doctor rejects an invalid timeout"
+    Invoke-Monitor -Arguments @("-Notify", "http", "-Url", "https://ntfy.sh/disk-alerts", "-Timeout", "0")
+    Assert-Equal -Expected 1 -Actual $script:LastRunExitCode -TestName "Test 80j: The run rejects the same configuration"
+    Exit-TestEnvironment
+}
+
+# Test 81: The help documents the doctor
+function Test-DoctorHelpDocumentsTheParameter {
+    Enter-TestEnvironment
+    Invoke-Monitor -Arguments @("-Help")
+    Assert-Match -Haystack $script:LastStdout -Needle "-Doctor" -TestName "Test 81a: The help menu documents -Doctor"
+    Assert-Match -Haystack $script:LastStdout -Needle "Doctor:" -TestName "Test 81b: The help menu explains the doctor"
+    Exit-TestEnvironment
+}
+
 Test-HttpMalformedConfigLineIsNotEchoed
+Test-DoctorReportsTheConfiguration
+Test-DoctorChangesNothing
+Test-DoctorReportsTheSourceOfEachValue
+Test-DoctorReportsAMissingEndpoint
+Test-DoctorReportsAMissingRecipient
+Test-DoctorReportsAMissingHttpClient
+Test-DoctorReportsAMissingMailAgent
+Test-DoctorNeverPrintsAHeaderValue
+Test-DoctorReportsAMissingConfigFile
+Test-DoctorReportsMalformedConfigLine
+Test-DoctorAgreesWithTheRun
+Test-DoctorHelpDocumentsTheParameter
+Test-ConfigFileNamesTheMeasurementCommand
+Test-WhitespacePartitionIsRejected
 
 Write-Host "============================================================"
 Write-Host "Tests Summary: $([char]27)[0;32m$script:PassedCount Passed$([char]27)[0m, $([char]27)[0;31m$script:FailedCount Failed$([char]27)[0m"
