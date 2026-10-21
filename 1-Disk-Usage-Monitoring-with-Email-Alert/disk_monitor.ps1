@@ -35,6 +35,26 @@
 .PARAMETER LogFile
     Path to append ISO-8601 audit records.
 
+.PARAMETER Url
+    HTTP endpoint to post the alert to. Defaults to the DISK_MONITOR_URL
+    environment variable.
+
+.PARAMETER BodyTemplate
+    HTTP request body. The placeholders are {subject}, {body}, {partition},
+    {usage}, {threshold}, {recipient}, {host} and {timestamp}. Defaults to the
+    plain-text message.
+
+.PARAMETER Header
+    Extra HTTP header, in the form 'Name: value'. One value may carry
+    several headers, one per line.
+
+.PARAMETER Timeout
+    HTTP request timeout in seconds (Default: 10).
+
+.PARAMETER HttpCommand
+    HTTP client to send the request with. Defaults to the
+    DISK_MONITOR_HTTP_COMMAND environment variable, and to curl.
+
 .PARAMETER Help
     Show the help and usage documentation.
 
@@ -43,6 +63,9 @@
 
 .EXAMPLE
     .\disk_monitor.ps1 -Partition /home -Threshold 90 -DryRun -Verbose
+
+.EXAMPLE
+    .\disk_monitor.ps1 -Notify http -Url https://ntfy.sh/disk-alerts
 #>
 
 [CmdletBinding()]
@@ -58,7 +81,7 @@ param(
     [switch]$DryRun,
 
     [Parameter(Mandatory = $false)]
-    [ValidateSet("none", "mail")]
+    [ValidateSet("none", "mail", "http")]
     [string]$Notify = "mail",
 
     [Parameter(Mandatory = $false)]
@@ -72,6 +95,21 @@ param(
 
     [Parameter(Mandatory = $false)]
     [string]$Config = "",
+
+    [Parameter(Mandatory = $false)]
+    [string]$Url = "",
+
+    [Parameter(Mandatory = $false)]
+    [string]$BodyTemplate = "",
+
+    [Parameter(Mandatory = $false)]
+    [string[]]$Header = @(),
+
+    [Parameter(Mandatory = $false)]
+    [string]$Timeout = "",
+
+    [Parameter(Mandatory = $false)]
+    [string]$HttpCommand = "",
 
     [Parameter(Mandatory = $false)]
     [switch]$Help
@@ -101,6 +139,10 @@ $script:ConfigLogFile = ""
 $script:ConfigUsageCommand = ""
 $script:ConfigUsageOverride = ""
 $script:ConfigHeaders = @()
+$script:ConfigUrl = ""
+$script:ConfigBodyTemplate = ""
+$script:ConfigMethod = ""
+$script:ConfigTimeout = ""
 
 # Whether the command line supplied each setting. The binder knows, and it
 # is captured here in the script scope: inside a function $PSBoundParameters
@@ -112,6 +154,11 @@ $script:FlagToSet = $PSBoundParameters.ContainsKey('To')
 $script:FlagMailCommandSet = $PSBoundParameters.ContainsKey('MailCommand')
 $script:FlagLogFileSet = $PSBoundParameters.ContainsKey('LogFile')
 $script:FlagConfigSet = $PSBoundParameters.ContainsKey('Config')
+$script:FlagUrlSet = $PSBoundParameters.ContainsKey('Url')
+$script:FlagBodyTemplateSet = $PSBoundParameters.ContainsKey('BodyTemplate')
+$script:FlagHeaderSet = $PSBoundParameters.ContainsKey('Header')
+$script:FlagTimeoutSet = $PSBoundParameters.ContainsKey('Timeout')
+$script:FlagHttpCommandSet = $PSBoundParameters.ContainsKey('HttpCommand')
 
 # Where each resolved value came from
 $script:SourcePartition = "default"
@@ -122,6 +169,21 @@ $script:SourceMailCommand = "default"
 $script:SourceLogFile = "default"
 $script:SourceUsageCommand = "default"
 $script:SourceUsageOverride = "default"
+$script:SourceUrl = "default"
+$script:SourceBodyTemplate = "default"
+$script:SourceMethod = "default"
+$script:SourceTimeout = "default"
+$script:SourceHttpCommand = "default"
+$script:SourceHeader = "default"
+
+# The HTTP transport settings and the headers it carries
+$script:ResolvedUrl = ""
+$script:ResolvedBodyTemplate = ""
+$script:ResolvedMethod = "POST"
+$script:ResolvedTimeout = "10"
+$script:ResolvedHttpCommand = ""
+$script:ResolvedHttpClient = ""
+$script:ResolvedHeaders = @()
 
 # ANSI Color mapping
 $Colors = @{
@@ -144,9 +206,15 @@ Optional Arguments:
   -Partition <path>        Mount point to watch (default: / on Unix, the system drive on Windows).
   -Threshold <percent>     Alert when usage is strictly greater (default: 80).
   -DryRun                  Report the alert without handing it to the mail agent.
-  -Notify <none|mail>      Notification backend (default: mail).
+  -Notify <none|mail|http> Notification backend (default: mail).
   -To <address>            Alert recipient (default: `$DISK_MONITOR_TO).
   -MailCommand <cmd>       Mail agent to hand the alert to.
+  -Url <url>               HTTP endpoint to post the alert to.
+  -BodyTemplate <text>     HTTP request body (default: the plain-text message).
+  -Header 'Name: value'    Extra HTTP header. One value may carry several
+                            headers, one per line.
+  -Timeout <seconds>       HTTP request timeout in seconds (default: 10).
+  -HttpCommand <cmd>       HTTP client to send the request with (default: curl).
   -LogFile <file>          Path to append ISO-8601 audit records.
   -Config <file>           Configuration file to read (default: ./.diskmonitor.conf).
   -Verbose                 Enable diagnostic output.
@@ -158,18 +226,32 @@ Configuration:
   variables are DISK_MONITOR_PARTITION, DISK_MONITOR_THRESHOLD,
   DISK_MONITOR_NOTIFY, DISK_MONITOR_TO, DISK_MONITOR_MAIL_COMMAND,
   DISK_MONITOR_LOG_FILE, DISK_MONITOR_USAGE_COMMAND,
-  DISK_MONITOR_USAGE_OVERRIDE and DISK_MONITOR_CONFIG.
+  DISK_MONITOR_USAGE_OVERRIDE, DISK_MONITOR_CONFIG, DISK_MONITOR_URL,
+  DISK_MONITOR_BODY_TEMPLATE, DISK_MONITOR_HEADER, DISK_MONITOR_TIMEOUT and
+  DISK_MONITOR_HTTP_COMMAND.
+
+HTTP transport:
+  One transport covers every HTTP notification service, because a request
+  with a body to a URL is the same primitive everywhere. The body template
+  supports {subject}, {body}, {partition}, {usage}, {threshold},
+  {recipient}, {host} and {timestamp}; a JSON template therefore speaks to
+  Telegram, Discord and Slack without provider-specific code. {recipient} is
+  the endpoint the alert is addressed to, and {usage} and {threshold} carry
+  the percent sign. The rendered body is written to the client's standard
+  input, followed by a newline. A header value is never printed and never
+  written to the audit log, because it may carry a token.
 
 Exit Codes:
   0  The check completed; the alert was delivered, not needed, or suppressed.
   1  Configuration or safety error (bad flag, threshold, partition, recipient,
-     or mail agent).
+     mail agent, endpoint, timeout, method, header or HTTP client).
   2  Partial failure (the usage could not be read, or the alert could not be
-     handed to the mail agent).
+     handed to the mail agent or the HTTP client).
 
 Examples:
   $PSCommandPath -Partition / -Threshold 80 -To ops@example.com
   $PSCommandPath -Partition /home -Threshold 90 -DryRun -Verbose
+  $PSCommandPath -Notify http -Url https://ntfy.sh/disk-alerts
 "@
 }
 
@@ -264,6 +346,10 @@ function Read-ConfigFile {
             "log_file" { $script:ConfigLogFile = $value }
             "usage_command" { $script:ConfigUsageCommand = $value }
             "usage_override" { $script:ConfigUsageOverride = $value }
+            "url" { $script:ConfigUrl = $value }
+            "body_template" { $script:ConfigBodyTemplate = $value }
+            "method" { $script:ConfigMethod = $value }
+            "timeout" { $script:ConfigTimeout = $value }
             "header" { $script:ConfigHeaders += $value }
             default {
                 Write-ErrorLine "$($Colors.Yellow)Warning: ignoring unknown configuration key '$key' in '$script:ConfigFilePath'.$($Colors.Reset)"
@@ -364,6 +450,77 @@ function Resolve-Configuration {
     $setting = Resolve-Setting -FlagValue "" -FlagSet $false -EnvironmentValue ([string]$env:DISK_MONITOR_USAGE_OVERRIDE) -ConfigValue $script:ConfigUsageOverride -DefaultValue ""
     $script:UsageOverride = $setting.Value
     $script:SourceUsageOverride = $setting.Source
+
+    $setting = Resolve-Setting -FlagValue $Url -FlagSet $script:FlagUrlSet -EnvironmentValue ([string]$env:DISK_MONITOR_URL) -ConfigValue $script:ConfigUrl -DefaultValue ""
+    $script:ResolvedUrl = $setting.Value
+    $script:SourceUrl = $setting.Source
+
+    $setting = Resolve-Setting -FlagValue $BodyTemplate -FlagSet $script:FlagBodyTemplateSet -EnvironmentValue ([string]$env:DISK_MONITOR_BODY_TEMPLATE) -ConfigValue $script:ConfigBodyTemplate -DefaultValue ""
+    $script:ResolvedBodyTemplate = $setting.Value
+    $script:SourceBodyTemplate = $setting.Source
+
+    $setting = Resolve-Setting -FlagValue "" -FlagSet $false -EnvironmentValue "" -ConfigValue $script:ConfigMethod -DefaultValue "POST"
+    $script:ResolvedMethod = $setting.Value
+    $script:SourceMethod = $setting.Source
+
+    $setting = Resolve-Setting -FlagValue $Timeout -FlagSet $script:FlagTimeoutSet -EnvironmentValue ([string]$env:DISK_MONITOR_TIMEOUT) -ConfigValue $script:ConfigTimeout -DefaultValue "10"
+    $script:ResolvedTimeout = $setting.Value
+    $script:SourceTimeout = $setting.Source
+
+    $setting = Resolve-Setting -FlagValue $HttpCommand -FlagSet $script:FlagHttpCommandSet -EnvironmentValue ([string]$env:DISK_MONITOR_HTTP_COMMAND) -ConfigValue "" -DefaultValue ""
+    $script:ResolvedHttpCommand = $setting.Value
+    $script:SourceHttpCommand = $setting.Source
+
+    Resolve-HeaderList
+}
+
+# Splits header values into individual headers. A value may carry several
+# headers, one per line, which is the same shape the environment variable and
+# the configuration file use.
+function Split-HeaderLine {
+    param([string[]]$HeaderValues)
+
+    $result = @()
+
+    foreach ($value in $HeaderValues) {
+        foreach ($line in ($value -split "`n")) {
+            $trimmed = $line.TrimEnd([char]13)
+            if ($trimmed -ne "") {
+                $result += $trimmed
+            }
+        }
+    }
+
+    return $result
+}
+
+# Resolves the headers the request carries. A command line header wins over
+# an environment header, which wins over the headers in the configuration
+# file, which wins over no header at all. Both the environment variable and
+# the configuration file accept one header per line.
+function Resolve-HeaderList {
+    $envHeader = [string]$env:DISK_MONITOR_HEADER
+
+    if ($script:FlagHeaderSet -and $Header.Count -gt 0) {
+        $script:ResolvedHeaders = @(Split-HeaderLine -HeaderValues $Header)
+        $script:SourceHeader = "flag"
+        return
+    }
+
+    if (-not [string]::IsNullOrWhiteSpace($envHeader)) {
+        $script:ResolvedHeaders = @(Split-HeaderLine -HeaderValues @($envHeader))
+        $script:SourceHeader = "environment"
+        return
+    }
+
+    if ($script:ConfigHeaders.Count -gt 0) {
+        $script:ResolvedHeaders = @(Split-HeaderLine -HeaderValues $script:ConfigHeaders)
+        $script:SourceHeader = "config"
+        return
+    }
+
+    $script:ResolvedHeaders = @()
+    $script:SourceHeader = "default"
 }
 
 # Reads the usage percentage from the POSIX df output.
@@ -491,6 +648,157 @@ function Send-Alert {
     }
 }
 
+# Resolves the HTTP client that carries the request. The contract is:
+#   -HttpCommand  ->  DISK_MONITOR_HTTP_COMMAND  ->  curl
+# Only an application is a client: the legacy PowerShell "curl" alias must
+# never be captured, and on Windows this reaches the real curl.exe.
+function Resolve-HttpCommand {
+    param([string]$Override)
+
+    $candidate = $Override
+
+    if (-not [string]::IsNullOrWhiteSpace($candidate)) {
+        if (Test-Path -LiteralPath $candidate -PathType Leaf) {
+            return $candidate
+        }
+        $resolved = @(Get-Command $candidate -CommandType Application -ErrorAction SilentlyContinue)
+        if ($resolved.Count -gt 0) {
+            return $resolved[0].Source
+        }
+        return $null
+    }
+
+    foreach ($name in @("curl", "curl.exe")) {
+        $resolved = @(Get-Command $name -CommandType Application -ErrorAction SilentlyContinue)
+        if ($resolved.Count -gt 0) {
+            return $resolved[0].Source
+        }
+    }
+
+    return $null
+}
+
+# Validates the resolved headers. A header is a name and a value, and it must
+# not carry a line break, which would let it inject a second header. The
+# value is never reported: it may carry a bearer token.
+function Test-HttpHeader {
+    param([string[]]$HeaderList)
+
+    $headerNumber = 0
+
+    foreach ($headerText in $HeaderList) {
+        $headerNumber++
+
+        if ($headerText.Contains("`n") -or $headerText.Contains("`r")) {
+            Write-ErrorLine "$($Colors.Red)Error: Header $headerNumber carries a line break.$($Colors.Reset)"
+            Write-AuditLog -Level "ERROR" -Message "Malformed HTTP header: it carries a line break."
+            exit 1
+        }
+
+        if ($headerText -notmatch '^[^:\s]+:.*$') {
+            Write-ErrorLine "$($Colors.Red)Error: Header $headerNumber is malformed. Expected 'Name: value'.$($Colors.Reset)"
+            Write-AuditLog -Level "ERROR" -Message "Malformed HTTP header."
+            exit 1
+        }
+    }
+}
+
+# Renders the body template.
+# The template is scanned from left to right and the earliest known
+# placeholder is replaced wherever it appears. A value is never re-scanned, so
+# a partition named "{usage}" cannot be substituted a second time. An unknown
+# placeholder is copied verbatim, which is what keeps a JSON template intact:
+# only the known names are substituted, the JSON braces are not.
+function Format-BodyTemplate {
+    param(
+        [string]$Template,
+        [string]$SubjectValue,
+        [string]$BodyValue,
+        [string]$PartitionValue,
+        [string]$UsageValue,
+        [string]$ThresholdValue,
+        [string]$RecipientValue,
+        [string]$HostValue,
+        [string]$TimestampValue
+    )
+
+    $placeholders = [ordered]@{
+        "subject"   = $SubjectValue
+        "body"      = $BodyValue
+        "partition" = $PartitionValue
+        "usage"     = $UsageValue
+        "threshold" = $ThresholdValue
+        "recipient" = $RecipientValue
+        "host"      = $HostValue
+        "timestamp" = $TimestampValue
+    }
+
+    $result = ""
+    $rest = $Template
+
+    while ($rest.Length -gt 0) {
+        $bestIndex = -1
+        $bestKey = ""
+
+        foreach ($key in $placeholders.Keys) {
+            $index = $rest.IndexOf("{" + $key + "}", [System.StringComparison]::Ordinal)
+            if ($index -ge 0 -and ($bestIndex -lt 0 -or $index -lt $bestIndex)) {
+                $bestIndex = $index
+                $bestKey = $key
+            }
+        }
+
+        if ($bestIndex -lt 0) {
+            $result += $rest
+            break
+        }
+
+        $result += $rest.Substring(0, $bestIndex)
+        $result += $placeholders[$bestKey]
+        $rest = $rest.Substring($bestIndex + $bestKey.Length + 2)
+    }
+
+    return $result
+}
+
+# Hands the alert to the resolved HTTP client. The contract is:
+#   <http-command> --silent --show-error --max-time <seconds>
+#                   --request <method> --header <name: value>...
+#                   --data-binary @- <url>
+# with the rendered body on standard input.
+function Send-HttpAlert {
+    param(
+        [string]$Endpoint,
+        [string]$Body,
+        [string]$Method,
+        [int]$TimeoutSeconds,
+        [string]$Client,
+        [string[]]$HeaderList
+    )
+
+    $clientArgs = @(
+        "--silent",
+        "--show-error",
+        "--max-time",
+        $TimeoutSeconds.ToString([System.Globalization.CultureInfo]::InvariantCulture),
+        "--request",
+        $Method
+    )
+
+    foreach ($headerText in $HeaderList) {
+        $clientArgs += @("--header", $headerText)
+    }
+
+    $clientArgs += @("--data-binary", "@-", $Endpoint)
+
+    try {
+        $Body | & $Client @clientArgs 2>$null | Out-Null
+        return ($LASTEXITCODE -eq 0)
+    } catch {
+        return $false
+    }
+}
+
 # Main script orchestration
 function Invoke-DiskMonitor {
     if ($Help) {
@@ -506,8 +814,8 @@ function Invoke-DiskMonitor {
         exit 1
     }
 
-    if ($script:Notify -ne "none" -and $script:Notify -ne "mail") {
-        Write-ErrorLine "$($Colors.Red)Error: Notify backend must be 'none' or 'mail'.$($Colors.Reset)"
+    if ($script:Notify -ne "none" -and $script:Notify -ne "mail" -and $script:Notify -ne "http") {
+        Write-ErrorLine "$($Colors.Red)Error: Notify backend must be 'none', 'mail' or 'http'.$($Colors.Reset)"
         Write-AuditLog -Level "ERROR" -Message "Invalid notify backend: '$script:Notify'."
         exit 1
     }
@@ -561,7 +869,7 @@ function Invoke-DiskMonitor {
     $recipient = $To
 
     $resolvedMailCommand = ""
-    if ($Notify -eq "mail") {
+    if ($script:Notify -eq "mail") {
         if ([string]::IsNullOrWhiteSpace($recipient)) {
             Write-ErrorLine "$($Colors.Red)Error: No recipient. Use -To, or set DISK_MONITOR_TO.$($Colors.Reset)"
             Write-AuditLog -Level "ERROR" -Message "No alert recipient configured."
@@ -574,6 +882,41 @@ function Invoke-DiskMonitor {
             Write-AuditLog -Level "ERROR" -Message "No mail agent could be resolved."
             exit 1
         }
+    }
+
+    if ($script:Notify -eq "http") {
+        if ([string]::IsNullOrWhiteSpace($script:ResolvedUrl)) {
+            Write-ErrorLine "$($Colors.Red)Error: No endpoint. Use -Url, or set DISK_MONITOR_URL.$($Colors.Reset)"
+            Write-AuditLog -Level "ERROR" -Message "No HTTP endpoint configured."
+            exit 1
+        }
+
+        if ($script:ResolvedUrl -notmatch '^https?://\S+$') {
+            Write-ErrorLine "$($Colors.Red)Error: Endpoint '$($script:ResolvedUrl)' is not a valid http or https URL.$($Colors.Reset)"
+            Write-AuditLog -Level "ERROR" -Message "Invalid HTTP endpoint: '$($script:ResolvedUrl)'."
+            exit 1
+        }
+
+        if ($script:ResolvedTimeout -notmatch '^\d+$' -or [int]$script:ResolvedTimeout -lt 1) {
+            Write-ErrorLine "$($Colors.Red)Error: Timeout must be an integer of seconds greater than zero.$($Colors.Reset)"
+            Write-AuditLog -Level "ERROR" -Message "Invalid HTTP timeout: '$($script:ResolvedTimeout)'."
+            exit 1
+        }
+
+        if ($script:ResolvedMethod -notmatch '^[A-Za-z][A-Za-z0-9_-]*$') {
+            Write-ErrorLine "$($Colors.Red)Error: HTTP method must be a token, for example POST.$($Colors.Reset)"
+            Write-AuditLog -Level "ERROR" -Message "Invalid HTTP method: '$($script:ResolvedMethod)'."
+            exit 1
+        }
+
+        $script:ResolvedHttpClient = Resolve-HttpCommand -Override $script:ResolvedHttpCommand
+        if ($null -eq $script:ResolvedHttpClient) {
+            Write-ErrorLine "$($Colors.Red)Error: No HTTP client found. Install one, or set -HttpCommand or DISK_MONITOR_HTTP_COMMAND.$($Colors.Reset)"
+            Write-AuditLog -Level "ERROR" -Message "No HTTP client could be resolved."
+            exit 1
+        }
+
+        Test-HttpHeader -HeaderList $script:ResolvedHeaders
     }
 
     $usedPercent = Get-DiskUsagePercent -Path $resolvedPartition -Command $resolvedUsageCommand
@@ -601,9 +944,14 @@ function Invoke-DiskMonitor {
     Write-Host "Partition         : $($Colors.Cyan)$resolvedPartition$($Colors.Reset)"
     Write-Host "Usage             : $($Colors.Bold)$usedPercent%$($Colors.Reset) ($usageSource)"
     Write-Host "Threshold         : $($Colors.Yellow)$Threshold%$($Colors.Reset)"
-    Write-Host "Mail Agent        : $($Colors.Cyan)$mailLabel$($Colors.Reset)"
-    if ($Notify -eq "mail") {
-        Write-Host "Recipient         : $($Colors.Cyan)$recipient$($Colors.Reset)"
+    if ($script:Notify -eq "http") {
+        Write-Host "Endpoint          : $($Colors.Cyan)$($script:ResolvedUrl)$($Colors.Reset)"
+        Write-Host "HTTP Client       : $($Colors.Cyan)$($script:ResolvedHttpClient)$($Colors.Reset)"
+    } else {
+        Write-Host "Mail Agent        : $($Colors.Cyan)$mailLabel$($Colors.Reset)"
+        if ($script:Notify -eq "mail") {
+            Write-Host "Recipient         : $($Colors.Cyan)$recipient$($Colors.Reset)"
+        }
     }
     Write-Host "Execution Mode    : $modeLabel"
     if (-not [string]::IsNullOrWhiteSpace($LogFile)) {
@@ -612,6 +960,9 @@ function Invoke-DiskMonitor {
 
     if ($script:VerboseEnabled) {
         Write-Host "$($Colors.Blue)Diagnostics        : $($Colors.Reset)mail agent '$mailLabel', recipient '$recipient', dry-run '$DryRun'$($Colors.Reset)"
+        if ($script:Notify -eq "http") {
+            Write-Host "$($Colors.Blue)Transport          : $($Colors.Reset)endpoint '$($script:SourceUrl)', body template '$($script:SourceBodyTemplate)', method '$($script:SourceMethod)', timeout '$($script:SourceTimeout)', http command '$($script:SourceHttpCommand)', headers $($script:ResolvedHeaders.Count) ('$($script:SourceHeader)')$($Colors.Reset)"
+        }
     }
     if ($usedPercent -gt $Threshold) {
         Write-Host "$($Colors.Red)WARNING: Disk usage exceeds the threshold.$($Colors.Reset)"
@@ -621,6 +972,7 @@ function Invoke-DiskMonitor {
             $hostName = "unknown-host"
         }
 
+        $timestamp = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
         $subject = "Disk Alert: $resolvedPartition at $usedPercent%"
         $body = @(
             "Disk usage on $hostName is at $usedPercent% (threshold: $Threshold%)."
@@ -628,19 +980,40 @@ function Invoke-DiskMonitor {
             "Partition : $resolvedPartition"
             "Usage    : $usedPercent%"
             "Threshold: $Threshold%"
-            "Time     : $((Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ'))"
+            "Time     : $timestamp"
         ) -join "`n"
 
+        $notificationTarget = $recipient
+        if ($script:Notify -eq "http") {
+            $notificationTarget = $script:ResolvedUrl
+        }
+
         if ($DryRun) {
-            Write-Host "$($Colors.Yellow)[DRY RUN]$($Colors.Reset) Would send an alert to $recipient"
-            Write-AuditLog -Level "INFO" -Message "[DRY RUN] Would send an alert to $recipient (Usage: ${usedPercent}%, Source: $usageSource, Threshold: ${Threshold}%)"
-        } elseif ($Notify -eq "mail") {
+            Write-Host "$($Colors.Yellow)[DRY RUN]$($Colors.Reset) Would send an alert to $notificationTarget"
+            Write-AuditLog -Level "INFO" -Message "[DRY RUN] Would send an alert to $notificationTarget (Usage: ${usedPercent}%, Source: $usageSource, Threshold: ${Threshold}%)"
+        } elseif ($script:Notify -eq "mail") {
             if (Send-Alert -Subject $subject -Body $body -Command $resolvedMailCommand -Recipient $recipient) {
                 Write-Host "$($Colors.Green)Alert sent to $recipient$($Colors.Reset)"
                 Write-AuditLog -Level "INFO" -Message "ALERT SENT to $recipient (Usage: ${usedPercent}%, Source: $usageSource, Threshold: ${Threshold}%)"
             } else {
                 Write-ErrorLine "$($Colors.Red)Error: The alert could not be handed to the mail agent.$($Colors.Reset)"
                 Write-AuditLog -Level "ERROR" -Message "FAILED to hand the alert to the mail agent (Usage: ${usedPercent}%, Source: $usageSource)"
+                exit 2
+            }
+        } elseif ($script:Notify -eq "http") {
+            $template = $script:ResolvedBodyTemplate
+            if ([string]::IsNullOrWhiteSpace($template)) {
+                $template = $body
+            }
+
+            $renderedBody = Format-BodyTemplate -Template $template -SubjectValue $subject -BodyValue $body -PartitionValue $resolvedPartition -UsageValue "$usedPercent%" -ThresholdValue "$Threshold%" -RecipientValue $script:ResolvedUrl -HostValue $hostName -TimestampValue $timestamp
+
+            if (Send-HttpAlert -Endpoint $script:ResolvedUrl -Body $renderedBody -Method $script:ResolvedMethod -TimeoutSeconds ([int]$script:ResolvedTimeout) -Client $script:ResolvedHttpClient -HeaderList $script:ResolvedHeaders) {
+                Write-Host "$($Colors.Green)Alert sent to $($script:ResolvedUrl)$($Colors.Reset)"
+                Write-AuditLog -Level "INFO" -Message "ALERT SENT to $($script:ResolvedUrl) (Usage: ${usedPercent}%, Source: $usageSource, Threshold: ${Threshold}%)"
+            } else {
+                Write-ErrorLine "$($Colors.Red)Error: The alert could not be handed to the HTTP client.$($Colors.Reset)"
+                Write-AuditLog -Level "ERROR" -Message "FAILED to hand the alert to the HTTP client (Usage: ${usedPercent}%, Source: $usageSource)"
                 exit 2
             }
         } else {

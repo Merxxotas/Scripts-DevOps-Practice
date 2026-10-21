@@ -15,6 +15,8 @@ MONITOR_SCRIPT="$SCRIPT_DIR/disk_monitor.sh"
 TEST_SANDBOX="$(mktemp -d "${TMPDIR:-/tmp}/test_disk_monitor.XXXXXX")"
 STUB_DIR="$TEST_SANDBOX/stubs"
 CAPTURE_FILE="$TEST_SANDBOX/mail_capture.txt"
+HTTP_CAPTURE_FILE="$TEST_SANDBOX/http_capture.txt"
+HTTP_ALT_CAPTURE_FILE="$TEST_SANDBOX/http_capture_alt.txt"
 ORIGINAL_PATH="$PATH"
 
 # ANSI colors
@@ -88,14 +90,55 @@ exit 0
 STUB
     chmod +x "$STUB_DIR/mail"
 
+    cat > "$STUB_DIR/curl" <<'STUB'
+#!/bin/bash
+# Fake HTTP client. Records its arguments, one per line, and its stdin, so
+# the test can assert on the composed request without touching the network.
+{
+    printf 'ARGC:%s\n' "$#"
+    printf 'ARG:%s\n' "$@"
+    printf 'STDIN-BEGIN\n'
+    cat
+    printf 'STDIN-END\n'
+} >> "${STUB_HTTP_CAPTURE:-/dev/null}"
+if [[ "${STUB_HTTP_FAIL:-0}" == "1" ]]; then
+    exit 1
+fi
+exit 0
+STUB
+    chmod +x "$STUB_DIR/curl"
+
+    cat > "$STUB_DIR/curl_alt" <<'STUB'
+#!/bin/bash
+# Fake HTTP client used to prove the client can be replaced. It writes to a
+# capture file of its own, so the test can tell which client was used.
+{
+    printf 'ARGC:%s\n' "$#"
+    printf 'ARG:%s\n' "$@"
+    printf 'STDIN-BEGIN\n'
+    cat
+    printf 'STDIN-END\n'
+} >> "${STUB_HTTP_CAPTURE_ALT:-/dev/null}"
+exit 0
+STUB
+    chmod +x "$STUB_DIR/curl_alt"
+
     PATH="$STUB_DIR:$ORIGINAL_PATH"
     export PATH
     : > "$CAPTURE_FILE"
+    : > "$HTTP_CAPTURE_FILE"
+    : > "$HTTP_ALT_CAPTURE_FILE"
     export STUB_MAIL_CAPTURE="$CAPTURE_FILE"
+    export STUB_HTTP_CAPTURE="$HTTP_CAPTURE_FILE"
+    export STUB_HTTP_CAPTURE_ALT="$HTTP_ALT_CAPTURE_FILE"
     export STUB_DF_USAGE=49
     export STUB_DF_FAIL=0
     export STUB_MAIL_FAIL=0
-    unset DISK_MONITOR_TO DISK_MONITOR_MAIL_COMMAND DISK_MONITOR_USAGE_OVERRIDE DISK_MONITOR_USAGE_COMMAND DISK_MONITOR_CONFIG DISK_MONITOR_THRESHOLD DISK_MONITOR_PARTITION DISK_MONITOR_NOTIFY DISK_MONITOR_LOG_FILE || true
+    export STUB_HTTP_FAIL=0
+    unset DISK_MONITOR_TO DISK_MONITOR_MAIL_COMMAND DISK_MONITOR_USAGE_OVERRIDE DISK_MONITOR_USAGE_COMMAND \
+        DISK_MONITOR_CONFIG DISK_MONITOR_THRESHOLD DISK_MONITOR_PARTITION DISK_MONITOR_NOTIFY \
+        DISK_MONITOR_LOG_FILE DISK_MONITOR_URL DISK_MONITOR_BODY_TEMPLATE DISK_MONITOR_HEADER \
+        DISK_MONITOR_TIMEOUT DISK_MONITOR_HTTP_COMMAND || true
 }
 
 teardown() {
@@ -180,6 +223,41 @@ assert_capture_empty() {
     else
         printf "%b[FAIL]%b %s (Expected no mail activity, got: '%s')\n" \
             "$RED" "$RESET" "$test_name" "$capture" >&2
+        ((FAILED_TESTS++)) || true
+    fi
+}
+
+# Asserts that the HTTP client was never invoked.
+assert_http_capture_empty() {
+    local test_name="$1"
+    local capture=""
+
+    if [[ -f "$HTTP_CAPTURE_FILE" ]]; then
+        capture="$(cat "$HTTP_CAPTURE_FILE" 2>/dev/null || true)"
+    fi
+
+    if [[ -z "$capture" ]]; then
+        printf "%b[PASS]%b %s\n" "$GREEN" "$RESET" "$test_name"
+        ((PASSED_TESTS++)) || true
+    else
+        printf "%b[FAIL]%b %s (Expected no HTTP activity, got: '%s')\n" \
+            "$RED" "$RESET" "$test_name" "$capture" >&2
+        ((FAILED_TESTS++)) || true
+    fi
+}
+
+# Asserts that the text matches an extended regular expression.
+assert_matches() {
+    local haystack="$1"
+    local pattern="$2"
+    local test_name="$3"
+
+    if [[ "$haystack" =~ $pattern ]]; then
+        printf "%b[PASS]%b %s\n" "$GREEN" "$RESET" "$test_name"
+        ((PASSED_TESTS++)) || true
+    else
+        printf "%b[FAIL]%b %s (Expected to match: '%s')\n" \
+            "$RED" "$RESET" "$test_name" "$pattern" >&2
         ((FAILED_TESTS++)) || true
     fi
 }
@@ -586,6 +664,373 @@ test_config_file_without_separator() {
     teardown
 }
 
+# Test 37: The HTTP transport posts the alert to the endpoint.
+test_http_transport_sends_the_request() {
+    setup
+    export STUB_DF_USAGE=95
+    run_monitor -t 80 --notify http --url "https://ntfy.sh/disk-alerts" --http-command "$STUB_DIR/curl"
+    assert_equals "0" "$LAST_EXIT_CODE" "Test 37a: The HTTP transport exits with code 0"
+
+    local capture=""
+    capture="$(cat "$HTTP_CAPTURE_FILE" 2>/dev/null || true)"
+    assert_contains "$capture" "https://ntfy.sh/disk-alerts" "Test 37b: The request carries the endpoint"
+    assert_contains "$capture" "ARG:--request" "Test 37c: The request carries the method option"
+    assert_contains "$capture" "ARG:POST" "Test 37d: The default method is POST"
+    assert_contains "$capture" "ARG:--max-time" "Test 37e: The request carries the timeout option"
+    assert_contains "$capture" "ARG:10" "Test 37f: The default timeout is ten seconds"
+    assert_contains "$capture" "95%" "Test 37g: The request body carries the measured usage"
+    teardown
+}
+
+# Test 38: The body template placeholders are substituted.
+test_http_body_template_placeholders() {
+    setup
+    export STUB_DF_USAGE=95
+    run_monitor -t 80 --notify http --url "https://ntfy.sh/disk-alerts" \
+        --body-template '{host}|{partition}|{usage}|{threshold}|{recipient}|{timestamp}|{subject}' \
+        --http-command "$STUB_DIR/curl"
+    assert_equals "0" "$LAST_EXIT_CODE" "Test 38a: The run succeeds"
+
+    local capture=""
+    capture="$(cat "$HTTP_CAPTURE_FILE" 2>/dev/null || true)"
+    assert_contains "$capture" "|" "Test 38b: The template is rendered"
+    assert_contains "$capture" "|/" "Test 38c: The partition placeholder is substituted"
+    assert_contains "$capture" "|95%|80%|" "Test 38d: The usage and threshold placeholders are substituted"
+    assert_contains "$capture" "https://ntfy.sh/disk-alerts|" "Test 38e: The recipient placeholder is the endpoint"
+    assert_contains "$capture" "Disk Alert" "Test 38f: The subject placeholder is substituted"
+    assert_matches "$capture" '[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z' "Test 38g: The timestamp placeholder is substituted"
+    teardown
+}
+
+# Test 39: The default body template is the plain-text message.
+test_http_default_body_template() {
+    setup
+    export STUB_DF_USAGE=95
+    run_monitor -t 80 --notify http --url "https://ntfy.sh/disk-alerts" --http-command "$STUB_DIR/curl"
+    assert_equals "0" "$LAST_EXIT_CODE" "Test 39a: The run succeeds"
+
+    local capture=""
+    capture="$(cat "$HTTP_CAPTURE_FILE" 2>/dev/null || true)"
+    assert_contains "$capture" "Disk usage on" "Test 39b: The default body is the plain-text message"
+    assert_contains "$capture" "Partition : /" "Test 39c: The default body carries the partition"
+    assert_contains "$capture" "Threshold: 80%" "Test 39d: The default body carries the threshold"
+    teardown
+}
+
+# Test 40: A missing endpoint is a configuration error.
+test_http_missing_endpoint() {
+    setup
+    export STUB_DF_USAGE=95
+    run_monitor -t 80 --notify http --http-command "$STUB_DIR/curl"
+    assert_equals "1" "$LAST_EXIT_CODE" "Test 40a: A missing endpoint exits with code 1"
+    assert_contains "$LAST_STDERR" "DISK_MONITOR_URL" "Test 40b: The missing endpoint names the environment variable"
+    teardown
+}
+
+# Test 41: An unresolvable HTTP client is a configuration error.
+test_http_missing_client() {
+    setup
+    export STUB_DF_USAGE=95
+    run_monitor -t 80 --notify http --url "https://ntfy.sh/disk-alerts" \
+        --http-command "$TEST_SANDBOX/not-a-real-client"
+    assert_equals "1" "$LAST_EXIT_CODE" "Test 41: An unresolvable HTTP client exits with code 1"
+    teardown
+}
+
+# Test 42: A failed request is a partial failure.
+test_http_request_failure() {
+    setup
+    export STUB_DF_USAGE=95
+    export STUB_HTTP_FAIL=1
+    run_monitor -t 80 --notify http --url "https://ntfy.sh/disk-alerts" --http-command "$STUB_DIR/curl"
+    assert_equals "2" "$LAST_EXIT_CODE" "Test 42: A failed HTTP request exits with code 2"
+    teardown
+}
+
+# Test 43: A header value is never reported and never logged.
+test_http_header_value_is_never_reported() {
+    setup
+    export STUB_DF_USAGE=95
+    local audit_file="$TEST_SANDBOX/logs/audit.log"
+    run_monitor -t 80 --notify http --url "https://ntfy.sh/disk-alerts" \
+        --header "Authorization: Bearer super-secret-token" --http-command "$STUB_DIR/curl" \
+        -l "$audit_file"
+    assert_equals "0" "$LAST_EXIT_CODE" "Test 43a: The run succeeds"
+
+    local audit_content=""
+    audit_content="$(cat "$audit_file" 2>/dev/null || true)"
+    assert_not_contains "$LAST_STDOUT" "super-secret-token" "Test 43b: The header value is not printed"
+    assert_not_contains "$LAST_STDERR" "super-secret-token" "Test 43c: The header value is not reported as an error"
+    assert_not_contains "$audit_content" "super-secret-token" "Test 43d: The header value is not written to the audit log"
+    teardown
+}
+
+# Test 44: The endpoint falls back to the environment variable.
+test_http_endpoint_from_environment() {
+    setup
+    export STUB_DF_USAGE=95
+    export DISK_MONITOR_URL="https://ntfy.sh/from-env"
+    run_monitor -t 80 --notify http --http-command "$STUB_DIR/curl"
+    assert_equals "0" "$LAST_EXIT_CODE" "Test 44a: The run succeeds"
+    assert_contains "$(cat "$HTTP_CAPTURE_FILE" 2>/dev/null || true)" "https://ntfy.sh/from-env" "Test 44b: The environment endpoint is used"
+    teardown
+}
+
+# Test 45: The body template falls back to the environment variable.
+test_http_body_template_from_environment() {
+    setup
+    export STUB_DF_USAGE=95
+    export DISK_MONITOR_BODY_TEMPLATE='{"text":"{body}"}'
+    run_monitor -t 80 --notify http --url "https://ntfy.sh/disk-alerts" --http-command "$STUB_DIR/curl"
+    assert_equals "0" "$LAST_EXIT_CODE" "Test 45a: The run succeeds"
+
+    local capture=""
+    capture="$(cat "$HTTP_CAPTURE_FILE" 2>/dev/null || true)"
+    assert_contains "$capture" '{"text":"Disk usage on' "Test 45b: The environment body template is used"
+    teardown
+}
+
+# Test 46: The timeout falls back to the environment variable.
+test_http_timeout_from_environment() {
+    setup
+    export STUB_DF_USAGE=95
+    export DISK_MONITOR_TIMEOUT="42"
+    run_monitor -t 80 --notify http --url "https://ntfy.sh/disk-alerts" --http-command "$STUB_DIR/curl"
+    assert_equals "0" "$LAST_EXIT_CODE" "Test 46a: The run succeeds"
+
+    local capture=""
+    capture="$(cat "$HTTP_CAPTURE_FILE" 2>/dev/null || true)"
+    assert_contains "$capture" "ARG:--max-time" "Test 46b: The request carries the timeout option"
+    assert_contains "$capture" "ARG:42" "Test 46c: The environment timeout is used"
+    teardown
+}
+
+# Test 47: The method and the endpoint come from the configuration file.
+test_http_values_from_config_file() {
+    setup
+    local config_file="$TEST_SANDBOX/diskmonitor.conf"
+    printf 'method = PUT\nurl = https://ntfy.sh/from-config\n' > "$config_file"
+    export STUB_DF_USAGE=95
+    run_monitor --config "$config_file" -t 80 --notify http --http-command "$STUB_DIR/curl"
+    assert_equals "0" "$LAST_EXIT_CODE" "Test 47a: The run succeeds"
+
+    local capture=""
+    capture="$(cat "$HTTP_CAPTURE_FILE" 2>/dev/null || true)"
+    assert_contains "$capture" "ARG:PUT" "Test 47b: The configured method is used"
+    assert_contains "$capture" "https://ntfy.sh/from-config" "Test 47c: The configured endpoint is used"
+    teardown
+}
+
+# Test 48: The flag wins over the environment and the configuration file.
+test_http_precedence_flag_wins() {
+    setup
+    local config_file="$TEST_SANDBOX/diskmonitor.conf"
+    printf 'url = https://ntfy.sh/from-config\n' > "$config_file"
+    export STUB_DF_USAGE=95
+    export DISK_MONITOR_URL="https://ntfy.sh/from-env"
+    run_monitor --config "$config_file" -t 80 --notify http --url "https://ntfy.sh/from-flag" \
+        --http-command "$STUB_DIR/curl"
+    assert_equals "0" "$LAST_EXIT_CODE" "Test 48a: The run succeeds"
+
+    local capture=""
+    capture="$(cat "$HTTP_CAPTURE_FILE" 2>/dev/null || true)"
+    assert_contains "$capture" "https://ntfy.sh/from-flag" "Test 48b: The flag wins"
+    assert_not_contains "$capture" "https://ntfy.sh/from-env" "Test 48c: The environment is not used"
+    assert_not_contains "$capture" "https://ntfy.sh/from-config" "Test 48d: The configuration file is not used"
+    teardown
+}
+
+# Test 49: The HTTP client can be replaced by the flag and by the environment.
+test_http_client_can_be_replaced() {
+    setup
+    export STUB_DF_USAGE=95
+
+    run_monitor -t 80 --notify http --url "https://ntfy.sh/disk-alerts" --http-command "$STUB_DIR/curl_alt"
+    assert_equals "0" "$LAST_EXIT_CODE" "Test 49a: The run succeeds with a replaced client"
+    assert_contains "$(cat "$HTTP_ALT_CAPTURE_FILE" 2>/dev/null || true)" "https://ntfy.sh/disk-alerts" "Test 49b: The replaced client carries the request"
+
+    : > "$HTTP_ALT_CAPTURE_FILE"
+    export DISK_MONITOR_HTTP_COMMAND="$STUB_DIR/curl_alt"
+    run_monitor -t 80 --notify http --url "https://ntfy.sh/disk-alerts"
+    assert_equals "0" "$LAST_EXIT_CODE" "Test 49c: The run succeeds with an environment client"
+    assert_contains "$(cat "$HTTP_ALT_CAPTURE_FILE" 2>/dev/null || true)" "https://ntfy.sh/disk-alerts" "Test 49d: The environment client carries the request"
+    teardown
+}
+
+# Test 50: The default client on PATH is used when nothing overrides it.
+test_http_default_client_on_path() {
+    setup
+    export STUB_DF_USAGE=95
+    run_monitor -t 80 --notify http --url "https://ntfy.sh/disk-alerts"
+    assert_equals "0" "$LAST_EXIT_CODE" "Test 50a: The run succeeds with the default client"
+    assert_contains "$(cat "$HTTP_CAPTURE_FILE" 2>/dev/null || true)" "https://ntfy.sh/disk-alerts" "Test 50b: The default client carries the request"
+    teardown
+}
+
+# Test 51: A malformed timeout is a configuration error.
+test_http_invalid_timeout() {
+    setup
+    export STUB_DF_USAGE=95
+    export DISK_MONITOR_TIMEOUT="abc"
+    run_monitor -t 80 --notify http --url "https://ntfy.sh/disk-alerts" --http-command "$STUB_DIR/curl"
+    assert_equals "1" "$LAST_EXIT_CODE" "Test 51a: A malformed timeout exits with code 1"
+
+    export DISK_MONITOR_TIMEOUT="0"
+    run_monitor -t 80 --notify http --url "https://ntfy.sh/disk-alerts" --http-command "$STUB_DIR/curl"
+    assert_equals "1" "$LAST_EXIT_CODE" "Test 51b: A zero timeout exits with code 1"
+    teardown
+}
+
+# Test 52: A malformed method is a configuration error.
+test_http_invalid_method() {
+    setup
+    local config_file="$TEST_SANDBOX/diskmonitor.conf"
+    printf 'method = "BAD METHOD"\n' > "$config_file"
+    export STUB_DF_USAGE=95
+    run_monitor --config "$config_file" -t 80 --notify http --url "https://ntfy.sh/disk-alerts" \
+        --http-command "$STUB_DIR/curl"
+    assert_equals "1" "$LAST_EXIT_CODE" "Test 52: A malformed method exits with code 1"
+    teardown
+}
+
+# Test 53: A malformed header is a configuration error and its value is not reported.
+test_http_invalid_header() {
+    setup
+    export STUB_DF_USAGE=95
+    run_monitor -t 80 --notify http --url "https://ntfy.sh/disk-alerts" \
+        --header "not-a-header-value" --http-command "$STUB_DIR/curl"
+    assert_equals "1" "$LAST_EXIT_CODE" "Test 53a: A malformed header exits with code 1"
+    assert_not_contains "$LAST_STDERR" "not-a-header-value" "Test 53b: The malformed header value is not reported"
+    teardown
+}
+
+# Test 54: A malformed endpoint is a configuration error.
+test_http_invalid_endpoint() {
+    setup
+    export STUB_DF_USAGE=95
+    run_monitor -t 80 --notify http --url "not-a-url" --http-command "$STUB_DIR/curl"
+    assert_equals "1" "$LAST_EXIT_CODE" "Test 54: A malformed endpoint exits with code 1"
+    teardown
+}
+
+# Test 55: A header reaches the request.
+test_http_header_reaches_the_request() {
+    setup
+    export STUB_DF_USAGE=95
+    run_monitor -t 80 --notify http --url "https://ntfy.sh/disk-alerts" \
+        --header "X-Title: Disk" --http-command "$STUB_DIR/curl"
+    assert_equals "0" "$LAST_EXIT_CODE" "Test 55a: The run succeeds"
+
+    local capture=""
+    capture="$(cat "$HTTP_CAPTURE_FILE" 2>/dev/null || true)"
+    assert_contains "$capture" "ARG:--header" "Test 55b: The request carries the header option"
+    assert_contains "$capture" "ARG:X-Title: Disk" "Test 55c: The request carries the header value"
+    teardown
+}
+
+# Test 56: A JSON body template keeps its braces.
+test_http_json_body_template() {
+    setup
+    export STUB_DF_USAGE=95
+    run_monitor -t 80 --notify http --url "https://ntfy.sh/disk-alerts" \
+        --body-template '{"text":"{body}"}' --http-command "$STUB_DIR/curl"
+    assert_equals "0" "$LAST_EXIT_CODE" "Test 56a: The run succeeds"
+
+    local capture=""
+    capture="$(cat "$HTTP_CAPTURE_FILE" 2>/dev/null || true)"
+    assert_contains "$capture" '{"text":"Disk usage on' "Test 56b: The JSON template keeps its braces"
+    teardown
+}
+
+# Test 57: Several headers come from the configuration file.
+test_http_headers_from_config_file() {
+    setup
+    local config_file="$TEST_SANDBOX/diskmonitor.conf"
+    printf 'header = X-One: 1\nheader = X-Two: 2\nurl = https://ntfy.sh/disk-alerts\n' > "$config_file"
+    export STUB_DF_USAGE=95
+    run_monitor --config "$config_file" -t 80 --notify http --http-command "$STUB_DIR/curl"
+    assert_equals "0" "$LAST_EXIT_CODE" "Test 57a: The run succeeds"
+
+    local capture=""
+    capture="$(cat "$HTTP_CAPTURE_FILE" 2>/dev/null || true)"
+    assert_contains "$capture" "ARG:X-One: 1" "Test 57b: The first configured header is used"
+    assert_contains "$capture" "ARG:X-Two: 2" "Test 57c: The second configured header is used"
+    teardown
+}
+
+# Test 62: One header value may carry several headers, one per line.
+test_http_header_value_with_several_lines() {
+    setup
+    export STUB_DF_USAGE=95
+    run_monitor -t 80 --notify http --url "https://ntfy.sh/disk-alerts" \
+        --header $'X-One: 1\nX-Two: 2' --http-command "$STUB_DIR/curl"
+    assert_equals "0" "$LAST_EXIT_CODE" "Test 62a: The run succeeds"
+
+    local capture=""
+    capture="$(cat "$HTTP_CAPTURE_FILE" 2>/dev/null || true)"
+    assert_contains "$capture" "ARG:X-One: 1" "Test 62b: The first header of the value is used"
+    assert_contains "$capture" "ARG:X-Two: 2" "Test 62c: The second header of the value is used"
+    teardown
+}
+
+# Test 63: The flag may be repeated.
+test_http_repeated_header_flag() {
+    setup
+    export STUB_DF_USAGE=95
+    run_monitor -t 80 --notify http --url "https://ntfy.sh/disk-alerts" \
+        --header "X-One: 1" --header "X-Two: 2" --http-command "$STUB_DIR/curl"
+    assert_equals "0" "$LAST_EXIT_CODE" "Test 63a: The run succeeds"
+
+    local capture=""
+    capture="$(cat "$HTTP_CAPTURE_FILE" 2>/dev/null || true)"
+    assert_contains "$capture" "ARG:X-One: 1" "Test 63b: The first header is used"
+    assert_contains "$capture" "ARG:X-Two: 2" "Test 63c: The second header is used"
+    teardown
+}
+
+# Test 58: The report names the endpoint and never a header value.
+test_http_report_shows_the_endpoint_only() {
+    setup
+    export STUB_DF_USAGE=95
+    run_monitor -t 80 --notify http --url "https://ntfy.sh/disk-alerts" \
+        --header "Authorization: Bearer secret-value" --http-command "$STUB_DIR/curl"
+    assert_contains "$LAST_STDOUT" "https://ntfy.sh/disk-alerts" "Test 58a: The report names the endpoint"
+    assert_not_contains "$LAST_STDOUT" "secret-value" "Test 58b: The report never names a header value"
+    teardown
+}
+
+# Test 59: Usage below the threshold sends no request.
+test_http_below_threshold_sends_nothing() {
+    setup
+    export STUB_DF_USAGE=42
+    run_monitor -t 80 --notify http --url "https://ntfy.sh/disk-alerts" --http-command "$STUB_DIR/curl"
+    assert_equals "0" "$LAST_EXIT_CODE" "Test 59a: Usage below the threshold exits with code 0"
+    assert_http_capture_empty "Test 59b: No request is sent below the threshold"
+    teardown
+}
+
+# Test 60: Dry-run reports the alert and sends no request.
+test_http_dry_run_sends_nothing() {
+    setup
+    export STUB_DF_USAGE=95
+    run_monitor -t 80 -n --notify http --url "https://ntfy.sh/disk-alerts" --http-command "$STUB_DIR/curl"
+    assert_equals "0" "$LAST_EXIT_CODE" "Test 60a: Dry-run exits with code 0"
+    assert_contains "$LAST_STDOUT" "DRY RUN" "Test 60b: Dry-run announces itself"
+    assert_http_capture_empty "Test 60c: Dry-run sends no request"
+    teardown
+}
+
+# Test 61: The mail transport keeps working next to the HTTP transport.
+test_mail_transport_still_works() {
+    setup
+    export STUB_DF_USAGE=95
+    run_monitor -t 80 --notify mail --to ops@example.com --mail-command "$STUB_DIR/mail"
+    assert_equals "0" "$LAST_EXIT_CODE" "Test 61a: The mail transport exits with code 0"
+    assert_contains "$(cat "$CAPTURE_FILE" 2>/dev/null || true)" "ops@example.com" "Test 61b: The mail transport still delivers"
+    assert_http_capture_empty "Test 61c: The mail transport does not touch the HTTP client"
+    teardown
+}
+
 # Run all tests
 printf "%bStarting Bash Disk Monitor Test Suite...%b\n" "$CYAN" "$RESET"
 test_help_menu
@@ -624,6 +1069,33 @@ test_config_file_unknown_key
 test_config_file_quoted_value
 test_config_file_from_environment
 test_config_file_without_separator
+test_http_transport_sends_the_request
+test_http_body_template_placeholders
+test_http_default_body_template
+test_http_missing_endpoint
+test_http_missing_client
+test_http_request_failure
+test_http_header_value_is_never_reported
+test_http_endpoint_from_environment
+test_http_body_template_from_environment
+test_http_timeout_from_environment
+test_http_values_from_config_file
+test_http_precedence_flag_wins
+test_http_client_can_be_replaced
+test_http_default_client_on_path
+test_http_invalid_timeout
+test_http_invalid_method
+test_http_invalid_header
+test_http_invalid_endpoint
+test_http_header_reaches_the_request
+test_http_json_body_template
+test_http_headers_from_config_file
+test_http_header_value_with_several_lines
+test_http_repeated_header_flag
+test_http_report_shows_the_endpoint_only
+test_http_below_threshold_sends_nothing
+test_http_dry_run_sends_nothing
+test_mail_transport_still_works
 
 printf "============================================================\n"
 printf "Tests Summary: %b%d Passed%b, %b%d Failed%b\n" "$GREEN" "$PASSED_TESTS" "$RESET" "$RED" "$FAILED_TESTS" "$RESET"

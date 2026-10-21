@@ -45,6 +45,10 @@ CONFIG_LOG_FILE=""
 CONFIG_USAGE_COMMAND=""
 CONFIG_USAGE_OVERRIDE=""
 CONFIG_HEADERS=""
+CONFIG_URL=""
+CONFIG_BODY_TEMPLATE=""
+CONFIG_METHOD=""
+CONFIG_TIMEOUT=""
 
 # Whether the command line supplied each setting
 FLAG_PARTITION_SET=false
@@ -54,6 +58,11 @@ FLAG_TO_SET=false
 FLAG_MAIL_COMMAND_SET=false
 FLAG_LOG_FILE_SET=false
 FLAG_CONFIG_SET=false
+FLAG_URL_SET=false
+FLAG_BODY_TEMPLATE_SET=false
+FLAG_TIMEOUT_SET=false
+FLAG_HTTP_COMMAND_SET=false
+FLAG_HEADER_SET=false
 
 # Where each resolved value came from
 SOURCE_PARTITION="default"
@@ -64,9 +73,28 @@ SOURCE_MAIL_COMMAND="default"
 SOURCE_LOG_FILE="default"
 SOURCE_USAGE_COMMAND="default"
 SOURCE_USAGE_OVERRIDE="default"
+SOURCE_URL="default"
+SOURCE_BODY_TEMPLATE="default"
+SOURCE_METHOD="default"
+SOURCE_TIMEOUT="default"
+SOURCE_HTTP_COMMAND="default"
+SOURCE_HEADER="default"
 
 # Resolved during the configuration check
 MAIL_COMMAND=""
+HTTP_CLIENT=""
+
+# The HTTP transport settings and the headers it carries
+HTTP_URL=""
+HTTP_BODY_TEMPLATE=""
+HTTP_METHOD=""
+HTTP_TIMEOUT=""
+HTTP_COMMAND_OVERRIDE=""
+HTTP_HEADER_ARGS=()
+HTTP_HEADERS=()
+
+# The rendered request body
+RENDERED_BODY=""
 
 # Prints usage and help message
 show_help() {
@@ -78,9 +106,19 @@ Optional Arguments:
   -p, --partition <path>    Mount point to watch (default: /).
   -t, --threshold <percent> Alert when usage is strictly greater (default: 80).
   -n, --dry-run             Report the alert without handing it to the mail agent.
-      --notify <none|mail>  Notification backend (default: mail).
+      --notify <none|mail|http>
+                             Notification backend (default: mail).
       --to <address>        Alert recipient (default: \$DISK_MONITOR_TO).
       --mail-command <cmd>  Mail agent to hand the alert to.
+      --url <url>           HTTP endpoint to post the alert to.
+      --body-template <text>
+                             HTTP request body (default: the plain-text message).
+      --header 'Name: value'
+                             Extra HTTP header. One value may carry several
+                             headers, one per line, and the flag may be
+                             repeated.
+      --timeout <seconds>   HTTP request timeout in seconds (default: 10).
+      --http-command <cmd>  HTTP client to send the request with (default: curl).
   -l, --log-file <file>     Path to append ISO-8601 audit records.
       --config <file>       Configuration file to read (default: ./.diskmonitor.conf).
   -v, --verbose             Enable diagnostic output.
@@ -92,18 +130,32 @@ Configuration:
   variables are DISK_MONITOR_PARTITION, DISK_MONITOR_THRESHOLD,
   DISK_MONITOR_NOTIFY, DISK_MONITOR_TO, DISK_MONITOR_MAIL_COMMAND,
   DISK_MONITOR_LOG_FILE, DISK_MONITOR_USAGE_COMMAND,
-  DISK_MONITOR_USAGE_OVERRIDE and DISK_MONITOR_CONFIG.
+  DISK_MONITOR_USAGE_OVERRIDE, DISK_MONITOR_CONFIG, DISK_MONITOR_URL,
+  DISK_MONITOR_BODY_TEMPLATE, DISK_MONITOR_HEADER, DISK_MONITOR_TIMEOUT and
+  DISK_MONITOR_HTTP_COMMAND.
+
+HTTP transport:
+  One transport covers every HTTP notification service, because a request
+  with a body to a URL is the same primitive everywhere. The body template
+  supports {subject}, {body}, {partition}, {usage}, {threshold},
+  {recipient}, {host} and {timestamp}; a JSON template therefore speaks to
+  Telegram, Discord and Slack without provider-specific code. {recipient} is
+  the endpoint the alert is addressed to, and {usage} and {threshold} carry
+  the percent sign. The rendered body is written to the client's standard
+  input, followed by a newline. A header value is never printed and never
+  written to the audit log, because it may carry a token.
 
 Exit Codes:
   0  The check completed; the alert was delivered, not needed, or suppressed.
   1  Configuration or safety error (bad flag, threshold, partition, recipient,
-     or mail agent).
+     mail agent, endpoint, timeout, method, header or HTTP client).
   2  Partial failure (the usage could not be read, or the alert could not be
-     handed to the mail agent).
+     handed to the mail agent or the HTTP client).
 
 Examples:
   $0 -p / -t 80 --to ops@example.com
   $0 -p /home -t 90 -n -v
+  $0 --notify http --url https://ntfy.sh/disk-alerts
 EOF
 }
 
@@ -211,6 +263,10 @@ parse_config_file() {
             log_file) CONFIG_LOG_FILE="$value" ;;
             usage_command) CONFIG_USAGE_COMMAND="$value" ;;
             usage_override) CONFIG_USAGE_OVERRIDE="$value" ;;
+            url) CONFIG_URL="$value" ;;
+            body_template) CONFIG_BODY_TEMPLATE="$value" ;;
+            method) CONFIG_METHOD="$value" ;;
+            timeout) CONFIG_TIMEOUT="$value" ;;
             header)
                 if [[ -n "$CONFIG_HEADERS" ]]; then
                     CONFIG_HEADERS="${CONFIG_HEADERS}"$'\n'"${value}"
@@ -280,6 +336,15 @@ apply_precedence() {
         "false" "${DISK_MONITOR_USAGE_COMMAND:-}" "$CONFIG_USAGE_COMMAND" "df"
     apply_setting USAGE_OVERRIDE SOURCE_USAGE_OVERRIDE "$USAGE_OVERRIDE" \
         "false" "${DISK_MONITOR_USAGE_OVERRIDE:-}" "$CONFIG_USAGE_OVERRIDE" ""
+    apply_setting HTTP_URL SOURCE_URL "$HTTP_URL" "$FLAG_URL_SET" \
+        "${DISK_MONITOR_URL:-}" "$CONFIG_URL" ""
+    apply_setting HTTP_BODY_TEMPLATE SOURCE_BODY_TEMPLATE "$HTTP_BODY_TEMPLATE" \
+        "$FLAG_BODY_TEMPLATE_SET" "${DISK_MONITOR_BODY_TEMPLATE:-}" "$CONFIG_BODY_TEMPLATE" ""
+    apply_setting HTTP_METHOD SOURCE_METHOD "$HTTP_METHOD" "false" "" "$CONFIG_METHOD" "POST"
+    apply_setting HTTP_TIMEOUT SOURCE_TIMEOUT "$HTTP_TIMEOUT" "$FLAG_TIMEOUT_SET" \
+        "${DISK_MONITOR_TIMEOUT:-}" "$CONFIG_TIMEOUT" "10"
+    apply_setting HTTP_COMMAND_OVERRIDE SOURCE_HTTP_COMMAND "$HTTP_COMMAND_OVERRIDE" \
+        "$FLAG_HTTP_COMMAND_SET" "${DISK_MONITOR_HTTP_COMMAND:-}" "" ""
 }
 
 # Reads the usage percentage of the watched partition as an integer.
@@ -342,6 +407,213 @@ send_alert() {
     printf '%s\n' "$body" | "$MAIL_COMMAND" -s "$subject" "$MAIL_TO"
 }
 
+# Appends a header value to the header list. A value may carry several
+# headers, one per line, which is the same shape the environment variable
+# and the configuration file use. The flag may also be repeated.
+append_header_value() {
+    local value="$1"
+    local header_line=""
+
+    while IFS= read -r header_line; do
+        header_line="${header_line%$'\r'}"
+        if [[ -n "$header_line" ]]; then
+            HTTP_HEADER_ARGS+=("$header_line")
+        fi
+    done <<< "$value"
+}
+
+# Resolves the headers the request carries. A command line header wins over
+# an environment header, which wins over the headers in the configuration
+# file, which wins over no header at all. Both the environment variable and
+# the configuration file accept one header per line.
+resolve_headers() {
+    local env_header="${DISK_MONITOR_HEADER:-}"
+    local config_header="$CONFIG_HEADERS"
+    local header_line=""
+
+    if [[ "$FLAG_HEADER_SET" == "true" && "${#HTTP_HEADER_ARGS[@]}" -gt 0 ]]; then
+        HTTP_HEADERS=("${HTTP_HEADER_ARGS[@]}")
+        SOURCE_HEADER="flag"
+        return 0
+    fi
+
+    if [[ -n "$env_header" ]]; then
+        HTTP_HEADERS=()
+        while IFS= read -r header_line; do
+            header_line="${header_line%$'\r'}"
+            if [[ -n "$header_line" ]]; then
+                HTTP_HEADERS+=("$header_line")
+            fi
+        done <<< "$env_header"
+        SOURCE_HEADER="environment"
+        return 0
+    fi
+
+    if [[ -n "$config_header" ]]; then
+        HTTP_HEADERS=()
+        while IFS= read -r header_line; do
+            if [[ -n "$header_line" ]]; then
+                HTTP_HEADERS+=("$header_line")
+            fi
+        done <<< "$config_header"
+        SOURCE_HEADER="config"
+        return 0
+    fi
+
+    HTTP_HEADERS=()
+    SOURCE_HEADER="default"
+}
+
+# Validates the resolved headers. A header is a name and a value, and it must
+# not carry a line break, which would let it inject a second header. The
+# value is never reported: it may carry a bearer token.
+validate_headers() {
+    local header=""
+    local header_number=0
+
+    if [[ "${#HTTP_HEADERS[@]}" -eq 0 ]]; then
+        return 0
+    fi
+
+    for header in "${HTTP_HEADERS[@]}"; do
+        header_number=$((header_number + 1))
+
+        if [[ "$header" == *$'\n'* || "$header" == *$'\r'* ]]; then
+            printf "%bError: Header %d carries a line break.%b\n" \
+                "$COLOR_RED" "$header_number" "$COLOR_RESET" >&2
+            log_message "ERROR" "Malformed HTTP header: it carries a line break."
+            exit 1
+        fi
+
+        if [[ ! "$header" =~ ^[^:[:space:]]+:.*$ ]]; then
+            printf "%bError: Header %d is malformed. Expected 'Name: value'.%b\n" \
+                "$COLOR_RED" "$header_number" "$COLOR_RESET" >&2
+            log_message "ERROR" "Malformed HTTP header."
+            exit 1
+        fi
+    done
+}
+
+# Resolves the HTTP client that carries the request. The contract is:
+#   --http-command  ->  DISK_MONITOR_HTTP_COMMAND  ->  curl
+resolve_http_command() {
+    local candidate=""
+
+    if [[ -n "$HTTP_COMMAND_OVERRIDE" ]]; then
+        if [[ -x "$HTTP_COMMAND_OVERRIDE" ]]; then
+            printf '%s' "$HTTP_COMMAND_OVERRIDE"
+            return 0
+        fi
+        if command -v "$HTTP_COMMAND_OVERRIDE" >/dev/null 2>&1; then
+            command -v "$HTTP_COMMAND_OVERRIDE"
+            return 0
+        fi
+        return 1
+    fi
+
+    candidate="$(command -v curl 2>/dev/null || true)"
+    if [[ -n "$candidate" ]]; then
+        printf '%s' "$candidate"
+        return 0
+    fi
+
+    return 1
+}
+
+# Renders the body template into the target variable.
+# The template is scanned from left to right and the earliest known
+# placeholder is replaced wherever it appears. A value is never re-scanned, so
+# a partition named "{usage}" cannot be substituted a second time. An unknown
+# placeholder is copied verbatim, which is what keeps a JSON template intact:
+# only the known names are substituted, the JSON braces are not.
+# The arguments are the target, the template, and then the value of each
+# placeholder in the order the contract defines: subject, body, partition,
+# usage, threshold, recipient, host and timestamp.
+render_body_template() {
+    local target="$1"
+    local template="$2"
+    local subject_value="$3"
+    local body_value="$4"
+    local partition_value="$5"
+    local usage_value="$6"
+    local threshold_value="$7"
+    local recipient_value="$8"
+    local host_value="$9"
+    local timestamp_value="${10}"
+
+    local rendered=""
+    local rest="$template"
+    local key=""
+    local prefix=""
+    local position=0
+    local best_key=""
+    local best_position=-1
+    local value=""
+
+    while [[ -n "$rest" ]]; do
+        best_key=""
+        best_position=-1
+
+        for key in subject body partition usage threshold recipient host timestamp; do
+            prefix="${rest%%"{$key}"*}"
+            if [[ "$prefix" != "$rest" ]]; then
+                position=${#prefix}
+                if [[ "$best_position" -lt 0 || "$position" -lt "$best_position" ]]; then
+                    best_position=$position
+                    best_key="$key"
+                fi
+            fi
+        done
+
+        if [[ "$best_position" -lt 0 ]]; then
+            rendered="${rendered}${rest}"
+            break
+        fi
+
+        rendered="${rendered}${rest:0:$best_position}"
+
+        case "$best_key" in
+            subject) value="$subject_value" ;;
+            body) value="$body_value" ;;
+            partition) value="$partition_value" ;;
+            usage) value="$usage_value" ;;
+            threshold) value="$threshold_value" ;;
+            recipient) value="$recipient_value" ;;
+            host) value="$host_value" ;;
+            timestamp) value="$timestamp_value" ;;
+        esac
+
+        rendered="${rendered}${value}"
+        rest="${rest:$((best_position + ${#best_key} + 2))}"
+    done
+
+    printf -v "$target" '%s' "$rendered"
+}
+
+# Hands the alert to the resolved HTTP client. The contract is:
+#   <http-command> --silent --show-error --max-time <seconds>
+#                   --request <method> --header <name: value>...
+#                   --data-binary @- <url>
+# with the rendered body on standard input.
+send_http_alert() {
+    local url="$1"
+    local body="$2"
+    local method="$3"
+    local timeout="$4"
+    local header=""
+    local -a client_args
+
+    client_args=(--silent --show-error --max-time "$timeout" --request "$method")
+    if [[ "${#HTTP_HEADERS[@]}" -gt 0 ]]; then
+        for header in "${HTTP_HEADERS[@]}"; do
+            client_args+=(--header "$header")
+        done
+    fi
+    client_args+=(--data-binary "@-" "$url")
+
+    printf '%s\n' "$body" | "$HTTP_CLIENT" "${client_args[@]}"
+}
+
 # Fails when an option was given without its value
 require_value() {
     if [[ "$2" -lt 2 ]]; then
@@ -386,6 +658,36 @@ parse_arguments() {
                 require_value "$1" "$#"
                 MAIL_COMMAND_OVERRIDE="$2"
                 FLAG_MAIL_COMMAND_SET=true
+                shift 2
+                ;;
+            --url)
+                require_value "$1" "$#"
+                HTTP_URL="$2"
+                FLAG_URL_SET=true
+                shift 2
+                ;;
+            --body-template)
+                require_value "$1" "$#"
+                HTTP_BODY_TEMPLATE="$2"
+                FLAG_BODY_TEMPLATE_SET=true
+                shift 2
+                ;;
+            --header)
+                require_value "$1" "$#"
+                append_header_value "$2"
+                FLAG_HEADER_SET=true
+                shift 2
+                ;;
+            --timeout)
+                require_value "$1" "$#"
+                HTTP_TIMEOUT="$2"
+                FLAG_TIMEOUT_SET=true
+                shift 2
+                ;;
+            --http-command)
+                require_value "$1" "$#"
+                HTTP_COMMAND_OVERRIDE="$2"
+                FLAG_HTTP_COMMAND_SET=true
                 shift 2
                 ;;
             -l|--log-file)
@@ -436,8 +738,8 @@ validate_configuration() {
         exit 1
     fi
 
-    if [[ "$NOTIFY_MODE" != "none" && "$NOTIFY_MODE" != "mail" ]]; then
-        printf "%bError: Notify backend must be 'none' or 'mail'.%b\n" \
+    if [[ "$NOTIFY_MODE" != "none" && "$NOTIFY_MODE" != "mail" && "$NOTIFY_MODE" != "http" ]]; then
+        printf "%bError: Notify backend must be 'none', 'mail' or 'http'.%b\n" \
             "$COLOR_RED" "$COLOR_RESET" >&2
         log_message "ERROR" "Invalid notify backend: '$NOTIFY_MODE'."
         exit 1
@@ -466,23 +768,64 @@ validate_configuration() {
         exit 1
     fi
 
-    if [[ "$NOTIFY_MODE" != "mail" ]]; then
+    if [[ "$NOTIFY_MODE" != "mail" && "$NOTIFY_MODE" != "http" ]]; then
         return 0
     fi
 
-    if [[ -z "$MAIL_TO" ]]; then
-        printf "%bError: No recipient. Use --to, or set DISK_MONITOR_TO.%b\n" \
+    if [[ "$NOTIFY_MODE" == "mail" ]]; then
+        if [[ -z "$MAIL_TO" ]]; then
+            printf "%bError: No recipient. Use --to, or set DISK_MONITOR_TO.%b\n" \
+                "$COLOR_RED" "$COLOR_RESET" >&2
+            log_message "ERROR" "No alert recipient configured."
+            exit 1
+        fi
+
+        if ! MAIL_COMMAND="$(resolve_mail_command)"; then
+            printf "%bError: No mail agent found. Install one, or set --mail-command or DISK_MONITOR_MAIL_COMMAND.%b\n" \
+                "$COLOR_RED" "$COLOR_RESET" >&2
+            log_message "ERROR" "No mail agent could be resolved."
+            exit 1
+        fi
+
+        return 0
+    fi
+
+    if [[ -z "$HTTP_URL" ]]; then
+        printf "%bError: No endpoint. Use --url, or set DISK_MONITOR_URL.%b\n" \
             "$COLOR_RED" "$COLOR_RESET" >&2
-        log_message "ERROR" "No alert recipient configured."
+        log_message "ERROR" "No HTTP endpoint configured."
         exit 1
     fi
 
-    if ! MAIL_COMMAND="$(resolve_mail_command)"; then
-        printf "%bError: No mail agent found. Install one, or set --mail-command or DISK_MONITOR_MAIL_COMMAND.%b\n" \
-            "$COLOR_RED" "$COLOR_RESET" >&2
-        log_message "ERROR" "No mail agent could be resolved."
+    if [[ ! "$HTTP_URL" =~ ^https?://[^[:space:]]+$ ]]; then
+        printf "%bError: Endpoint '%s' is not a valid http or https URL.%b\n" \
+            "$COLOR_RED" "$HTTP_URL" "$COLOR_RESET" >&2
+        log_message "ERROR" "Invalid HTTP endpoint: '$HTTP_URL'."
         exit 1
     fi
+
+    if [[ ! "$HTTP_TIMEOUT" =~ ^[0-9]+$ ]] || [[ "$HTTP_TIMEOUT" -lt 1 ]]; then
+        printf "%bError: Timeout must be an integer of seconds greater than zero.%b\n" \
+            "$COLOR_RED" "$COLOR_RESET" >&2
+        log_message "ERROR" "Invalid HTTP timeout: '$HTTP_TIMEOUT'."
+        exit 1
+    fi
+
+    if [[ ! "$HTTP_METHOD" =~ ^[A-Za-z][A-Za-z0-9_-]*$ ]]; then
+        printf "%bError: HTTP method must be a token, for example POST.%b\n" \
+            "$COLOR_RED" "$COLOR_RESET" >&2
+        log_message "ERROR" "Invalid HTTP method: '$HTTP_METHOD'."
+        exit 1
+    fi
+
+    if ! HTTP_CLIENT="$(resolve_http_command)"; then
+        printf "%bError: No HTTP client found. Install one, or set --http-command or DISK_MONITOR_HTTP_COMMAND.%b\n" \
+            "$COLOR_RED" "$COLOR_RESET" >&2
+        log_message "ERROR" "No HTTP client could be resolved."
+        exit 1
+    fi
+
+    validate_headers
 }
 
 # Main execution entrypoint
@@ -490,6 +833,7 @@ main() {
     parse_arguments "$@"
     load_configuration
     apply_precedence
+    resolve_headers
     validate_configuration
 
     local used_percent
@@ -525,9 +869,14 @@ main() {
     printf "Partition         : %b%s%b\n" "$COLOR_CYAN" "$PARTITION" "$COLOR_RESET"
     printf "Usage             : %b%s%%%b (%s)\n" "$COLOR_BOLD" "$used_percent" "$COLOR_RESET" "$usage_source"
     printf "Threshold         : %b%s%%%b\n" "$COLOR_YELLOW" "$THRESHOLD" "$COLOR_RESET"
-    printf "Mail Agent        : %b%s%b\n" "$COLOR_CYAN" "$mail_label" "$COLOR_RESET"
-    if [[ "$NOTIFY_MODE" == "mail" ]]; then
-        printf "Recipient         : %b%s%b\n" "$COLOR_CYAN" "$MAIL_TO" "$COLOR_RESET"
+    if [[ "$NOTIFY_MODE" == "http" ]]; then
+        printf "Endpoint          : %b%s%b\n" "$COLOR_CYAN" "$HTTP_URL" "$COLOR_RESET"
+        printf "HTTP Client       : %b%s%b\n" "$COLOR_CYAN" "$HTTP_CLIENT" "$COLOR_RESET"
+    else
+        printf "Mail Agent        : %b%s%b\n" "$COLOR_CYAN" "$mail_label" "$COLOR_RESET"
+        if [[ "$NOTIFY_MODE" == "mail" ]]; then
+            printf "Recipient         : %b%s%b\n" "$COLOR_CYAN" "$MAIL_TO" "$COLOR_RESET"
+        fi
     fi
     printf "Execution Mode    : %b\n" "$mode_label"
     if [[ -n "$LOG_FILE" ]]; then
@@ -540,6 +889,13 @@ main() {
             "$SOURCE_PARTITION" "$SOURCE_THRESHOLD" "$SOURCE_NOTIFY" "$SOURCE_TO" \
             "$SOURCE_MAIL_COMMAND" "$SOURCE_LOG_FILE" "$SOURCE_USAGE_COMMAND" "$SOURCE_USAGE_OVERRIDE" \
             "$COLOR_RESET"
+        if [[ "$NOTIFY_MODE" == "http" ]]; then
+            printf "%bTransport          : %bendpoint %s, body template %s, method %s, timeout %s, http command %s, headers %s (%s)%b\n" \
+                "$COLOR_BLUE" "$COLOR_RESET" \
+                "$SOURCE_URL" "$SOURCE_BODY_TEMPLATE" "$SOURCE_METHOD" "$SOURCE_TIMEOUT" \
+                "$SOURCE_HTTP_COMMAND" "${#HTTP_HEADERS[@]}" "$SOURCE_HEADER" \
+                "$COLOR_RESET"
+        fi
     fi
 
     if [[ "$used_percent" -gt "$THRESHOLD" ]]; then
@@ -547,16 +903,23 @@ main() {
 
         local host
         host="$(hostname 2>/dev/null || uname -n 2>/dev/null || echo "unknown-host")"
+        local timestamp
+        timestamp="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
         local subject="Disk Alert: ${PARTITION} at ${used_percent}%"
         local body
         body="$(printf 'Disk usage on %s is at %s%% (threshold: %s%%).\n\nPartition : %s\nUsage    : %s%%\nThreshold: %s%%\nTime     : %s' \
             "$host" "$used_percent" "$THRESHOLD" "$PARTITION" "$used_percent" "$THRESHOLD" \
-            "$(date -u +"%Y-%m-%dT%H:%M:%SZ")")"
+            "$timestamp")"
+
+        local notification_target="$MAIL_TO"
+        if [[ "$NOTIFY_MODE" == "http" ]]; then
+            notification_target="$HTTP_URL"
+        fi
 
         if [[ "$DRY_RUN" == true ]]; then
             printf "%b[DRY RUN]%b Would send an alert to %s\n" \
-                "$COLOR_YELLOW" "$COLOR_RESET" "$MAIL_TO"
-            log_message "INFO" "[DRY RUN] Would send an alert to $MAIL_TO (Usage: ${used_percent}%, Source: ${usage_source}, Threshold: ${THRESHOLD}%)"
+                "$COLOR_YELLOW" "$COLOR_RESET" "$notification_target"
+            log_message "INFO" "[DRY RUN] Would send an alert to $notification_target (Usage: ${used_percent}%, Source: ${usage_source}, Threshold: ${THRESHOLD}%)"
         elif [[ "$NOTIFY_MODE" == "mail" ]]; then
             if send_alert "$subject" "$body"; then
                 printf "%bAlert sent to %s%b\n" "$COLOR_GREEN" "$MAIL_TO" "$COLOR_RESET"
@@ -565,6 +928,23 @@ main() {
                 printf "%bError: The alert could not be handed to the mail agent.%b\n" \
                     "$COLOR_RED" "$COLOR_RESET" >&2
                 log_message "ERROR" "FAILED to hand the alert to the mail agent (Usage: ${used_percent}%, Source: ${usage_source})"
+                exit 2
+            fi
+        elif [[ "$NOTIFY_MODE" == "http" ]]; then
+            local template="$HTTP_BODY_TEMPLATE"
+            if [[ -z "$template" ]]; then
+                template="$body"
+            fi
+            render_body_template RENDERED_BODY "$template" "$subject" "$body" "$PARTITION" \
+                "${used_percent}%" "${THRESHOLD}%" "$HTTP_URL" "$host" "$timestamp"
+
+            if send_http_alert "$HTTP_URL" "$RENDERED_BODY" "$HTTP_METHOD" "$HTTP_TIMEOUT"; then
+                printf "%bAlert sent to %s%b\n" "$COLOR_GREEN" "$HTTP_URL" "$COLOR_RESET"
+                log_message "INFO" "ALERT SENT to $HTTP_URL (Usage: ${used_percent}%, Source: ${usage_source}, Threshold: ${THRESHOLD}%)"
+            else
+                printf "%bError: The alert could not be handed to the HTTP client.%b\n" \
+                    "$COLOR_RED" "$COLOR_RESET" >&2
+                log_message "ERROR" "FAILED to hand the alert to the HTTP client (Usage: ${used_percent}%, Source: ${usage_source})"
                 exit 2
             fi
         else
