@@ -168,7 +168,7 @@ Windows behaviour of the HTTP transport provable rather than asserted.
 | :--- | :--- | :-- | :-- | :-- | :-- |
 | T0 | S1, S4 | Create the branch; record the module 1 baseline | Inline | ✅ | `feat/1-universal-transport`, baseline 55 passed, 0 failed |
 | T1 | S9, S10, S11 | The configuration file: parser, precedence, secret handling, both implementations | Inline | ✅ | `a3cea7a` + three fixes — **77 passed, 0 failed** on all four suite jobs in run `39646002248` |
-| T2 | S5, S6, S7, S8 | The HTTP transport: both implementations, with a stub client on `PATH` | Inline | ⬜ | — |
+| T2 | S5, S6, S7, S8 | The HTTP transport: both implementations, with a stub client on `PATH` | Inline | ✅ | `fd12e3e` + `aae787e` — **171 passed, 0 failed** on all four suite jobs in run `39654069737` |
 | T3 | S12, S13 | The doctor command: both implementations, with the per-platform remedy | Inline | ⬜ | — |
 | T4 | S14, S15, S20 | Parity proof across the two implementations, including the transports that already existed | Inline | ⬜ | — |
 | T5 | S16, S19 | The CI pipeline: no new job needed, but the new behaviour must be proven on all three platforms | Inline | ⬜ | — |
@@ -253,6 +253,47 @@ then the built-in default, and every setting records where its value came from.
 **L7** — 2026-10-21. Next step: **T2**. The HTTP transport: one implementation that covers every
 HTTP notification service, with a stub client on `PATH` so the suite is deterministic on every
 platform.
+
+**L8** — 2026-10-21. T2 executed on `feat/1-universal-transport`. The HTTP transport lands on both
+implementations. One request with a body to a URL is the same primitive for ntfy, Telegram,
+Discord, Slack and a self-hosted receiver, so the transport carries no provider-specific code.
+
+- **RED:** 96 passed, 51 failed against module 1, because `--notify http` did not exist.
+  **GREEN:** 171 passed, 0 failed, on all four suite jobs — Bash on Linux and macOS, PowerShell
+  on Ubuntu and Windows — in run `39654069737`. Both lint gates are green in the same run.
+- **The client is an external command**, resolved as `--http-command` →
+  `DISK_MONITOR_HTTP_COMMAND` → `curl`, so the same client is used on every platform and the
+  suite can replace it on `PATH`. The PowerShell resolution asks for an *application*, so the
+  legacy `curl` alias can never be captured and the real `curl.exe` is reached. The Windows
+  runner proved it: the report names a file on disk, not an alias.
+- **The body template is rendered in one pass**, so a substituted value is never substituted
+  twice and a JSON template keeps its braces. `{usage}` and `{threshold}` carry the percent sign
+  and `{recipient}` is the endpoint the alert is addressed to.
+- **A header value never reaches an output.** It is not printed, not reported as an error and
+  not written to the audit log; the transport reports the header *count* and its source instead.
+  The independent verification traced every path that could leak one, on both sides.
+- **Five defects came out of the CI runs and the verification, none of them locally.** The
+  analyzer rejects a plural noun in a cmdlet name, so four test functions were renamed. The
+  partition placeholder assertion assumed the root of the filesystem, and the default partition
+  is the system drive on Windows: only the Windows runner saw it. An empty `--header` was
+  demoted to the next precedence source on the Bash side while the PowerShell side honoured the
+  flag, so the same command line sent two different requests. A malformed configuration line was
+  echoed to the error stream, and a line pasted into the file by mistake may hold a bearer token:
+  the line is now named by its number. The shared resolver read a value holding only whitespace
+  as a value on one side and as an absence on the other.
+- **One finding is recorded and deliberately not changed.** The header value is visible in the
+  process argument list while the request runs, because that is how every HTTP client takes a
+  header. The alternative writes the token to a file, which is worse. It is documented in the
+  README (T6) instead of hidden.
+- The verification also reported that the audit log only honours the `-LogFile` parameter on the
+  PowerShell side. That is not a defect: the parameter lives in the script scope, so
+  `$script:LogFile` and `$LogFile` are the same variable.
+- The next step: **T3**, the doctor command: what is configured, what is missing, and the
+  install command for the platform it was found on.
+
+**L9** — 2026-10-21. Next step: **T3**. The doctor command: it reports what is configured and
+where each value came from, what is missing, and the install command for the platform it was
+found on, and it changes nothing.
 
 ---
 
