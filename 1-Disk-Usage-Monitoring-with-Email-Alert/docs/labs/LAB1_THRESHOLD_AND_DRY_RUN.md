@@ -259,7 +259,7 @@ rm -rf /tmp/lab1_disk
 
 | Check | Expected |
 | :--- | :--- |
-| `df -P /` | Six fields, capacity in the second-to-last position. |
+| `df -P /` | Six fields, capacity in the fifth position from the left. |
 | Step 1 report | `Usage : <n>% (measured)` and `Disk usage is within the threshold.` |
 | Step 2, usage `80` / threshold `80` | **No** warning. Usage equal to the threshold is quiet. |
 | Step 2, usage `81` / threshold `80` | `WARNING: Disk usage exceeds the threshold.` |

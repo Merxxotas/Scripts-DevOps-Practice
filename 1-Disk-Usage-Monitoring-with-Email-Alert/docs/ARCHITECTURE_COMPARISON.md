@@ -117,17 +117,17 @@ Raw SMTP and webhook transports were considered and rejected:
 The hand-off also keeps the test suite honest: the mail agent is stubbed on `PATH`, so the suite
 never sends a real email and never depends on the host's disk layout.
 
-### 3. Capacity is read from the second-to-last field
+### 3. Capacity is read from the fifth field
 
 ```bash
 df -P <path>   # Filesystem 1024-blocks Used Available Capacity Mounted on
 ```
 
 `df -P` produces exactly one line per filesystem with a fixed six-field POSIX layout. The capacity
-is the field **immediately before** the mount point, so it is read as `$(NF-1)`:
+is the **fifth** field, and the mount point is everything after it, so it is read as `$5`:
 
 ```bash
-capacity="$(printf '%s\n' "$output" | awk 'NR==2 { gsub(/%/, "", $(NF-1)); print $(NF-1) }')"
+capacity="$(printf '%s\n' "$output" | awk 'NR==2 { gsub(/%/, "", $5); print $5 }')"
 ```
 
 Three reasons, in order of importance:
@@ -135,9 +135,9 @@ Three reasons, in order of importance:
 1. **It is the only position that is stable across GNU and macOS.** The seed read column `5` of
    `df -h`, and `df -h` is *not* the same layout everywhere: macOS adds an inode column and wraps
    long device names onto a second header line. That is the exact trap that broke module 5.
-2. **It survives a mount point containing spaces.** The mount point is always the last field, so
-   however many words it contains, the field before it is still the capacity. A fixed column index
-   would break on `/mnt/My Backup`.
+2. **It survives a mount point containing spaces.** The mount point is the last field and it may
+   be several words long, so counting back from the end would read part of the mount point instead
+   of the capacity. The fifth field is fixed however many words the mount point has.
 3. **`-P` is the format designed for scripts.** The human-readable `-h` format is explicitly not
    guaranteed to be stable.
 
