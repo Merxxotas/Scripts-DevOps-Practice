@@ -12,6 +12,12 @@
     The measurement source is the POSIX df output on Linux and macOS, and the
     native volume API on Windows. Both report the capacity as a percentage.
 
+    The threshold is a string and not a number, because the configuration file
+    and the environment may hold a value that is not a number, and the tool
+    has to report it instead of dropping it. The range of the parameter is
+    checked by the binder, and the value of every source is checked again by
+    the validation, which is what the doctor reports.
+
 .PARAMETER Partition
     Mount point to watch. Defaults to the root of the current drive on Windows
     and to "/" elsewhere.
@@ -79,7 +85,7 @@ param(
 
     [Parameter(Mandatory = $false)]
     [ValidateRange(1, 100)]
-    [int]$Threshold = 80,
+    [string]$Threshold = "80",
 
     [Parameter(Mandatory = $false)]
     [switch]$DryRun,
@@ -483,7 +489,7 @@ function Resolve-Configuration {
     $script:SourcePartition = $setting.Source
 
     $setting = Resolve-Setting -FlagValue $Threshold -FlagSet $script:FlagThresholdSet -EnvironmentValue ([string]$env:DISK_MONITOR_THRESHOLD) -ConfigValue $script:ConfigThreshold -DefaultValue "80"
-    $script:ResolvedThreshold = $setting.Value
+    $script:Threshold = $setting.Value
     $script:SourceThreshold = $setting.Source
 
     $setting = Resolve-Setting -FlagValue $Notify -FlagSet $script:FlagNotifySet -EnvironmentValue ([string]$env:DISK_MONITOR_NOTIFY) -ConfigValue $script:ConfigNotify -DefaultValue "mail"
@@ -1228,8 +1234,8 @@ function Invoke-Doctor {
     }
 
     # The threshold
-    if (-not (Test-ThresholdValue -Value $script:ResolvedThreshold)) {
-        Add-DoctorProblem "The threshold '$($script:ResolvedThreshold)' is not an integer between 1 and 100. Set -Threshold to a number between 1 and 100."
+    if (-not (Test-ThresholdValue -Value $script:Threshold)) {
+        Add-DoctorProblem "The threshold '$($script:Threshold)' is not an integer between 1 and 100. Set -Threshold to a number between 1 and 100."
     }
 
     # The notify backend
@@ -1311,7 +1317,7 @@ function Invoke-Doctor {
     }
 
     Write-DoctorField -Label "Partition" -Value $resolvedPartition -Source $script:SourcePartition
-    Write-DoctorField -Label "Threshold" -Value "$($script:ResolvedThreshold)%" -Source $script:SourceThreshold
+    Write-DoctorField -Label "Threshold" -Value "$($script:Threshold)%" -Source $script:SourceThreshold
     Write-DoctorField -Label "Notify backend" -Value $script:Notify -Source $script:SourceNotify
 
     if ($script:Notify -eq "http") {
@@ -1408,9 +1414,9 @@ function Invoke-DiskMonitor {
         exit 1
     }
 
-    if (-not (Test-ThresholdValue -Value $script:ResolvedThreshold)) {
+    if (-not (Test-ThresholdValue -Value $script:Threshold)) {
         Write-ErrorLine "$($Colors.Red)Error: Threshold must be an integer between 1 and 100.$($Colors.Reset)"
-        Write-AuditLog -Level "ERROR" -Message "Invalid threshold: '$script:ResolvedThreshold'."
+        Write-AuditLog -Level "ERROR" -Message "Invalid threshold: '$script:Threshold'."
         exit 1
     }
 
