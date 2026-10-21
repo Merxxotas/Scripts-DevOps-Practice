@@ -14,7 +14,6 @@ working methodology.
 | Status | Meaning |
 | :--- | :--- |
 | ✅ **Shipped** | Committed, CI-covered, documented, tested. |
-| 🟡 **Capstone (local)** | Complete body of work on disk, **not committed**, missing root CI wiring. |
 | 🔵 **Seed (local)** | A raw script pair exists on disk only. No specs, tests, docs or CI. |
 | ⬜ **Planned** | Folder exists but holds no implementation. |
 
