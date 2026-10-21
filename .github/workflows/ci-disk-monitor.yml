@@ -62,8 +62,8 @@ jobs:
         shell: pwsh
         run: |
           $settings = "1-Disk-Usage-Monitoring-with-Email-Alert/PSScriptAnalyzerSettings.psd1"
-          $results = Invoke-ScriptAnalyzer -Path "1-Disk-Usage-Monitoring-with-Email-Alert/disk_monitor.ps1" -Settings $settings
-          $results += Invoke-ScriptAnalyzer -Path "1-Disk-Usage-Monitoring-with-Email-Alert/tests/test_disk_monitor.ps1" -Settings $settings
+          $results = @(Invoke-ScriptAnalyzer -Path "1-Disk-Usage-Monitoring-with-Email-Alert/disk_monitor.ps1" -Settings $settings)
+          $results += @(Invoke-ScriptAnalyzer -Path "1-Disk-Usage-Monitoring-with-Email-Alert/tests/test_disk_monitor.ps1" -Settings $settings)
           if ($results) {
             $results | Format-Table -AutoSize
             Write-Host "PSScriptAnalyzer found $($results.Count) issue(s)"

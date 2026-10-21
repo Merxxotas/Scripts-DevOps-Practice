@@ -355,7 +355,11 @@ function Resolve-Settings {
     $script:LogFile = $setting.Value
     $script:SourceLogFile = $setting.Source
 
-    $setting = Resolve-Setting -FlagValue "" -FlagSet $false -EnvironmentValue ([string]$env:DISK_MONITOR_USAGE_COMMAND) -ConfigValue $script:ConfigUsageCommand -DefaultValue "df"
+    $usageDefault = "df"
+    if ($IsWindows) {
+        $usageDefault = ""
+    }
+    $setting = Resolve-Setting -FlagValue "" -FlagSet $false -EnvironmentValue ([string]$env:DISK_MONITOR_USAGE_COMMAND) -ConfigValue $script:ConfigUsageCommand -DefaultValue $usageDefault
     $script:UsageCommand = $setting.Value
     $script:SourceUsageCommand = $setting.Source
 

@@ -539,7 +539,7 @@ function Test-MountPointWithSpace {
 
 # Test 26: A configuration file supplies the partition and the threshold.
 function Test-ConfigFileValue {
-    New-TestEnvironment
+    Enter-TestEnvironment
     $configFile = Join-Path $TestSandbox "diskmonitor.conf"
     Set-Content -LiteralPath $configFile -Value @(
         "# a comment line"
@@ -551,24 +551,24 @@ function Test-ConfigFileValue {
     Assert-Equal -Expected 0 -Actual $script:LastRunExitCode -TestName "Test 26a: A configuration file is accepted"
     Assert-Match -Haystack $script:LastStdout -Needle $TestSandbox -TestName "Test 26b: The configured partition is used"
     Assert-Match -Haystack $script:LastStdout -Needle "WARNING" -TestName "Test 26c: The configured threshold is used"
-    Remove-TestEnvironment
+    Exit-TestEnvironment
 }
 
 # Test 27: A command line flag overrides the configuration file.
 function Test-ConfigPrecedenceFlag {
-    New-TestEnvironment
+    Enter-TestEnvironment
     $configFile = Join-Path $TestSandbox "diskmonitor.conf"
     Set-Content -LiteralPath $configFile -Value "threshold = 60"
     $env:DISK_MONITOR_STUB_DF_USAGE = "70"
     Invoke-Monitor -Arguments @("-Config", $configFile, "-Threshold", "90", "-Notify", "none")
     Assert-Equal -Expected 0 -Actual $script:LastRunExitCode -TestName "Test 27a: The run succeeds"
     Assert-Lacks -Haystack $script:LastStdout -Needle "WARNING" -TestName "Test 27b: The flag overrides the configured threshold"
-    Remove-TestEnvironment
+    Exit-TestEnvironment
 }
 
 # Test 28: An environment variable overrides the configuration file.
 function Test-ConfigPrecedenceEnvironment {
-    New-TestEnvironment
+    Enter-TestEnvironment
     $configFile = Join-Path $TestSandbox "diskmonitor.conf"
     Set-Content -LiteralPath $configFile -Value "threshold = 60"
     $env:DISK_MONITOR_STUB_DF_USAGE = "70"
@@ -576,23 +576,23 @@ function Test-ConfigPrecedenceEnvironment {
     Invoke-Monitor -Arguments @("-Config", $configFile, "-Notify", "none")
     Assert-Equal -Expected 0 -Actual $script:LastRunExitCode -TestName "Test 28a: The run succeeds"
     Assert-Lacks -Haystack $script:LastStdout -Needle "WARNING" -TestName "Test 28b: The environment overrides the configured threshold"
-    Remove-TestEnvironment
+    Exit-TestEnvironment
 }
 
 # Test 29: A command line flag overrides the environment variable.
 function Test-ConfigPrecedenceFlagOverEnvironment {
-    New-TestEnvironment
+    Enter-TestEnvironment
     $env:DISK_MONITOR_STUB_DF_USAGE = "70"
     $env:DISK_MONITOR_THRESHOLD = "90"
     Invoke-Monitor -Arguments @("-Threshold", "20", "-Notify", "none")
     Assert-Equal -Expected 0 -Actual $script:LastRunExitCode -TestName "Test 29a: The run succeeds"
     Assert-Match -Haystack $script:LastStdout -Needle "WARNING" -TestName "Test 29b: The flag overrides the environment"
-    Remove-TestEnvironment
+    Exit-TestEnvironment
 }
 
 # Test 30: The configuration file supplies the recipient.
 function Test-ConfigFileRecipient {
-    New-TestEnvironment
+    Enter-TestEnvironment
     $configFile = Join-Path $TestSandbox "diskmonitor.conf"
     Set-Content -LiteralPath $configFile -Value @(
         "to = oncall@example.com"
@@ -608,20 +608,20 @@ function Test-ConfigFileRecipient {
         if ($null -ne $raw) { $capture = $raw }
     }
     Assert-Match -Haystack $capture -Needle "oncall@example.com" -TestName "Test 30b: The configured recipient is used"
-    Remove-TestEnvironment
+    Exit-TestEnvironment
 }
 
 # Test 31: A configuration file that does not exist is a configuration error.
 function Test-ConfigFileMissing {
-    New-TestEnvironment
+    Enter-TestEnvironment
     Invoke-Monitor -Arguments @("-Config", (Join-Path $TestSandbox "no-such-file.conf"), "-Notify", "none")
     Assert-Equal -Expected 1 -Actual $script:LastRunExitCode -TestName "Test 31: A missing configuration file exits with code 1"
-    Remove-TestEnvironment
+    Exit-TestEnvironment
 }
 
 # Test 32: A malformed line is reported and ignored; the rest still applies.
 function Test-ConfigFileMalformedLine {
-    New-TestEnvironment
+    Enter-TestEnvironment
     $configFile = Join-Path $TestSandbox "diskmonitor.conf"
     Set-Content -LiteralPath $configFile -Value @(
         "this line has no separator"
@@ -632,12 +632,12 @@ function Test-ConfigFileMalformedLine {
     Assert-Equal -Expected 0 -Actual $script:LastRunExitCode -TestName "Test 32a: The run succeeds despite a malformed line"
     Assert-Match -Haystack $script:LastStderr -Needle "malformed" -TestName "Test 32b: The malformed line is reported"
     Assert-Match -Haystack $script:LastStdout -Needle "WARNING" -TestName "Test 32c: The valid lines are still applied"
-    Remove-TestEnvironment
+    Exit-TestEnvironment
 }
 
 # Test 33: An unknown key is reported and ignored.
 function Test-ConfigFileUnknownKey {
-    New-TestEnvironment
+    Enter-TestEnvironment
     $configFile = Join-Path $TestSandbox "diskmonitor.conf"
     Set-Content -LiteralPath $configFile -Value @(
         "threshold = 60"
@@ -647,12 +647,12 @@ function Test-ConfigFileUnknownKey {
     Invoke-Monitor -Arguments @("-Config", $configFile, "-Notify", "none")
     Assert-Equal -Expected 0 -Actual $script:LastRunExitCode -TestName "Test 33a: The run succeeds despite an unknown key"
     Assert-Match -Haystack $script:LastStderr -Needle "not_a_real_key" -TestName "Test 33b: The unknown key is reported"
-    Remove-TestEnvironment
+    Exit-TestEnvironment
 }
 
 # Test 34: A quoted value keeps its spaces.
 function Test-ConfigFileQuotedValue {
-    New-TestEnvironment
+    Enter-TestEnvironment
     $configFile = Join-Path $TestSandbox "diskmonitor.conf"
     Set-Content -LiteralPath $configFile -Value @(
         'to = "ops team@example.com"'
@@ -668,12 +668,12 @@ function Test-ConfigFileQuotedValue {
         if ($null -ne $raw) { $capture = $raw }
     }
     Assert-Match -Haystack $capture -Needle "ops team@example.com" -TestName "Test 34b: The quoted value keeps its spaces"
-    Remove-TestEnvironment
+    Exit-TestEnvironment
 }
 
 # Test 35: The configuration file path can come from the environment.
 function Test-ConfigFileFromEnvironment {
-    New-TestEnvironment
+    Enter-TestEnvironment
     $configFile = Join-Path $TestSandbox "diskmonitor.conf"
     Set-Content -LiteralPath $configFile -Value "threshold = 60"
     $env:DISK_MONITOR_STUB_DF_USAGE = "70"
@@ -681,12 +681,12 @@ function Test-ConfigFileFromEnvironment {
     Invoke-Monitor -Arguments @("-Notify", "none")
     Assert-Equal -Expected 0 -Actual $script:LastRunExitCode -TestName "Test 35a: The run succeeds"
     Assert-Match -Haystack $script:LastStdout -Needle "WARNING" -TestName "Test 35b: The configured threshold is used"
-    Remove-TestEnvironment
+    Exit-TestEnvironment
 }
 
 # Test 36: A well formed configuration file is accepted.
 function Test-ConfigFileWellFormed {
-    New-TestEnvironment
+    Enter-TestEnvironment
     $configFile = Join-Path $TestSandbox "diskmonitor.conf"
     Set-Content -LiteralPath $configFile -Value @(
         "partition = $TestSandbox"
@@ -694,7 +694,7 @@ function Test-ConfigFileWellFormed {
     )
     Invoke-Monitor -Arguments @("-Config", $configFile, "-Notify", "none")
     Assert-Equal -Expected 0 -Actual $script:LastRunExitCode -TestName "Test 36a: A well formed configuration file is accepted"
-    Remove-TestEnvironment
+    Exit-TestEnvironment
 }
 
 # Execution

@@ -56,7 +56,6 @@ FLAG_NOTIFY_SET=false
 FLAG_TO_SET=false
 FLAG_MAIL_COMMAND_SET=false
 FLAG_LOG_FILE_SET=false
-FLAG_USAGE_COMMAND_SET=false
 FLAG_CONFIG_SET=false
 
 # Where each resolved value came from
@@ -542,8 +541,10 @@ main() {
     fi
 
     if [[ "$VERBOSE" == true ]]; then
-        printf "%bDiagnostics        : %bmail agent '%s', recipient '%s', dry-run '%s'%b\n" \
-            "$COLOR_BLUE" "$COLOR_RESET" "$mail_label" "$MAIL_TO" "$DRY_RUN" "$COLOR_RESET"
+        printf "%bDiagnostics        : %bpartition %s, threshold %s, notify %s, recipient %s, mail command %s, log file %s, usage command %s, usage override %s%b\n" \
+            "$COLOR_BLUE" "$COLOR_RESET" \
+            "$SOURCE_PARTITION" "$SOURCE_THRESHOLD" "$SOURCE_NOTIFY" "$SOURCE_TO" \
+            "$SOURCE_MAIL_COMMAND" "$SOURCE_LOG_FILE" "$SOURCE_USAGE_COMMAND" "$SOURCE_USAGE_OVERRIDE"
     fi
 
     if [[ "$used_percent" -gt "$THRESHOLD" ]]; then
