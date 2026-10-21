@@ -1724,6 +1724,100 @@ function Test-DoctorHelpDocumentsTheParameter {
     Exit-TestEnvironment
 }
 
+# Test 84: A configuration file that other users can read is reported with the
+# command that restricts it. It is a warning and not a problem: the tool
+# still runs.
+function Test-DoctorReportsAReadableConfigurationFile {
+    Enter-TestEnvironment
+    $configFile = Join-Path $TestSandbox "diskmonitor.conf"
+    Set-Content -LiteralPath $configFile -Value "url = https://ntfy.sh/disk-alerts"
+
+    # The permission model of Windows is an access control list, so the file
+    # is made readable by everyone on purpose. The Unix host is given the
+    # mode that lets the group and the others read the file.
+    $readableByOthers = $false
+    if ($IsWindows) {
+        try {
+            $acl = Get-Acl -LiteralPath $configFile
+            $rule = New-Object System.Security.AccessControl.FileSystemAccessRule("Everyone", "Read", "Allow")
+            $null = $acl.AddAccessRule($rule)
+            Set-Acl -LiteralPath $configFile -AclObject $acl
+            $readableByOthers = $true
+        } catch {
+            Write-Host "$([char]27)[0;33m[SKIP]$([char]27)[0m Test 84b: The access control list of the file cannot be changed on this host"
+        }
+    } else {
+        & chmod 644 $configFile
+        $readableByOthers = $true
+    }
+
+    Invoke-Monitor -Arguments @("-Doctor", "-Config", $configFile, "-Notify", "http", "-Url", "https://ntfy.sh/disk-alerts")
+    Assert-Equal -Expected 0 -Actual $script:LastRunExitCode -TestName "Test 84a: The tool is still ready to run"
+    if ($readableByOthers) {
+        Assert-Match -Haystack $script:LastStdout -Needle "can be read by other users" -TestName "Test 84b: The doctor reports the readable configuration file"
+        if ($IsWindows) {
+            Assert-Match -Haystack $script:LastStdout -Needle "icacls" -TestName "Test 84c: The remedy names the command that restricts the file"
+        } else {
+            Assert-Match -Haystack $script:LastStdout -Needle "chmod 600" -TestName "Test 84c: The remedy names the command that restricts the file"
+        }
+    }
+
+    # A file that only its owner can read is not reported. The Windows host
+    # grants no read access to everyone by default, and the Unix host is
+    # given the mode that leaves the file to its owner.
+    $restrictedFile = Join-Path $TestSandbox "restricted.conf"
+    Set-Content -LiteralPath $restrictedFile -Value "url = https://ntfy.sh/disk-alerts"
+    if (-not $IsWindows) {
+        & chmod 600 $restrictedFile
+    }
+
+    Invoke-Monitor -Arguments @("-Doctor", "-Config", $restrictedFile, "-Notify", "http", "-Url", "https://ntfy.sh/disk-alerts")
+    Assert-Absent -Haystack $script:LastStdout -Needle "can be read by other users" -TestName "Test 84d: A restricted configuration file is not reported"
+    Exit-TestEnvironment
+}
+
+# Test 85: A threshold that does not fit in an integer is a configuration
+# error, and the doctor names it instead of overflowing. The value is 2^64
+# plus one, which a 64-bit comparison wraps to 1 and accepts as a threshold.
+# It comes from the configuration file, because the parameter of the command
+# line is bound to an integer and refuses the value before the doctor runs.
+function Test-DoctorRejectsAnOverflowingThreshold {
+    Enter-TestEnvironment
+    $configFile = Join-Path $TestSandbox "diskmonitor.conf"
+    Set-Content -LiteralPath $configFile -Value "threshold = 18446744073709551617"
+    Invoke-Monitor -Arguments @("-Doctor", "-Config", $configFile, "-Notify", "http", "-Url", "https://ntfy.sh/disk-alerts")
+    Assert-Equal -Expected 1 -Actual $script:LastRunExitCode -TestName "Test 85a: A threshold that does not fit in an integer exits with code 1"
+    Assert-Match -Haystack $script:LastStdout -Needle "not an integer between 1 and 100" -TestName "Test 85b: The doctor names the invalid threshold"
+    Invoke-Monitor -Arguments @("-Config", $configFile, "-Notify", "http", "-Url", "https://ntfy.sh/disk-alerts")
+    Assert-Equal -Expected 1 -Actual $script:LastRunExitCode -TestName "Test 85c: The run rejects the same threshold"
+    Exit-TestEnvironment
+}
+
+# Test 86: A measurement command that comes from the configuration file comes
+# from no package, so the remedy names the setting and not an install command
+function Test-DoctorReportsAMeasurementCommandFromTheConfigFile {
+    Enter-TestEnvironment
+    # The harness sets the measurement command in the environment, and the
+    # environment wins over the configuration file, so it is removed here.
+    Remove-Item Env:DISK_MONITOR_USAGE_COMMAND -ErrorAction SilentlyContinue
+    $configFile = Join-Path $TestSandbox "diskmonitor.conf"
+    Set-Content -LiteralPath $configFile -Value "usage_command = no-such-measurement-command"
+    Invoke-Monitor -Arguments @("-Doctor", "-Config", $configFile, "-Notify", "http", "-Url", "https://ntfy.sh/disk-alerts")
+    Assert-Equal -Expected 1 -Actual $script:LastRunExitCode -TestName "Test 86a: A missing measurement command exits with code 1"
+    Assert-Match -Haystack $script:LastStdout -Needle "no-such-measurement-command" -TestName "Test 86b: The doctor names the missing command"
+    Assert-Absent -Haystack $script:LastStdout -Needle "coreutils" -TestName "Test 86c: The remedy does not name a package for a command of the configuration file"
+    Exit-TestEnvironment
+}
+
+# Test 87: A value that carries a control character cannot rewrite the report
+function Test-DoctorSanitizesThePrintedValue {
+    Enter-TestEnvironment
+    $url = "https://ntfy.sh/disk-alerts" + [char]13 + "INJECTED"
+    Invoke-Monitor -Arguments @("-Doctor", "-Notify", "http", "-Url", $url)
+    Assert-Absent -Haystack $script:LastStdout -Needle ([string][char]13) -TestName "Test 87a: A carriage return in a value does not reach the report"
+    Exit-TestEnvironment
+}
+
 Test-HttpMalformedConfigLineIsNotEchoed
 Test-DoctorReportsTheConfiguration
 Test-DoctorChangesNothing
@@ -1739,6 +1833,10 @@ Test-DoctorAgreesWithTheRun
 Test-DoctorHelpDocumentsTheParameter
 Test-ConfigFileNamesTheMeasurementCommand
 Test-WhitespacePartitionIsRejected
+Test-DoctorReportsAReadableConfigurationFile
+Test-DoctorRejectsAnOverflowingThreshold
+Test-DoctorReportsAMeasurementCommandFromTheConfigFile
+Test-DoctorSanitizesThePrintedValue
 
 Write-Host "============================================================"
 Write-Host "Tests Summary: $([char]27)[0;32m$script:PassedCount Passed$([char]27)[0m, $([char]27)[0;31m$script:FailedCount Failed$([char]27)[0m"

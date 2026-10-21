@@ -109,6 +109,10 @@ HEADER_AUDIT_MESSAGE=""
 # The problems the doctor found
 DOCTOR_PROBLEMS=()
 
+# The warnings the doctor found. A warning is reported, but the tool still
+# runs, so it does not change the exit code.
+DOCTOR_WARNINGS=()
+
 # Prints usage and help message
 show_help() {
     cat <<EOF
@@ -521,8 +525,9 @@ resolve_headers() {
 
 # Validates the resolved headers. A header is a name and a value, and it must
 # not carry a line break, which would let it inject a second header. The
-# value is never reported: it may carry a bearer token. The problem is handed
-# to the caller, which decides whether to fail the run or to report it.
+# value is never reported: it may carry a bearer token. The problem is
+# reported in HEADER_PROBLEM and its audit line in HEADER_AUDIT_MESSAGE,
+# and the caller decides whether to fail the run or to report it.
 check_headers() {
     local header=""
     local header_number=0
@@ -637,12 +642,21 @@ read_os_release_identifier() {
 
 # Names the platform the tool is running on. The distribution is read from
 # the file every Linux distribution ships, so the report names the system the
-# tool was found on and not only the kernel.
+# tool was found on and not only the kernel. The kernel name comes from the
+# uname command when it is there, and from the shell's own variable when it
+# is not, so a minimal host is still named.
 resolve_platform_name() {
     local kernel=""
     local identifier=""
 
-    kernel="$(uname -s 2>/dev/null || printf 'unknown')"
+    kernel="$(uname -s 2>/dev/null || true)"
+    if [[ -z "$kernel" ]]; then
+        case "${OSTYPE:-}" in
+            linux*) kernel="Linux" ;;
+            darwin*) kernel="Darwin" ;;
+            *) kernel="${OSTYPE:-unknown}" ;;
+        esac
+    fi
 
     case "$kernel" in
         Darwin)
@@ -664,6 +678,120 @@ resolve_platform_name() {
     fi
 
     printf 'Linux'
+}
+
+# Removes the control characters from a value before it is printed. A value
+# that carries an escape sequence could otherwise rewrite the report, so the
+# doctor prints a value that cannot move the cursor or change a colour.
+sanitize_for_display() {
+    local value="$1"
+
+    value="${value//$'\e'/}"
+    value="${value//$'\r'/}"
+    value="${value//$'\n'/}"
+    value="${value//$'\b'/}"
+
+    printf '%s' "$value"
+}
+
+# Removes the leading zeros of a numeric string, so a value is judged by its
+# value and not by the way it is spelled.
+strip_leading_zeros() {
+    local value="$1"
+
+    while [[ "${#value}" -gt 1 && "${value:0:1}" == "0" ]]; do
+        value="${value:1}"
+    done
+
+    printf '%s' "$value"
+}
+
+# Reports whether a value is a valid threshold: an integer between 1 and
+# 100. The digits are judged before they are compared, so a value that does
+# not fit in an integer is reported as invalid instead of overflowing.
+is_valid_threshold() {
+    local value="$1"
+    local digits=""
+
+    if [[ ! "$value" =~ ^[0-9]+$ ]]; then
+        return 1
+    fi
+
+    digits="$(strip_leading_zeros "$value")"
+    if [[ "${#digits}" -gt 3 ]]; then
+        return 1
+    fi
+
+    if [[ "$digits" -lt 1 || "$digits" -gt 100 ]]; then
+        return 1
+    fi
+
+    return 0
+}
+
+# Reports whether a value is a valid timeout: a whole number of seconds
+# above zero. The digits are judged before they are compared, so a value
+# that does not fit in an integer is not mistaken for a small one.
+is_valid_timeout() {
+    local value="$1"
+    local digits=""
+
+    if [[ ! "$value" =~ ^[0-9]+$ ]]; then
+        return 1
+    fi
+
+    digits="$(strip_leading_zeros "$value")"
+    if [[ "${#digits}" -gt 10 ]]; then
+        return 1
+    fi
+
+    if [[ "$digits" -lt 1 || "$digits" -gt 2147483647 ]]; then
+        return 1
+    fi
+
+    return 0
+}
+
+# Reports the permission mode of a file in the three-digit octal form. The
+# POSIX stat and the BSD stat are both tried, because a Linux distribution
+# and a macOS host spell the option differently.
+file_permission_mode() {
+    local path="$1"
+    local mode=""
+
+    mode="$(stat -c '%a' "$path" 2>/dev/null || true)"
+    if [[ -z "$mode" ]]; then
+        mode="$(stat -f '%Lp' "$path" 2>/dev/null || true)"
+    fi
+
+    printf '%s' "$mode"
+}
+
+# Reports whether a file can be read by a user other than its owner. The
+# configuration file may hold a token, so a file that other users can read
+# is a finding the doctor has to report.
+file_is_readable_by_others() {
+    local path="$1"
+    local mode=""
+    local group_digit=""
+    local other_digit=""
+
+    mode="$(file_permission_mode "$path")"
+    if [[ ! "$mode" =~ ^[0-7]{3,4}$ ]]; then
+        return 1
+    fi
+
+    # The mode ends with the owner, the group and the others, so the group
+    # is the second digit from the end and the others are the last one. A
+    # digit of 4, 5, 6 or 7 carries the read permission.
+    group_digit="${mode: -2:1}"
+    other_digit="${mode: -1:1}"
+
+    if [[ "$group_digit" =~ ^[4567]$ || "$other_digit" =~ ^[4567]$ ]]; then
+        return 0
+    fi
+
+    return 1
 }
 
 # Prints the command that installs a package on this platform. The package
@@ -942,7 +1070,7 @@ parse_arguments() {
 # Everything is checked before the disk is measured, so a broken alerting
 # path is reported immediately instead of at the moment an alert is needed.
 validate_configuration() {
-    if [[ ! "$THRESHOLD" =~ ^[0-9]+$ ]] || [[ "$THRESHOLD" -lt 1 ]] || [[ "$THRESHOLD" -gt 100 ]]; then
+    if ! is_valid_threshold "$THRESHOLD"; then
         printf "%bError: Threshold must be an integer between 1 and 100.%b\n" \
             "$COLOR_RED" "$COLOR_RESET" >&2
         log_message "ERROR" "Invalid threshold: '$THRESHOLD'."
@@ -1015,7 +1143,7 @@ validate_configuration() {
         exit 1
     fi
 
-    if [[ ! "$HTTP_TIMEOUT" =~ ^[0-9]+$ ]] || [[ "$HTTP_TIMEOUT" -lt 1 ]]; then
+    if ! is_valid_timeout "$HTTP_TIMEOUT"; then
         printf "%bError: Timeout must be an integer of seconds greater than zero.%b\n" \
             "$COLOR_RED" "$COLOR_RESET" >&2
         log_message "ERROR" "Invalid HTTP timeout: '$HTTP_TIMEOUT'."
@@ -1040,11 +1168,14 @@ validate_configuration() {
 }
 
 # Prints one field of the doctor report. The source of the value is shown
-# with it, so the reader can see where a setting came from.
+# with it, so the reader can see where a setting came from. The value is
+# stripped of the control characters, so it cannot rewrite the report.
 doctor_field() {
     local label="$1"
     local value="$2"
     local source="${3:-}"
+
+    value="$(sanitize_for_display "$value")"
 
     if [[ -n "$source" ]]; then
         printf "%-20s: %s (%s)\n" "$label" "$value" "$source"
@@ -1058,6 +1189,12 @@ doctor_field() {
 # remedy, on one line.
 add_doctor_problem() {
     DOCTOR_PROBLEMS+=("$1")
+}
+
+# Records one warning the doctor found. A warning is reported with its own
+# remedy, but the tool still runs, so it does not change the exit code.
+add_doctor_warning() {
+    DOCTOR_WARNINGS+=("$1")
 }
 
 # Reports what is configured and what is missing, and changes nothing. The
@@ -1074,10 +1211,17 @@ run_doctor() {
     # The configuration file
     if [[ "$CONFIG_FILE_MISSING" == true ]]; then
         add_doctor_problem "The configuration file '$CONFIG_FILE' was not found. Create it, or point --config at a file that exists."
+    elif [[ -n "$CONFIG_FILE" && -f "$CONFIG_FILE" ]]; then
+        # The file may hold a token, so a file other users can read is
+        # reported. It is a warning and not a problem: the tool still runs,
+        # and a new file is readable by others until it is restricted.
+        if file_is_readable_by_others "$CONFIG_FILE"; then
+            add_doctor_warning "The configuration file '$CONFIG_FILE' can be read by other users. Restrict it: chmod 600 '$CONFIG_FILE'"
+        fi
     fi
 
     # The threshold
-    if [[ ! "$THRESHOLD" =~ ^[0-9]+$ ]] || [[ "$THRESHOLD" -lt 1 ]] || [[ "$THRESHOLD" -gt 100 ]]; then
+    if ! is_valid_threshold "$THRESHOLD"; then
         add_doctor_problem "The threshold '$THRESHOLD' is not an integer between 1 and 100. Set --threshold to a number between 1 and 100."
     fi
 
@@ -1091,9 +1235,15 @@ run_doctor() {
         add_doctor_problem "The partition '$PARTITION' does not exist. Set --partition to a mount point that exists."
     fi
 
-    # The measurement command
+    # The measurement command. The remedy names the package only when the
+    # command is the built-in one: a command the configuration file names
+    # comes from no package, so the remedy has to point at the setting.
     if ! usage_command="$(resolve_usage_command "$USAGE_COMMAND_OVERRIDE")"; then
-        add_doctor_problem "The measurement command '$USAGE_COMMAND_OVERRIDE' was not found. $(dependency_remedy coreutils)"
+        if [[ "$SOURCE_USAGE_COMMAND" == "default" ]]; then
+            add_doctor_problem "The measurement command '$USAGE_COMMAND_OVERRIDE' was not found. $(dependency_remedy coreutils)"
+        else
+            add_doctor_problem "The measurement command '$USAGE_COMMAND_OVERRIDE' was not found. Install it, or set DISK_MONITOR_USAGE_COMMAND to another measurement command."
+        fi
     fi
 
     # The transport
@@ -1112,7 +1262,7 @@ run_doctor() {
             add_doctor_problem "The endpoint '$HTTP_URL' is not a valid http or https URL. Set --url to a URL that starts with http:// or https://."
         fi
 
-        if [[ ! "$HTTP_TIMEOUT" =~ ^[0-9]+$ ]] || [[ "$HTTP_TIMEOUT" -lt 1 ]]; then
+        if ! is_valid_timeout "$HTTP_TIMEOUT"; then
             add_doctor_problem "The HTTP timeout '$HTTP_TIMEOUT' is not a whole number of seconds above zero. Set --timeout to a whole number of seconds."
         fi
 
@@ -1204,6 +1354,12 @@ run_doctor() {
 
     printf "%b------------------------------------------------------------%b\n" "$COLOR_BLUE" "$COLOR_RESET"
 
+    if [[ "${#DOCTOR_WARNINGS[@]}" -gt 0 ]]; then
+        for warning in "${DOCTOR_WARNINGS[@]}"; do
+            printf "%-20s: %s\n" "Warnings" "$(sanitize_for_display "$warning")"
+        done
+    fi
+
     if [[ "${#DOCTOR_PROBLEMS[@]}" -eq 0 ]]; then
         printf "%-20s: %bREADY%b\n" "Status" "$COLOR_GREEN" "$COLOR_RESET"
         return 0
@@ -1211,7 +1367,7 @@ run_doctor() {
 
     printf "%-20s: %bNOT READY%b\n" "Status" "$COLOR_YELLOW" "$COLOR_RESET"
     for problem in "${DOCTOR_PROBLEMS[@]}"; do
-        printf "  - %s\n" "$problem"
+        printf "  - %s\n" "$(sanitize_for_display "$problem")"
     done
 
     return 1
@@ -1221,6 +1377,7 @@ run_doctor() {
 main() {
     parse_arguments "$@"
     DOCTOR_PROBLEMS=()
+    DOCTOR_WARNINGS=()
     load_configuration
 
     if [[ "$CONFIG_FILE_MISSING" == true && "$DOCTOR_MODE" != true ]]; then

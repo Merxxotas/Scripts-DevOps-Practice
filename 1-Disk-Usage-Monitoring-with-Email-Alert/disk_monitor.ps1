@@ -197,6 +197,7 @@ $script:ConfigFileMissing = $false
 
 # The problems the doctor found
 $script:DoctorProblem = @()
+$script:DoctorWarning = @()
 
 # The problem found in the resolved headers, and the audit line it writes
 $script:HeaderProblem = ""
@@ -881,8 +882,160 @@ function Get-DependencyRemedy {
     return "Install $package with your package manager, $alternative."
 }
 
+# Removes the control characters from a value before it is printed. A value
+# that carries an escape sequence could otherwise rewrite the report, so the
+# doctor prints a value that cannot move the cursor or change a colour.
+function Get-SafeDisplayValue {
+    param([string]$Value)
+
+    if ([string]::IsNullOrEmpty($Value)) {
+        return ""
+    }
+
+    return ($Value -replace "[`e`r`n`b]", "")
+}
+
+# Removes the leading zeros of a numeric string, so a value is judged by its
+# value and not by the way it is spelled.
+function Get-CanonicalNumber {
+    param([string]$Value)
+
+    $digits = $Value.TrimStart('0')
+    if ($digits -eq "") {
+        return "0"
+    }
+
+    return $digits
+}
+
+# Reports whether a value is a valid threshold: an integer between 1 and
+# 100. The digits are judged before they are compared, so a value that does
+# not fit in an integer is reported as invalid instead of overflowing.
+function Test-ThresholdValue {
+    param([string]$Value)
+
+    if ($Value -notmatch '^\d+$') {
+        return $false
+    }
+
+    $digits = Get-CanonicalNumber -Value $Value
+    if ($digits.Length -gt 3) {
+        return $false
+    }
+
+    return (([int]$digits -ge 1) -and ([int]$digits -le 100))
+}
+
+# Reports whether a value is a valid timeout: a whole number of seconds
+# above zero. The digits are judged before they are compared, so a value
+# that does not fit in an integer is not mistaken for a small one.
+function Test-TimeoutValue {
+    param([string]$Value)
+
+    if ($Value -notmatch '^\d+$') {
+        return $false
+    }
+
+    $digits = Get-CanonicalNumber -Value $Value
+    if ($digits.Length -gt 10) {
+        return $false
+    }
+
+    return (([int64]$digits -ge 1) -and ([int64]$digits -le 2147483647))
+}
+
+# Reports whether a file can be read by a user other than its owner. The
+# configuration file may hold a token, so a file that other users can read
+# is a finding the doctor has to report. On Windows the permission bits are
+# an access control list, so the named principals that every user belongs to
+# are the ones that decide it.
+function Test-FileReadableByOther {
+    param([string]$Path)
+
+    if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) {
+        return $false
+    }
+
+    if ($IsWindows) {
+        $acl = Get-Acl -LiteralPath $Path -ErrorAction SilentlyContinue
+        if ($null -eq $acl) {
+            return $false
+        }
+
+        # Only the Everyone principal is reported on Windows, by name and by
+        # well-known identifier. The built-in Users group holds read access
+        # on every file of a user profile, so reporting it would report
+        # every file of the platform.
+        foreach ($rule in $acl.Access) {
+            if ($rule.AccessControlType -ne "Allow") {
+                continue
+            }
+            if ($rule.IdentityReference -notmatch "Everyone|S-1-1-0") {
+                continue
+            }
+            if (($rule.FileSystemRights -band [System.Security.AccessControl.FileSystemRights]::Read) -ne 0) {
+                return $true
+            }
+        }
+
+        return $false
+    }
+
+    $text = Get-UnixPermissionString -Path $Path
+    if ($text -eq "") {
+        return $false
+    }
+
+    # The permission is three triples: the owner, the group and the others.
+    # The read permission of a triple is its first character.
+    if ($text.Length -lt 9) {
+        return $false
+    }
+
+    $text = $text.Substring($text.Length - 9)
+    $groupDigit = $text.Substring(3, 1)
+    $otherDigit = $text.Substring(6, 1)
+
+    return (($groupDigit -eq "r") -or ($otherDigit -eq "r"))
+}
+
+# Returns the permission of a file on a Unix host, as the three triples of
+# the owner, the group and the others. The API that reads the mode arrived
+# in .NET 7, so the mode of the file system provider is used when the API
+# is not there.
+function Get-UnixPermissionString {
+    param([string]$Path)
+
+    $reader = [System.IO.File].GetMethod("GetUnixFileMode", [Type[]]@([string]))
+    if ($null -ne $reader) {
+        $mode = [System.IO.File]::GetUnixFileMode($Path)
+        return [System.IO.UnixFileMode]::ToString($mode)
+    }
+
+    $item = Get-Item -LiteralPath $Path -ErrorAction SilentlyContinue
+    if ($null -eq $item) {
+        return ""
+    }
+
+    return $item.Mode
+}
+
+# Prints the command that restricts a file to its owner. The remedy names
+# the platform it was found on, because the permission model of Windows is
+# an access control list and the permission model of a Unix host is a mode.
+function Get-ConfigFileRestrictCommand {
+    param([string]$Path)
+
+    if ($IsWindows) {
+        return "icacls '$Path' /inheritance:r /grant:r '$($env:USERNAME):(R,W)'"
+    }
+
+    return "chmod 600 '$Path'"
+}
+
 # Writes one field of the doctor report. The source of the value is shown
-# with it, so the reader can see where a setting came from.
+# with it, so the reader can see where a setting came from. The value is
+# stripped of the control characters, so it cannot rewrite the report.
 function Write-DoctorField {
     param(
         [string]$Label,
@@ -890,12 +1043,14 @@ function Write-DoctorField {
         [string]$Source = ""
     )
 
+    $safe = Get-SafeDisplayValue -Value $Value
+
     if ($Source -ne "") {
-        Write-Host ("{0,-20}: {1} ({2})" -f $Label, $Value, $Source)
+        Write-Host ("{0,-20}: {1} ({2})" -f $Label, $safe, $Source)
         return
     }
 
-    Write-Host ("{0,-20}: {1}" -f $Label, $Value)
+    Write-Host ("{0,-20}: {1}" -f $Label, $safe)
 }
 
 # Records one problem the doctor found. Every problem carries its own
@@ -904,6 +1059,14 @@ function Add-DoctorProblem {
     param([string]$Message)
 
     $script:DoctorProblem += $Message
+}
+
+# Records one warning the doctor found. A warning is reported with its own
+# remedy, but the tool still runs, so it does not change the exit code.
+function Add-DoctorWarning {
+    param([string]$Message)
+
+    $script:DoctorWarning += $Message
 }
 
 # Validates the resolved headers. A header is a name and a value, and it must
@@ -1060,10 +1223,18 @@ function Invoke-Doctor {
     # The configuration file
     if ($script:ConfigFileMissing) {
         Add-DoctorProblem "The configuration file '$($script:ConfigFilePath)' was not found. Create it, or point -Config at a file that exists."
+    } elseif (-not [string]::IsNullOrEmpty($script:ConfigFilePath) -and (Test-Path -LiteralPath $script:ConfigFilePath -PathType Leaf)) {
+        # The file may hold a token, so a file other users can read is
+        # reported. It is a warning and not a problem: the tool still runs,
+        # and a new file is readable by others until it is restricted.
+        if (Test-FileReadableByOther -Path $script:ConfigFilePath) {
+            $restrictCommand = Get-ConfigFileRestrictCommand -Path $script:ConfigFilePath
+            Add-DoctorWarning "The configuration file '$($script:ConfigFilePath)' can be read by other users. Restrict it: $restrictCommand"
+        }
     }
 
     # The threshold
-    if ($script:Threshold -notmatch '^\d+$' -or [int]$script:Threshold -lt 1 -or [int]$script:Threshold -gt 100) {
+    if (-not (Test-ThresholdValue -Value $script:Threshold)) {
         Add-DoctorProblem "The threshold '$($script:Threshold)' is not an integer between 1 and 100. Set -Threshold to a number between 1 and 100."
     }
 
@@ -1077,11 +1248,17 @@ function Invoke-Doctor {
         Add-DoctorProblem "The partition '$resolvedPartition' does not exist. Set -Partition to a mount point that exists."
     }
 
-    # The measurement command
+    # The measurement command. The remedy names the package only when the
+    # command is the built-in one: a command the configuration file names
+    # comes from no package, so the remedy has to point at the setting.
     if (-not [string]::IsNullOrEmpty($script:UsageCommand)) {
         $usageCommand = Resolve-UsageCommand -Command $script:UsageCommand
         if ($null -eq $usageCommand) {
-            Add-DoctorProblem "The measurement command '$($script:UsageCommand)' was not found. $(Get-DependencyRemedy -Dependency 'coreutils')"
+            if ($script:SourceUsageCommand -eq "default") {
+                Add-DoctorProblem "The measurement command '$($script:UsageCommand)' was not found. $(Get-DependencyRemedy -Dependency 'coreutils')"
+            } else {
+                Add-DoctorProblem "The measurement command '$($script:UsageCommand)' was not found. Install it, or set DISK_MONITOR_USAGE_COMMAND to another measurement command."
+            }
         }
     }
 
@@ -1102,7 +1279,7 @@ function Invoke-Doctor {
             Add-DoctorProblem "The endpoint '$($script:ResolvedUrl)' is not a valid http or https URL. Set -Url to a URL that starts with http:// or https://."
         }
 
-        if ($script:ResolvedTimeout -notmatch '^\d+$' -or [int]$script:ResolvedTimeout -lt 1) {
+        if (-not (Test-TimeoutValue -Value $script:ResolvedTimeout)) {
             Add-DoctorProblem "The HTTP timeout '$($script:ResolvedTimeout)' is not a whole number of seconds above zero. Set -Timeout to a whole number of seconds."
         }
 
@@ -1197,6 +1374,12 @@ function Invoke-Doctor {
 
     Write-Host "$($Colors.Blue)------------------------------------------------------------$($Colors.Reset)"
 
+    if ($script:DoctorWarning.Count -gt 0) {
+        foreach ($warning in $script:DoctorWarning) {
+            Write-DoctorField -Label "Warnings" -Value $warning
+        }
+    }
+
     if ($script:DoctorProblem.Count -eq 0) {
         Write-Host ("{0,-20}: {1}READY{2}" -f "Status", $Colors.Green, $Colors.Reset)
         return $true
@@ -1204,7 +1387,7 @@ function Invoke-Doctor {
 
     Write-Host ("{0,-20}: {1}NOT READY{2}" -f "Status", $Colors.Yellow, $Colors.Reset)
     foreach ($problem in $script:DoctorProblem) {
-        Write-Host "  - $problem"
+        Write-Host "  - $(Get-SafeDisplayValue -Value $problem)"
     }
 
     return $false
@@ -1231,7 +1414,7 @@ function Invoke-DiskMonitor {
         exit 1
     }
 
-    if ($script:Threshold -notmatch '^\d+$' -or [int]$script:Threshold -lt 1 -or [int]$script:Threshold -gt 100) {
+    if (-not (Test-ThresholdValue -Value $script:Threshold)) {
         Write-ErrorLine "$($Colors.Red)Error: Threshold must be an integer between 1 and 100.$($Colors.Reset)"
         Write-AuditLog -Level "ERROR" -Message "Invalid threshold: '$script:Threshold'."
         exit 1
@@ -1303,7 +1486,7 @@ function Invoke-DiskMonitor {
             exit 1
         }
 
-        if ($script:ResolvedTimeout -notmatch '^\d+$' -or [int]$script:ResolvedTimeout -lt 1) {
+        if (-not (Test-TimeoutValue -Value $script:ResolvedTimeout)) {
             Write-ErrorLine "$($Colors.Red)Error: Timeout must be an integer of seconds greater than zero.$($Colors.Reset)"
             Write-AuditLog -Level "ERROR" -Message "Invalid HTTP timeout: '$($script:ResolvedTimeout)'."
             exit 1

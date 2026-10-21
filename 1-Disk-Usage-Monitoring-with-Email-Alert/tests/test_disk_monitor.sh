@@ -1417,6 +1417,59 @@ test_doctor_help_documents_the_flag() {
     teardown
 }
 
+# Test 84: A configuration file that other users can read is reported with the
+# command that restricts it. It is a warning and not a problem: the tool
+# still runs.
+test_doctor_reports_a_readable_configuration_file() {
+    setup
+    local config_file="$TEST_SANDBOX/monitor.conf"
+    printf 'url = https://ntfy.sh/disk-alerts\n' > "$config_file"
+    chmod 644 "$config_file"
+    run_monitor --doctor --config "$config_file" --notify http --url https://ntfy.sh/disk-alerts
+    assert_contains "$LAST_STDOUT" "can be read by other users" "Test 84a: The doctor reports the readable configuration file"
+    assert_contains "$LAST_STDOUT" "chmod 600" "Test 84b: The remedy names the command that restricts the file"
+    assert_equals "0" "$LAST_EXIT_CODE" "Test 84c: The tool is still ready to run"
+
+    chmod 600 "$config_file"
+    run_monitor --doctor --config "$config_file" --notify http --url https://ntfy.sh/disk-alerts
+    assert_not_contains "$LAST_STDOUT" "can be read by other users" "Test 84d: A restricted configuration file is not reported"
+    teardown
+}
+
+# Test 85: A threshold that does not fit in an integer is a configuration
+# error, and the doctor names it instead of overflowing. The value is 2^64
+# plus one, which a 64-bit comparison wraps to 1 and accepts as a threshold.
+test_doctor_rejects_an_overflowing_threshold() {
+    setup
+    run_monitor --doctor --threshold 18446744073709551617 --notify http --url https://ntfy.sh/disk-alerts
+    assert_equals "1" "$LAST_EXIT_CODE" "Test 85a: A threshold that does not fit in an integer exits with code 1"
+    assert_contains "$LAST_STDOUT" "not an integer between 1 and 100" "Test 85b: The doctor names the invalid threshold"
+    run_monitor --threshold 18446744073709551617 --notify http --url https://ntfy.sh/disk-alerts
+    assert_equals "1" "$LAST_EXIT_CODE" "Test 85c: The run rejects the same threshold"
+    teardown
+}
+
+# Test 86: A measurement command that comes from the configuration file comes
+# from no package, so the remedy names the setting and not an install command
+test_doctor_reports_a_measurement_command_from_the_config_file() {
+    setup
+    local config_file="$TEST_SANDBOX/monitor.conf"
+    printf 'usage_command = no-such-measurement-command\n' > "$config_file"
+    run_monitor --doctor --config "$config_file" --notify http --url https://ntfy.sh/disk-alerts
+    assert_equals "1" "$LAST_EXIT_CODE" "Test 86a: A missing measurement command exits with code 1"
+    assert_contains "$LAST_STDOUT" "no-such-measurement-command" "Test 86b: The doctor names the missing command"
+    assert_not_contains "$LAST_STDOUT" "coreutils" "Test 86c: The remedy does not name a package for a command of the configuration file"
+    teardown
+}
+
+# Test 87: A value that carries a control character cannot rewrite the report
+test_doctor_sanitizes_the_printed_value() {
+    setup
+    run_monitor --doctor --notify http --url "https://ntfy.sh/disk-alerts$(printf '\r')INJECTED"
+    assert_not_contains "$LAST_STDOUT" $'\r' "Test 87a: A carriage return in a value does not reach the report"
+    teardown
+}
+
 # Run all tests
 printf "%bStarting Bash Disk Monitor Test Suite...%b\n" "$CYAN" "$RESET"
 test_help_menu
@@ -1502,6 +1555,10 @@ test_doctor_agrees_with_the_run
 test_doctor_help_documents_the_flag
 test_config_file_names_the_measurement_command
 test_whitespace_partition_is_rejected
+test_doctor_reports_a_readable_configuration_file
+test_doctor_rejects_an_overflowing_threshold
+test_doctor_reports_a_measurement_command_from_the_config_file
+test_doctor_sanitizes_the_printed_value
 
 printf "============================================================\n"
 printf "Tests Summary: %b%d Passed%b, %b%d Failed%b\n" "$GREEN" "$PASSED_TESTS" "$RESET" "$RED" "$FAILED_TESTS" "$RESET"
