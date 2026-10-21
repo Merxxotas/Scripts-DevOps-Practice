@@ -981,43 +981,37 @@ function Test-FileReadableByOther {
         return $false
     }
 
-    $text = Get-UnixPermissionString -Path $Path
-    if ($text -eq "") {
+    # The permission of a Unix host is a mode, and the mode is read from the
+    # flags of the file system, so the group and the others are judged by
+    # their own flag and not by the spelling of the mode.
+    $reader = [System.IO.File].GetMethod("GetUnixFileMode", [Type[]]@([string]))
+    if ($null -ne $reader) {
+        $mode = [System.IO.File]::GetUnixFileMode($Path)
+        $groupRead = $mode.HasFlag([System.IO.UnixFileMode]::GroupRead)
+        $otherRead = $mode.HasFlag([System.IO.UnixFileMode]::OtherRead)
+
+        return ($groupRead -or $otherRead)
+    }
+
+    # The API that reads the mode arrived in .NET 7, so the mode of the file
+    # system provider is used when the API is not there. The provider
+    # renders the mode as the three triples of the owner, the group and the
+    # others.
+    $item = Get-Item -LiteralPath $Path -ErrorAction SilentlyContinue
+    if ($null -eq $item) {
         return $false
     }
 
-    # The permission is three triples: the owner, the group and the others.
-    # The read permission of a triple is its first character.
+    $text = $item.Mode
     if ($text.Length -lt 9) {
         return $false
     }
 
     $text = $text.Substring($text.Length - 9)
-    $groupDigit = $text.Substring(3, 1)
-    $otherDigit = $text.Substring(6, 1)
+    $groupChar = $text.Substring(3, 1)
+    $otherChar = $text.Substring(6, 1)
 
-    return (($groupDigit -eq "r") -or ($otherDigit -eq "r"))
-}
-
-# Returns the permission of a file on a Unix host, as the three triples of
-# the owner, the group and the others. The API that reads the mode arrived
-# in .NET 7, so the mode of the file system provider is used when the API
-# is not there.
-function Get-UnixPermissionString {
-    param([string]$Path)
-
-    $reader = [System.IO.File].GetMethod("GetUnixFileMode", [Type[]]@([string]))
-    if ($null -ne $reader) {
-        $mode = [System.IO.File]::GetUnixFileMode($Path)
-        return [System.IO.UnixFileMode]::ToString($mode)
-    }
-
-    $item = Get-Item -LiteralPath $Path -ErrorAction SilentlyContinue
-    if ($null -eq $item) {
-        return ""
-    }
-
-    return $item.Mode
+    return (($groupChar -eq "r") -or ($otherChar -eq "r"))
 }
 
 # Prints the command that restricts a file to its owner. The remedy names
