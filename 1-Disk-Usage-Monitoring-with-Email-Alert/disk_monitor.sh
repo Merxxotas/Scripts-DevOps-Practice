@@ -640,14 +640,11 @@ read_os_release_identifier() {
     return 1
 }
 
-# Names the platform the tool is running on. The distribution is read from
-# the file every Linux distribution ships, so the report names the system the
-# tool was found on and not only the kernel. The kernel name comes from the
-# uname command when it is there, and from the shell's own variable when it
-# is not, so a minimal host is still named.
-resolve_platform_name() {
+# Names the kernel the tool runs on. The uname command is used when it is
+# on the PATH, and the shell's own variable when it is not, so a doctor run
+# with a restricted PATH still names the platform.
+detect_kernel_name() {
     local kernel=""
-    local identifier=""
 
     kernel="$(uname -s 2>/dev/null || true)"
     if [[ -z "$kernel" ]]; then
@@ -657,6 +654,20 @@ resolve_platform_name() {
             *) kernel="${OSTYPE:-unknown}" ;;
         esac
     fi
+
+    printf '%s' "$kernel"
+}
+
+# Names the platform the tool is running on. The distribution is read from
+# the file every Linux distribution ships, so the report names the system the
+# tool was found on and not only the kernel. The kernel name comes from the
+# uname command when it is there, and from the shell's own variable when it
+# is not, so a minimal host is still named.
+resolve_platform_name() {
+    local kernel=""
+    local identifier=""
+
+    kernel="$(detect_kernel_name)"
 
     case "$kernel" in
         Darwin)
@@ -803,7 +814,7 @@ resolve_install_command() {
     local kernel=""
     local manager=""
 
-    kernel="$(uname -s 2>/dev/null || printf 'unknown')"
+    kernel="$(detect_kernel_name)"
 
     if [[ "$kernel" == "Darwin" ]]; then
         printf 'brew install %s' "$package"

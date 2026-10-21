@@ -483,7 +483,7 @@ function Resolve-Configuration {
     $script:SourcePartition = $setting.Source
 
     $setting = Resolve-Setting -FlagValue $Threshold -FlagSet $script:FlagThresholdSet -EnvironmentValue ([string]$env:DISK_MONITOR_THRESHOLD) -ConfigValue $script:ConfigThreshold -DefaultValue "80"
-    $script:Threshold = $setting.Value
+    $script:ResolvedThreshold = $setting.Value
     $script:SourceThreshold = $setting.Source
 
     $setting = Resolve-Setting -FlagValue $Notify -FlagSet $script:FlagNotifySet -EnvironmentValue ([string]$env:DISK_MONITOR_NOTIFY) -ConfigValue $script:ConfigNotify -DefaultValue "mail"
@@ -1228,8 +1228,8 @@ function Invoke-Doctor {
     }
 
     # The threshold
-    if (-not (Test-ThresholdValue -Value $script:Threshold)) {
-        Add-DoctorProblem "The threshold '$($script:Threshold)' is not an integer between 1 and 100. Set -Threshold to a number between 1 and 100."
+    if (-not (Test-ThresholdValue -Value $script:ResolvedThreshold)) {
+        Add-DoctorProblem "The threshold '$($script:ResolvedThreshold)' is not an integer between 1 and 100. Set -Threshold to a number between 1 and 100."
     }
 
     # The notify backend
@@ -1311,7 +1311,7 @@ function Invoke-Doctor {
     }
 
     Write-DoctorField -Label "Partition" -Value $resolvedPartition -Source $script:SourcePartition
-    Write-DoctorField -Label "Threshold" -Value "$($script:Threshold)%" -Source $script:SourceThreshold
+    Write-DoctorField -Label "Threshold" -Value "$($script:ResolvedThreshold)%" -Source $script:SourceThreshold
     Write-DoctorField -Label "Notify backend" -Value $script:Notify -Source $script:SourceNotify
 
     if ($script:Notify -eq "http") {
@@ -1408,9 +1408,9 @@ function Invoke-DiskMonitor {
         exit 1
     }
 
-    if (-not (Test-ThresholdValue -Value $script:Threshold)) {
+    if (-not (Test-ThresholdValue -Value $script:ResolvedThreshold)) {
         Write-ErrorLine "$($Colors.Red)Error: Threshold must be an integer between 1 and 100.$($Colors.Reset)"
-        Write-AuditLog -Level "ERROR" -Message "Invalid threshold: '$script:Threshold'."
+        Write-AuditLog -Level "ERROR" -Message "Invalid threshold: '$script:ResolvedThreshold'."
         exit 1
     }
 

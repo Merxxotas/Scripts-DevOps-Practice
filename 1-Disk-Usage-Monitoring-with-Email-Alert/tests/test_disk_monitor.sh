@@ -1465,9 +1465,43 @@ test_doctor_reports_a_measurement_command_from_the_config_file() {
 # Test 87: A value that carries a control character cannot rewrite the report
 test_doctor_sanitizes_the_printed_value() {
     setup
-    run_monitor --doctor --notify http --url "https://ntfy.sh/disk-alerts$(printf '\r')INJECTED"
-    assert_not_contains "$LAST_STDOUT" $'\r' "Test 87a: A carriage return in a value does not reach the report"
+    run_monitor --doctor --notify http --url "https://ntfy.sh/disk-alerts$(printf '\b\r')INJECTED"
+    assert_no_backspace "$LAST_STDOUT" "Test 87a: A control character in a value does not reach the report"
+    assert_no_line_starts_with "$LAST_STDOUT" "INJECTED" "Test 87b: A value that carries a line break does not open a line in the report"
     teardown
+}
+
+# Asserts that the text holds no backspace. A value that carries one would
+# move the cursor of the report.
+assert_no_backspace() {
+    local haystack="$1"
+    local test_name="$2"
+
+    if [[ "$haystack" != *$'\b'* ]]; then
+        printf "%b[PASS]%b %s\n" "$GREEN" "$RESET" "$test_name"
+        ((PASSED_TESTS++)) || true
+    else
+        printf "%b[FAIL]%b %s (Expected to contain no backspace)\n" "$RED" "$RESET" "$test_name" >&2
+        ((FAILED_TESTS++)) || true
+    fi
+}
+
+# Asserts that no line of the text starts with the marker. A value that
+# carries a line break would open a line of its own. The check is on the
+# line and not on the character, because a host that ends its lines with a
+# carriage return puts one in every line.
+assert_no_line_starts_with() {
+    local haystack="$1"
+    local marker="$2"
+    local test_name="$3"
+
+    if printf '%s\n' "$haystack" | grep -q "^$marker"; then
+        printf "%b[FAIL]%b %s (A line starts with: '%s')\n" "$RED" "$RESET" "$test_name" "$marker" >&2
+        ((FAILED_TESTS++)) || true
+    else
+        printf "%b[PASS]%b %s\n" "$GREEN" "$RESET" "$test_name"
+        ((PASSED_TESTS++)) || true
+    fi
 }
 
 # Run all tests

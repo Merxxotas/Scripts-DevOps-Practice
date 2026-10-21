@@ -1724,6 +1724,52 @@ function Test-DoctorHelpDocumentsTheParameter {
     Exit-TestEnvironment
 }
 
+# Asserts that the text holds no backspace. A value that carries one would
+# move the cursor of the report.
+function Assert-NoBackspace {
+    param(
+        [Parameter(Mandatory = $false)][AllowNull()][AllowEmptyString()][string]$Haystack = "",
+        [Parameter(Mandatory = $true)][string]$TestName
+    )
+
+    if ($null -eq $Haystack) {
+        $Haystack = ""
+    }
+
+    if (-not $Haystack.Contains([string][char]8)) {
+        Write-Host "$([char]27)[0;32m[PASS]$([char]27)[0m $TestName"
+        $script:PassedCount++
+    } else {
+        Write-Host "$([char]27)[0;31m[FAIL]$([char]27)[0m $TestName (Expected to contain no backspace)"
+        $script:FailedCount++
+    }
+}
+
+# Asserts that no line of the text starts with the marker. A value that
+# carries a line break would open a line of its own. The check is on the
+# line and not on the character, because a host that ends its lines with a
+# carriage return puts one in every line.
+function Assert-NoLineStartsWith {
+    param(
+        [Parameter(Mandatory = $false)][AllowNull()][AllowEmptyString()][string]$Haystack = "",
+        [Parameter(Mandatory = $true)][string]$Marker,
+        [Parameter(Mandatory = $true)][string]$TestName
+    )
+
+    if ($null -eq $Haystack) {
+        $Haystack = ""
+    }
+
+    $opened = @($Haystack -split "`r?`n" | Where-Object { $_.StartsWith($Marker) })
+    if ($opened.Count -eq 0) {
+        Write-Host "$([char]27)[0;32m[PASS]$([char]27)[0m $TestName"
+        $script:PassedCount++
+    } else {
+        Write-Host "$([char]27)[0;31m[FAIL]$([char]27)[0m $TestName (A line starts with: '$Marker')"
+        $script:FailedCount++
+    }
+}
+
 # Test 84: A configuration file that other users can read is reported with the
 # command that restricts it. It is a warning and not a problem: the tool
 # still runs.
@@ -1812,9 +1858,10 @@ function Test-DoctorReportsAMeasurementCommandFromTheConfigFile {
 # Test 87: A value that carries a control character cannot rewrite the report
 function Test-DoctorSanitizesThePrintedValue {
     Enter-TestEnvironment
-    $url = "https://ntfy.sh/disk-alerts" + [char]13 + "INJECTED"
+    $url = "https://ntfy.sh/disk-alerts" + [char]8 + [char]13 + "INJECTED"
     Invoke-Monitor -Arguments @("-Doctor", "-Notify", "http", "-Url", $url)
-    Assert-Absent -Haystack $script:LastStdout -Needle ([string][char]13) -TestName "Test 87a: A carriage return in a value does not reach the report"
+    Assert-NoBackspace -Haystack $script:LastStdout -TestName "Test 87a: A control character in a value does not reach the report"
+    Assert-NoLineStartsWith -Haystack $script:LastStdout -Marker "INJECTED" -TestName "Test 87b: A value that carries a line break does not open a line in the report"
     Exit-TestEnvironment
 }
 
