@@ -169,7 +169,7 @@ Windows behaviour of the HTTP transport provable rather than asserted.
 | T0 | S1, S4 | Create the branch; record the module 1 baseline | Inline | ✅ | `feat/1-universal-transport`, baseline 55 passed, 0 failed |
 | T1 | S9, S10, S11 | The configuration file: parser, precedence, secret handling, both implementations | Inline | ✅ | `a3cea7a` + three fixes — **77 passed, 0 failed** on all four suite jobs in run `39646002248` |
 | T2 | S5, S6, S7, S8 | The HTTP transport: both implementations, with a stub client on `PATH` | Inline | ✅ | `fd12e3e` + `aae787e` — **171 passed, 0 failed** on all four suite jobs in run `39654069737` |
-| T3 | S12, S13 | The doctor command: both implementations, with the per-platform remedy | Inline | ⬜ | — |
+| T3 | S12, S13 | The doctor command: both implementations, with the per-platform remedy | Inline | ✅ | `cc99bd4` + `df29e38` — **240 passed, 0 failed** on the Bash suite; the PowerShell suite is a CI-only gate on this host and stays unproven until the branch runs in CI |
 | T4 | S14, S15, S20 | Parity proof across the two implementations, including the transports that already existed | Inline | ⬜ | — |
 | T5 | S16, S19 | The CI pipeline: no new job needed, but the new behaviour must be proven on all three platforms | Inline | ⬜ | — |
 | T6 | S2, S3, S16 | `SPECS.md`, `ROADMAP.md`, `CODESTYLE.md`, `README.md` | Delegated | ⬜ | — |
@@ -294,6 +294,36 @@ Discord, Slack and a self-hosted receiver, so the transport carries no provider-
 **L9** — 2026-10-21. Next step: **T3**. The doctor command: it reports what is configured and
 where each value came from, what is missing, and the install command for the platform it was
 found on, and it changes nothing.
+
+**L10** — 2026-10-21. T3 executed on `feat/1-universal-transport`, in two commits and two
+sessions. The first session shipped the doctor and stopped in the middle of a hardening pass:
+the Bash side carried the new behaviour and the PowerShell side carried the helpers and never
+called them, so the two implementations did not agree. The second session finished it.
+
+- **RED:** 233 passed, 7 failed against `cc99bd4`, because the doctor reported none of the new
+  behaviour. **GREEN:** 240 passed, 0 failed, on the Bash suite.
+- **The report of a configuration file that other users can read is a warning and not a
+  problem.** S12 ties the exit code `1` to something missing, and a new file is readable by
+  others until it is restricted, so a doctor that answered "not ready" for a working setup
+  would teach the reader to ignore the exit code. The warning carries the remedy.
+- **The permission model of Windows is an access control list, and only the `Everyone`
+  principal is reported there.** The built-in Users group holds read access on every file of a
+  user profile, so reporting it would report every file of the platform.
+- **A value that does not fit in an integer is judged by its digits and not by a comparison.**
+  A 64-bit comparison wraps 2^64 + 1 to 1, and the threshold 1 was accepted as valid. The
+  PowerShell side died on a conversion error with the same value. A timeout that does not fit
+  in an integer is a malformed value and is rejected as one, which is what S8 asks for.
+- **A measurement command that the configuration file names comes from no package**, so the
+  remedy points at the setting and not at an install command.
+- **The values and the problems of the report are stripped of the control characters**, so a
+  value cannot rewrite the report.
+- **The mode of a file is read from the group and the others and not from the owner**: a file
+  restricted to its owner was reported as readable by others. The new test caught it.
+- **The PowerShell side is unproven on this host.** The suite is a CI-only gate here, and the
+  branch was never pushed, so the assertions of the PowerShell suite have not run. The commit
+  message of `cc99bd4` claimed a PowerShell result that was never observed; that claim is
+  withdrawn, and the evidence of this task is the Bash suite alone.
+- The next step: **T4**, the parity proof across the two implementations.
 
 ---
 
