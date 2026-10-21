@@ -1,7 +1,7 @@
 # Modules
 
 > Inventory, status and build order for every numbered module in this monorepo.
-> **Last reviewed: 2026-10-20.**
+> **Last reviewed: 2026-10-21.**
 
 Each module is a self-contained DevOps automation utility with its own specification, implementation,
 tests, CI pipeline and documentation. See [`AGENTS.md`](AGENTS.md) for the module contract and the
@@ -23,7 +23,7 @@ working methodology.
 
 | # | Module | Tech | Status | CI | Docs |
 | :-- | :--- | :--- | :--- | :-- | :-- |
-| 1 | Disk Usage Monitoring with Email Alert | Bash / PowerShell | 🔵 Seed | — | — |
+| 1 | Disk Usage Monitoring with Email Alert | Bash / PowerShell | ✅ **Shipped** | ✅ | Full |
 | 2 | Log Cleanup (files older than X days) | Bash / PowerShell | ✅ **Shipped** | ✅ | Full |
 | 3 | Automated Database Backup with Timestamp | Bash / PowerShell | 🔵 Seed | — | — |
 | 4 | Service Monitor and Auto-Restart | Bash / PowerShell | 🔵 Seed | — | — |
@@ -38,6 +38,40 @@ working methodology.
 ---
 
 ## Module Detail
+
+### ✅ 1 — Disk Usage Monitoring with Email Alert *(Shipped)*
+
+A sensor, not an actuator: it measures the usage of one mounted filesystem and, when the usage
+crosses a threshold, hands an alert to the mail agent the host already provides. It holds no
+credentials and opens no socket of its own. Crossing the threshold is **not** a failure — the
+alert is the product, so the run still exits `0`.
+
+- `disk_monitor.sh` (Bash) · `disk_monitor.ps1` (PowerShell 7) · `PSScriptAnalyzerSettings.psd1`
+- `README.md` · `SPECS.md` · `ROADMAP.md` · `CODESTYLE.md`
+- `tests/` — 25 scenarios and 55 assertions per implementation, mirrored one for one
+- `docs/` — `ARCHITECTURE_COMPARISON.md`, `SCENARIOS.md`, `labs/LAB1-3`
+- CI: `.github/workflows/ci-disk-monitor.yml` — 4 jobs: ShellCheck, Bash on ubuntu + macOS, PSScriptAnalyzer, PowerShell on Windows + Ubuntu
+- Wiki: [13](wiki/13-Disk-Monitor-Overview.md) · [14](wiki/14-Disk-Monitor-Bash-vs-PowerShell.md) · [15](wiki/15-Disk-Monitor-Scenarios-and-Labs.md)
+
+**Defects found and fixed while shipping it.** The seed was 75 lines that had never run: it had
+never been in git, so nothing about it had ever been verified.
+
+| Defect | Fix |
+| :--- | :--- |
+| The Bash script could not execute at all — it carried CRLF line endings, so the shebang read `/bin/bash^M` | The file is LF, and `.gitattributes` normalises it |
+| The Bash side read the capacity from column 5 of `df -h`, the macOS column-layout trap that broke module 5 | It reads the fixed fifth field of the POSIX `df -P` layout |
+| The capacity was read from the second-to-last field of `df -P`, which is only right while the mount point is a single word | Both sides read field five, and a regression test drives a stub whose mount point contains a space |
+| The PowerShell side never sent — the `Send-MailMessage` call was commented out and it only printed "prepared" | The alert is composed and handed to the resolved mail agent on both sides |
+| `Get-WmiObject` was removed in PowerShell 7, but the file declared `#Requires -Version 7.0`, so the fallback was dead on the version it targeted | The Windows path uses `Get-CimInstance Win32_LogicalDisk`; the POSIX path is the primary one |
+| PowerShell variables are case-insensitive, so `$mailCommand` shadowed `$MailCommand` and `-MailCommand` was silently discarded | The local is renamed, and the same shadowing is removed from the measurement command |
+| The PowerShell harness reported assertions it never ran — a binding error was printed and skipped | The assertions accept empty values, and an erroring assertion now fails the run |
+| The Bash harness created the mail-capture file itself, so "the mail agent was never invoked" could not be asserted by the file's absence | The assertion checks the capture's contents |
+| The PowerShell suite failed PSScriptAnalyzer — two unapproved verbs, two plural nouns, global counters | Approved verbs, singular nouns, and script-scoped state |
+
+**Known gaps**, recorded rather than hidden: one partition per invocation, no `--json` or `--csv`
+output and no direct SMTP or webhook transport are deliberate v1 non-goals; the audit write is
+best-effort, so on a full disk the audit line may be the thing that cannot be written; and the CI
+matrix is x86-only, so there is no ARM64 runner yet.
 
 ### ✅ 2 — Log Cleanup *(Shipped)*
 
@@ -95,15 +129,17 @@ implementations, the Bash script has no options for the thresholds or the proces
 percentage is wrong on macOS because the file cache is counted as used, and exit code 2 is reserved
 but unused.
 
-### 🔵 Seed modules — 1, 3, 4, 6, 7, 8, 9, 10
+### 🔵 Seed modules — 3, 4, 6, 7, 8, 9, 10
 
 Each holds a single Bash + PowerShell pair of roughly 40–70 lines, written in one sitting on
 **2026-03-09**. They are functional sketches, not production utilities: no CLI parser, no safety
 guardrails, no dry-run, no audit log, no exit-code contract, no tests, no documentation, no CI.
 
+Module 1 was the first of them to be converted, on **2026-10-21**. It is now the template the
+remaining seven will be converted to.
+
 | # | Module | Files | Purpose |
 | :-- | :--- | :--- | :--- |
-| 1 | Disk Usage Monitoring with Email Alert | `disk_monitor.sh`, `disk_monitor.ps1` | Threshold-based disk capacity monitoring with mail notification. |
 | 3 | Automated Database Backup with Timestamp | `db_backup.sh`, `db_backup.ps1` | Timestamped database dumps with rotation. |
 | 4 | Service Monitor and Auto-Restart | `service_monitor.sh`, `service_monitor.ps1` | Service uptime monitoring and automatic restart. |
 | 6 | Website Availability (HTTP Health Check) | `health_check.sh`, `health_check.ps1` | Endpoint HTTP status and response-time checking. |
@@ -112,7 +148,8 @@ guardrails, no dry-run, no audit log, no exit-code contract, no tests, no docume
 | 9 | Automated Git Deployment | `git_deploy.sh`, `git_deploy.ps1` | Deployment pull and service restart. |
 | 10 | Kubernetes Pod Monitor and Restart | `k8s_monitor.sh`, `k8s_monitor.ps1` | K8s pod health monitoring and `kubectl` management. |
 
-**Seed → Shipped checklist** (the same contract modules 2 and 11 satisfy):
+**Seed → Shipped checklist** (the same contract modules 1, 2 and 11 satisfy — module 1 is the
+template the remaining seeds will be converted to):
 
 - [ ] `SPECS.md` — system overview, architecture, flag/parameter reference, data shapes
 - [ ] `ROADMAP.md` — phased milestones
@@ -128,19 +165,20 @@ guardrails, no dry-run, no audit log, no exit-code contract, no tests, no docume
 
 ## Build Order
 
-**Recommended sequence**, balancing "finish what exists" against "keep the numbering meaningful":
+**Recommended sequence**, balancing "finish what exists" against "keep the numbering meaningful".
+Module 1 shipped on **2026-10-21** and set the template; the sequence now starts at module 3.
 
 | Priority | Module | Rationale |
 | :-- | :--- | :-- |
 | — | **5 — CPU and Memory Usage Monitor** | **Shipped.** Completed. |
-| 1 | **1 — Disk Usage Monitoring** | First module in the series and the direct sibling of module 2 (same Bash/PowerShell CLI shape). Sets the template for the remaining seeds. |
-| 2 | **3 — Automated Database Backup** | Complements module 2 — backup creation feeding retention pruning. Natural narrative pairing. |
-| 3 | **8 — Log Rotation and Compression** | Shares the log-lifecycle domain with modules 2 and 3. |
-| 4 | **4 — Service Monitor and Auto-Restart** | Introduces process/service supervision; pairs with 7. |
-| 5 | **7 — Find and Kill High-CPU Processes** | Resource-control counterpart to 4 and 5. |
-| 6 | **9 — Automated Git Deployment** | Already referenced by the EventOps specification as a webhook action target. |
-| 7 | **6 — Website Availability** | Self-contained HTTP monitoring. |
-| 8 | **10 — Kubernetes Pod Monitor** | Highest operational complexity; benefits from the hardened patterns established above. |
+| — | **1 — Disk Usage Monitoring** | **Shipped.** Completed, and the template for the remaining seeds. |
+| 1 | **3 — Automated Database Backup** | Complements module 2 — backup creation feeding retention pruning. Natural narrative pairing. |
+| 2 | **8 — Log Rotation and Compression** | Shares the log-lifecycle domain with modules 2 and 3. |
+| 3 | **4 — Service Monitor and Auto-Restart** | Introduces process/service supervision; pairs with 7. |
+| 4 | **7 — Find and Kill High-CPU Processes** | Resource-control counterpart to 4 and 5. |
+| 5 | **9 — Automated Git Deployment** | Already referenced by the EventOps specification as a webhook action target. |
+| 6 | **6 — Website Availability** | Self-contained HTTP monitoring. |
+| 7 | **10 — Kubernetes Pod Monitor** | Highest operational complexity; benefits from the hardened patterns established above. |
 
 ---
 

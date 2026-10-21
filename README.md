@@ -10,7 +10,7 @@ This repository is a **multi-language monorepo**. While it includes foundational
 
 | Folder / Module | Primary Technologies | Purpose & Architecture |
 | :--- | :--- | :--- |
-| `1-Disk-Usage-Monitoring-with-Email-Alert` | Bash / PowerShell | Automated disk capacity monitoring & email notifications |
+| `1-Disk-Usage-Monitoring-with-Email-Alert` | Bash / PowerShell | **Disk Monitor:** threshold disk monitoring & a credential-free hand-off to the host's mail agent |
 | `2-Log-Cleanup-Script-(Delete-Files-Older-Than-X-Days)` | Bash / PowerShell | Automated log retention & directory purging |
 | `3-Automated-Database-Backup-with-Timestamp` | Bash / PowerShell | Timestamped database dump & rotation utilities |
 | `4-Service-Monitor-And-Auto-Restart` | Bash / PowerShell | System service uptime monitoring & auto-restart |
@@ -21,6 +21,9 @@ This repository is a **multi-language monorepo**. While it includes foundational
 | `9-Automated-Git-Deployment` | Bash / PowerShell | Automated deployment pull & service restart scripts |
 | `10-Kubernetes-Pod-Monitor-and-Restart` | Bash / PowerShell | K8s pod health monitoring & kubectl management |
 | `11-Scheduling-And-Automation` | **Python & Go** | **EventOps:** Cross-platform event-driven automation daemon (Webhooks + File Watcher) |
+
+> **11 modules · 4 shipped (1, 2, 5, 11) · 7 seeds on the working disk.** The live status of
+> every module is in [`MODULES.md`](MODULES.md).
 
 ---
 
@@ -49,7 +52,7 @@ Because this is a monorepo, **CI/CD pipelines are strictly segregated by project
 | :--- | :--- |
 | **[`AGENTS.md`](AGENTS.md)** | **Start here.** What this repository is, the working methodology (ODD), the module contract, branching and commit conventions, the CI model, code standards, and known gotchas. |
 | **[`odd/METHODOLOGY.md`](odd/METHODOLOGY.md)** | The expanded ODD protocol: the seven phases, the feature document format, task sizing, the test-first policy and the delegation triggers. |
-| **[`MODULES.md`](MODULES.md)** | Status of every one of the 11 modules, the seed-to-shipped checklist, and the recommended build order. |
+| **[`MODULES.md`](MODULES.md)** | Status of all 11 modules — 4 shipped, 7 seeds — the seed-to-shipped checklist, and the recommended build order. |
 | **[`CONTRIBUTING.md`](CONTRIBUTING.md)** | How to contribute: workflow, branch naming, commit format, testing rules, PR checklist. |
 | **[`SECURITY.md`](SECURITY.md)** | Reporting a vulnerability privately, response targets, and what does and does not count as a vulnerability here. |
 | **[`CODE_OF_CONDUCT.md`](CODE_OF_CONDUCT.md)** | Community standards. |

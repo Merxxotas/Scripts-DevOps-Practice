@@ -63,6 +63,110 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
 
+## 2026-10-21 — Disk Usage Monitoring module
+
+**Module 1 — Disk Usage Monitoring with Email Alert** goes from a seed script pair to a fully
+shipped module: a threshold monitor that measures one mounted filesystem and hands an alert to the
+mail agent the host already provides. It holds no credentials and opens no socket of its own, and
+it is the template the remaining seven seed modules will be converted to.
+
+### Added — the module
+
+- **`1-Disk-Usage-Monitoring-with-Email-Alert/`** — the whole module, tracked for the first time.
+  A Bash implementation and a PowerShell 7 implementation of one contract: the same flags, the
+  same defaults, the same validation, the same exit codes and the same messages.
+- **`disk_monitor.sh`** and **`disk_monitor.ps1`** — the two implementations. The Bash side takes
+  `-p, --partition`, `-t, --threshold`, `-n, --dry-run`, `--notify`, `--to`, `--mail-command`,
+  `-l, --log-file`, `-v, --verbose` and `-h, --help`; the PowerShell side takes `-Partition`,
+  `-Threshold`, `-DryRun`, `-Notify`, `-To`, `-MailCommand`, `-LogFile`, `-Verbose` and `-Help`.
+- **Exit-code contract** — `0` success, `1` configuration or safety error, `2` partial failure.
+  Crossing the threshold is not a failure: the alert is the product, so the run still exits `0`.
+- **A credential-free notification transport** — the alert is composed and handed to the host's
+  mail agent as `<mail-command> -s <subject> <recipient>`, with the body on stdin. The agent is
+  resolved from `--mail-command`, then `DISK_MONITOR_MAIL_COMMAND`, then the platform default
+  candidates (`mail`, then `msmtp`), and the whole alerting path is validated before the disk is
+  measured.
+- **Guardrails** — a dry-run mode that reports the pending alert and hands nothing to the mail
+  agent, and a `--notify none` backend that suppresses the hand-off entirely and needs no
+  recipient.
+- **An ISO-8601 audit log** — `--log-file` appends one line per run recording the usage, where the
+  number came from (`measured` or `overridden`) and the threshold it was compared against.
+- **`tests/test_disk_monitor.sh`** and **`tests/test_disk_monitor.ps1`** — 25 scenarios and 55
+  assertions per implementation, mirrored one for one so both sides are held to the same contract.
+  The measurement command and the mail agent are stubbed, so the suite never depends on the host's
+  real disk layout and never sends a real email.
+- **`docs/ARCHITECTURE_COMPARISON.md`** — the two implementations side by side, where they must
+  agree and where the platform requires them to differ.
+- **`docs/SCENARIOS.md`** — the operational failure modes and their exit codes.
+- **`docs/labs/LAB1…LAB3.md`** — three hands-on labs.
+- **`SPECS.md`**, **`ROADMAP.md`**, **`CODESTYLE.md`** and a complete `README.md` — the module
+  contract, satisfied.
+
+### Added — CI
+
+- **`.github/workflows/ci-disk-monitor.yml`** — path-filtered to the module folder, four jobs:
+  ShellCheck on the Bash script and its suite, the Bash suite on `ubuntu-24.04` and `macos-14`,
+  PSScriptAnalyzer on the PowerShell script and its suite, and the PowerShell suite on
+  `windows-2022` and `ubuntu-24.04`.
+
+### Fixed
+
+- **The Bash script could not execute at all.** It carried CRLF line endings, so the shebang read
+  `/bin/bash^M` and every invocation exited 126. The module had never been in git, so nobody had
+  ever run the file.
+- **The Bash side read the capacity from column 5 of `df -h`.** That is the macOS column-layout
+  trap that broke module 5. It now reads the fixed fifth field of the POSIX `df -P` layout.
+- **The capacity was read from the second-to-last field of `df -P`.** That is only correct while
+  the mount point is a single word, because the field is split on whitespace. Both sides now read
+  field five, and a regression test drives a stub whose mount point contains a space.
+- **The PowerShell side never sent anything.** The `Send-MailMessage` call was commented out, so
+  it printed "prepared" and stopped, while the Bash side sent for real.
+- **`Get-WmiObject` was removed in PowerShell 7**, but the file declared `#Requires -Version 7.0`,
+  so its fallback path was dead on the version it targeted. The Windows path now uses
+  `Get-CimInstance Win32_LogicalDisk`, with the POSIX path as the primary one.
+- **`-MailCommand` was silently discarded.** PowerShell variables are case-insensitive, so the
+  local `$mailCommand` shadowed the `$MailCommand` parameter and only the environment variable
+  worked. The local is renamed, and the same shadowing is removed from the measurement command.
+- **The PowerShell harness reported assertions it never ran.** Under strict mode a mandatory
+  string parameter rejects an empty value, so an assertion against empty output raised a binding
+  error that was printed and skipped. The assertions accept empty values now, and an erroring
+  assertion fails the run instead of disappearing from the summary.
+- **The Bash harness created the mail-capture file itself**, so "the mail agent was never
+  invoked" could never be asserted by the file's absence. The assertion now checks the capture's
+  contents.
+- **The PowerShell suite failed PSScriptAnalyzer** — two unapproved verbs, two plural nouns, and
+  shared counters held in global variables. The verbs are approved, the nouns are singular, and
+  the shared state lives in the script scope.
+- **The seed had no CLI parser, no guardrails, no dry-run, no exit-code contract and no tests.**
+  All of it is new.
+
+### Changed
+
+- **`MODULES.md` and `README.md`** — module 1 is marked shipped, the seed group is now seven
+  modules, and the build order starts at module 3.
+
+### Verification
+
+- **Bash suite, local** — 55 assertions, 55 passed, 0 failed.
+- **PowerShell suite and the two lint gates** — CI-only on the development machine, which has
+  neither `pwsh` nor `shellcheck`; the pipeline runs the PowerShell suite on Windows and on
+  Ubuntu.
+
+### Known gaps
+
+Recorded rather than hidden: one partition per invocation, no `--json` or `--csv` output and no
+direct SMTP or webhook transport are deliberate v1 non-goals; the audit write is best-effort, so
+on a full disk the audit line may be the thing that cannot be written; and the CI matrix is
+x86-only, so there is no ARM64 runner yet.
+
+### Documentation — knowledge base
+
+- **`wiki/13-Disk-Monitor-Overview.md`**, **`wiki/14-Disk-Monitor-Bash-vs-PowerShell.md`** and
+  **`wiki/15-Disk-Monitor-Scenarios-and-Labs.md`**, with the sidebar, the home page and
+  `wiki/01-Monorepo-Architecture.md` updated.
+
+---
+
 ## 2026-10-20 — CPU and Memory Usage Monitor module
 
 **Module 5 — CPU and Memory Usage Monitor** goes from a capstone that existed only on disk to a
