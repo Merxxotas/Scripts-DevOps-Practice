@@ -269,7 +269,7 @@ The rules that break things most often:
 
 ## 9. Known State and Gotchas
 
-Verified on **2026-10-20**. These are real, current, and will bite you.
+Verified on **2026-10-21**. These are real, current, and will bite you.
 
 | # | Gotcha |
 | :-- | :--- |
@@ -278,7 +278,7 @@ Verified on **2026-10-20**. These are real, current, and will bite you.
 | 3 | **Path filters create a blind spot.** Changes under `wiki/`, `MODULES.md`, `AGENTS.md` and the other root docs match no workflow, so they trigger **no CI run**. Documentation changes are never automatically validated. |
 | 4 | **The wiki lives in two places** — committed to `main:wiki/` **and** published as the GitHub Wiki (a separate `Scripts-DevOps-Practice.wiki.git` repo). Verified byte-identical on 2026-10-20, but nothing enforces it. **When you edit a wiki page, push it to both.** |
 | 5 | **`main` is unprotected.** No branch protection, no rulesets, no required checks. |
-| 6 | **No `.gitattributes`.** Line endings are not normalized, so a Windows checkout can turn Bash shebangs into CRLF and break the scripts. Recommended fix, as a root `.gitattributes`: `*.sh text eol=lf` · `*.ps1 text eol=crlf` · `*.py text eol=lf`. |
+| 6 | **`.gitattributes` normalizes line endings, so the index and the working tree disagree for `.ps1`.** PowerShell files are stored as LF and checked out as CRLF. Any byte-identity or checksum comparison against the committed blob will differ for files that have been re-checked out — compare with `git show HEAD:<path>`, not with the working file. |
 | 7 | **Go version drift.** CI pins Go `1.22`; newer toolchains work, but keep the pin current. |
 | 8 | **Private vulnerability reporting is not enabled on the remote yet.** It needs one click in the GitHub UI (*Settings → Code security*) and cannot be toggled through the REST API. Until it is on, [`SECURITY.md`](SECURITY.md) directs reporters to the maintainer's email. |
 
