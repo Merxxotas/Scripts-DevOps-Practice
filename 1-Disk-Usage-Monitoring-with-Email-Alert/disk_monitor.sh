@@ -89,8 +89,9 @@ log_message() {
 
 # Reads the usage percentage of the watched partition as an integer.
 # The POSIX output format is used because it is the only one whose column
-# layout is identical on GNU and macOS. The capacity is read from the
-# second-to-last field, so a mount point containing spaces cannot shift it.
+# layout is identical on GNU and macOS. The capacity is read from the fifth
+# field, which is its fixed position in that layout, so a mount point
+# containing spaces cannot shift it.
 # A forced value short-circuits the measurement and is reported as such.
 get_disk_usage() {
     local output
@@ -105,7 +106,7 @@ get_disk_usage() {
         return 1
     fi
 
-    capacity="$(printf '%s\n' "$output" | awk 'NR==2 { gsub(/%/, "", $(NF-1)); print $(NF-1) }')"
+    capacity="$(printf '%s\n' "$output" | awk 'NR==2 { gsub(/%/, "", $5); print $5 }')"
 
     if [[ ! "$capacity" =~ ^[0-9]+$ ]]; then
         return 1

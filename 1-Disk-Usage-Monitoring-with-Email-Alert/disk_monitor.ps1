@@ -156,14 +156,16 @@ function Write-AuditLog {
         }
         Add-Content -LiteralPath $LogFile -Value $entry -ErrorAction SilentlyContinue
     } catch {
-        # A failing audit log must never break the measurement.
+        # A failing audit log must never break the measurement, but the
+        # failure is still worth reporting to whoever asked for the detail.
+        Write-Verbose "Audit log write failed: $($_.Exception.Message)"
     }
 }
 
 # Reads the usage percentage from the POSIX df output.
-# The capacity is taken from the second-to-last field, because that is the
-# only position that is stable across GNU and macOS, and a mount point
-# containing spaces cannot shift it.
+# The capacity is taken from the fifth field, because that is its fixed
+# position in the POSIX layout: the mount point is last and may contain
+# spaces, so counting from the right would read the mount point instead.
 function Read-PosixUsage {
     param(
         [string]$Path,
@@ -187,11 +189,11 @@ function Read-PosixUsage {
     }
 
     $fields = $lines[1].Trim() -split '\s+'
-    if ($fields.Count -lt 2) {
+    if ($fields.Count -lt 5) {
         return $null
     }
 
-    $capacity = $fields[$fields.Count - 2].TrimEnd('%')
+    $capacity = $fields[4].TrimEnd('%')
     if ($capacity -notmatch '^\d+$') {
         return $null
     }
@@ -321,7 +323,7 @@ function Invoke-DiskMonitor {
         }
     }
 
-    $usageCommand = ""
+    $resolvedUsageCommand = ""
     $commandOverride = $env:DISK_MONITOR_USAGE_COMMAND
     if (-not [string]::IsNullOrWhiteSpace($commandOverride)) {
         $resolvedCommand = Get-Command $commandOverride -ErrorAction SilentlyContinue
@@ -330,7 +332,7 @@ function Invoke-DiskMonitor {
             Write-AuditLog -Level "ERROR" -Message "Measurement command not found: '$commandOverride'."
             exit 1
         }
-        $usageCommand = $resolvedCommand.Source
+        $resolvedUsageCommand = $resolvedCommand.Source
     } elseif (-not $IsWindows) {
         $resolvedCommand = Get-Command "df" -ErrorAction SilentlyContinue
         if ($null -eq $resolvedCommand) {
@@ -338,7 +340,7 @@ function Invoke-DiskMonitor {
             Write-AuditLog -Level "ERROR" -Message "Measurement command not found: 'df'."
             exit 1
         }
-        $usageCommand = $resolvedCommand.Source
+        $resolvedUsageCommand = $resolvedCommand.Source
     }
 
     $recipient = $To
@@ -346,7 +348,7 @@ function Invoke-DiskMonitor {
         $recipient = $env:DISK_MONITOR_TO
     }
 
-    $mailCommand = ""
+    $resolvedMailCommand = ""
     if ($Notify -eq "mail") {
         if ([string]::IsNullOrWhiteSpace($recipient)) {
             Write-ErrorLine "$($Colors.Red)Error: No recipient. Use -To, or set DISK_MONITOR_TO.$($Colors.Reset)"
@@ -354,15 +356,15 @@ function Invoke-DiskMonitor {
             exit 1
         }
 
-        $mailCommand = Resolve-MailCommand -Override $MailCommand
-        if ($null -eq $mailCommand) {
+        $resolvedMailCommand = Resolve-MailCommand -Override $MailCommand
+        if ($null -eq $resolvedMailCommand) {
             Write-ErrorLine "$($Colors.Red)Error: No mail agent found. Install one, or set -MailCommand or DISK_MONITOR_MAIL_COMMAND.$($Colors.Reset)"
             Write-AuditLog -Level "ERROR" -Message "No mail agent could be resolved."
             exit 1
         }
     }
 
-    $usedPercent = Get-DiskUsagePercent -Path $resolvedPartition -Command $usageCommand
+    $usedPercent = Get-DiskUsagePercent -Path $resolvedPartition -Command $resolvedUsageCommand
     if ($null -eq $usedPercent) {
         Write-ErrorLine "$($Colors.Red)Error: Could not read the disk usage of '$resolvedPartition'.$($Colors.Reset)"
         Write-AuditLog -Level "ERROR" -Message "Could not read the disk usage of '$resolvedPartition'."
@@ -376,7 +378,7 @@ function Invoke-DiskMonitor {
 
     $modeLabel = if ($DryRun) { "$($Colors.Yellow)DRY RUN (Simulation)$($Colors.Reset)" } else { "$($Colors.Green)LIVE (Alerts Active)$($Colors.Reset)" }
 
-    $mailLabel = $mailCommand
+    $mailLabel = $resolvedMailCommand
     if ([string]::IsNullOrWhiteSpace($mailLabel)) {
         $mailLabel = "(not resolved: notification disabled)"
     }
@@ -421,7 +423,7 @@ function Invoke-DiskMonitor {
             Write-Host "$($Colors.Yellow)[DRY RUN]$($Colors.Reset) Would send an alert to $recipient"
             Write-AuditLog -Level "INFO" -Message "[DRY RUN] Would send an alert to $recipient (Usage: ${usedPercent}%, Source: $usageSource, Threshold: ${Threshold}%)"
         } elseif ($Notify -eq "mail") {
-            if (Send-Alert -Subject $subject -Body $body -Command $mailCommand -Recipient $recipient) {
+            if (Send-Alert -Subject $subject -Body $body -Command $resolvedMailCommand -Recipient $recipient) {
                 Write-Host "$($Colors.Green)Alert sent to $recipient$($Colors.Reset)"
                 Write-AuditLog -Level "INFO" -Message "ALERT SENT to $recipient (Usage: ${usedPercent}%, Source: $usageSource, Threshold: ${Threshold}%)"
             } else {

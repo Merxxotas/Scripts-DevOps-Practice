@@ -52,6 +52,16 @@ printf '/dev/stub0        1000000  500000    500000      %s%% /\n' "$usage"
 STUB
     chmod +x "$STUB_DIR/df"
 
+    cat > "$STUB_DIR/df_spaced" <<'STUB'
+#!/bin/bash
+# Fake measurement command whose mount point contains a space. The capacity
+# is still the fifth field, because the mount point is last and may be
+# several words long.
+printf 'Filesystem     1024-blocks      Used Available Capacity Mounted on\n'
+printf '/dev/stub0        1000000  500000    500000      63%% /mnt/my disk\n'
+STUB
+    chmod +x "$STUB_DIR/df_spaced"
+
     cat > "$STUB_DIR/df_alt" <<'STUB'
 #!/bin/bash
 # Fake measurement command used to prove the command can be replaced.
@@ -423,6 +433,16 @@ test_default_measurement_source() {
     teardown
 }
 
+# Test 25: A mount point containing spaces does not shift the capacity column.
+test_mount_point_with_spaces() {
+    setup
+    export DISK_MONITOR_USAGE_COMMAND="$STUB_DIR/df_spaced"
+    run_monitor -t 60 --to ops@example.com
+    assert_equals "0" "$LAST_EXIT_CODE" "Test 25a: A spaced mount point exits with code 0"
+    assert_contains "$LAST_STDOUT" "63%" "Test 25b: The capacity is read from its fixed position"
+    teardown
+}
+
 # Run all tests
 printf "%bStarting Bash Disk Monitor Test Suite...%b\n" "$CYAN" "$RESET"
 test_help_menu
@@ -449,6 +469,7 @@ test_invalid_usage_override
 test_usage_command_override
 test_missing_usage_command
 test_default_measurement_source
+test_mount_point_with_spaces
 
 printf "============================================================\n"
 printf "Tests Summary: %b%d Passed%b, %b%d Failed%b\n" "$GREEN" "$PASSED_TESTS" "$RESET" "$RED" "$FAILED_TESTS" "$RESET"

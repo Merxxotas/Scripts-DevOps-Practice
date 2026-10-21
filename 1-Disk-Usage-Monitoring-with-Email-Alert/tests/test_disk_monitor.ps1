@@ -16,7 +16,10 @@
 #>
 
 Set-StrictMode -Version Latest
-$ErrorActionPreference = "Continue"
+# A test that raises an error must fail the run, not disappear from the
+# summary. With Continue, a parameter binding error would print and be
+# skipped, and the suite would report a pass it never earned.
+$ErrorActionPreference = "Stop"
 
 $ScriptDir = $PSScriptRoot
 $MonitorScript = Join-Path (Split-Path -Parent $ScriptDir) "disk_monitor.ps1"
@@ -63,6 +66,20 @@ Write-Output "Filesystem     1024-blocks      Used Available Capacity Mounted on
 Write-Output "/dev/stub0        1000000  500000    500000      $usage% /"
 exit 0
 '@ | Set-Content -LiteralPath $UsageStub -Encoding utf8
+
+    # Measurement stub whose mount point contains a space. The capacity is
+    # still the fifth field, because the mount point is last and may be
+    # several words long.
+    @'
+param(
+    [Parameter(Mandatory = $false, Position = 1)][string]$P = "",
+    [Parameter(Mandatory = $false, Position = 2)][string]$Partition = ""
+)
+
+Write-Output "Filesystem     1024-blocks      Used Available Capacity Mounted on"
+Write-Output "/dev/stub0        1000000  500000    500000      63% /mnt/my disk"
+exit 0
+'@ | Set-Content -LiteralPath (Join-Path $StubDir "usage_spaced_stub.ps1") -Encoding utf8
 
     # Mail stub. It records the subject, the recipient and the body, so the
     # test can assert on the composed message without sending anything.
@@ -145,8 +162,8 @@ function Read-Stripped {
 
 function Assert-Equal {
     param(
-        [Parameter(Mandatory = $true)]$Expected,
-        [Parameter(Mandatory = $true)]$Actual,
+        [Parameter(Mandatory = $false)][AllowNull()][AllowEmptyString()]$Expected = "",
+        [Parameter(Mandatory = $false)][AllowNull()][AllowEmptyString()]$Actual = "",
         [Parameter(Mandatory = $true)][string]$TestName
     )
 
@@ -161,10 +178,14 @@ function Assert-Equal {
 
 function Assert-Contains {
     param(
-        [Parameter(Mandatory = $true)][string]$Haystack,
+        [Parameter(Mandatory = $false)][AllowNull()][AllowEmptyString()][string]$Haystack = "",
         [Parameter(Mandatory = $true)][string]$Needle,
         [Parameter(Mandatory = $true)][string]$TestName
     )
+
+    if ($null -eq $Haystack) {
+        $Haystack = ""
+    }
 
     if ($Haystack.Contains($Needle)) {
         Write-Host "$([char]27)[0;32m[PASS]$([char]27)[0m $TestName"
@@ -476,6 +497,16 @@ function Test-DefaultMeasurementSource {
     Teardown-TestEnv
 }
 
+# Test 25: A mount point containing spaces does not shift the capacity column
+function Test-MountPointWithSpaces {
+    Setup-TestEnv
+    $env:DISK_MONITOR_USAGE_COMMAND = Join-Path $StubDir "usage_spaced_stub.ps1"
+    Invoke-Monitor -Arguments @("-Threshold", "60", "-To", "ops@example.com", "-MailCommand", $MailStub)
+    Assert-Equal -Expected 0 -Actual $Global:LastExitCode -TestName "Test 25a: A spaced mount point exits with code 0"
+    Assert-Contains -Haystack $Global:LastStdout -Needle "63%" -TestName "Test 25b: The capacity is read from its fixed position"
+    Teardown-TestEnv
+}
+
 # Execution
 Write-Host "$([char]27)[0;36mStarting PowerShell Disk Monitor Test Suite...$([char]27)[0m"
 Test-HelpMenu
@@ -502,6 +533,7 @@ Test-InvalidUsageOverride
 Test-UsageCommandOverride
 Test-MissingUsageCommand
 Test-DefaultMeasurementSource
+Test-MountPointWithSpaces
 
 Write-Host "============================================================"
 Write-Host "Tests Summary: $([char]27)[0;32m$Global:PassedCount Passed$([char]27)[0m, $([char]27)[0;31m$Global:FailedCount Failed$([char]27)[0m"
