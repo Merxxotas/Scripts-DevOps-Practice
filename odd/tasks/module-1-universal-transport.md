@@ -177,6 +177,7 @@ Windows behaviour of the HTTP transport provable rather than asserted.
 | T8 | S3 | The wiki pages 13 to 15, the sidebar, the home page and the architecture page | Delegated | ⬜ | — |
 | T9 | S3, S16 | `MODULES.md`, the root `README.md` and `CHANGELOG.md` | Delegated | ⬜ | — |
 | T10 | S17, S18 | Full local matrix verification; close with a `Risk:` line | Inline | ⬜ | — |
+| T11 | S11, S13 | The advisory findings of the native review of the doctor work | Inline | ⬜ | 28 non-blocking findings, receipt `review-b79e589c5ce6f3ed` |
 
 > Task IDs are stable; the table is ordered by execution sequence.
 
@@ -324,6 +325,32 @@ called them, so the two implementations did not agree. The second session finish
   message of `cc99bd4` claimed a PowerShell result that was never observed; that claim is
   withdrawn, and the evidence of this task is the Bash suite alone.
 - The next step: **T4**, the parity proof across the two implementations.
+
+**L11** — 2026-10-21. The doctor work went through the native review, and the review found a
+defect that no local run could have found.
+
+- **The review was approved** after one bounded correction, and the receipt was burned with
+  the exact acknowledgement. The lineage is `review-b79e589c5ce6f3ed`.
+- **The critical finding was real.** The `UnixFileMode` enum renders as the names of its
+  flags, not as the `rwxr-xr-x` layout, so the PowerShell readability check could never
+  report a group- or world-readable configuration file and the two implementations
+  disagreed about it. The mode is now read from the flags themselves, and the commit
+  `efba983` carries the correction.
+- **The PowerShell suite would have caught it**, because that suite runs on Ubuntu in CI.
+  The proof that it cannot be run here is the whole argument for pushing the branch.
+- **Twenty-eight findings remain, and none of them blocks.** They are separate work, and
+  they are listed in T11. The three that matter most:
+  - The mode of a file is read as three or four octal digits, and a mode whose owner
+    permissions are zero is printed with fewer digits, so such a file is classified as
+    private although the others can read it. The same check has no state for "the
+    permission could not be determined", so a missing `stat` is reported as a clean file.
+  - The Windows remedy removes the inherited entries and replaces the grant of the account,
+    but it never removes the explicit `Everyone` entry that caused the report, so a reader
+    who copies it keeps the exposure.
+  - The remedy is built by pasting the path between single quotes, so a path that holds a
+    quote produces a command that is broken when it is pasted.
+- The next step: **T4**, the parity proof across the two implementations, with T11 in the
+  queue behind it.
 
 ---
 
