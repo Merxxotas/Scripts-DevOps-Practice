@@ -1,0 +1,86 @@
+name: Disk Monitor CI/CD
+
+on:
+  push:
+    branches: [ main, 'feat/**', 'fix/**' ]
+    paths:
+      - '1-Disk-Usage-Monitoring-with-Email-Alert/**'
+      - '.github/workflows/ci-disk-monitor.yml'
+  pull_request:
+    branches: [ main ]
+    paths:
+      - '1-Disk-Usage-Monitoring-with-Email-Alert/**'
+      - '.github/workflows/ci-disk-monitor.yml'
+
+jobs:
+  lint-bash:
+    name: Lint Bash (ShellCheck)
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Run ShellCheck
+        run: |
+          shellcheck -x "1-Disk-Usage-Monitoring-with-Email-Alert/disk_monitor.sh"
+          shellcheck -x "1-Disk-Usage-Monitoring-with-Email-Alert/tests/test_disk_monitor.sh"
+
+  test-bash:
+    name: Test Bash on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, macos-14]
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Make scripts executable
+        run: |
+          chmod +x "1-Disk-Usage-Monitoring-with-Email-Alert/disk_monitor.sh"
+          chmod +x "1-Disk-Usage-Monitoring-with-Email-Alert/tests/test_disk_monitor.sh"
+
+      - name: Run Bash Test Suite
+        run: "./1-Disk-Usage-Monitoring-with-Email-Alert/tests/test_disk_monitor.sh"
+
+  lint-powershell:
+    name: Lint PowerShell (PSScriptAnalyzer)
+    runs-on: windows-2022
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install PSScriptAnalyzer
+        shell: pwsh
+        run: |
+          Set-PSRepository -Name PSGallery -InstallationPolicy Trusted
+          Install-Module -Name PSScriptAnalyzer -Force -Scope CurrentUser
+          (Get-Module -ListAvailable PSScriptAnalyzer).Version
+
+      - name: Run PSScriptAnalyzer
+        shell: pwsh
+        run: |
+          $results = Invoke-ScriptAnalyzer -Path "1-Disk-Usage-Monitoring-with-Email-Alert/disk_monitor.ps1" -Severity Error,Warning
+          $results += Invoke-ScriptAnalyzer -Path "1-Disk-Usage-Monitoring-with-Email-Alert/tests/test_disk_monitor.ps1" -Severity Error,Warning
+          if ($results) {
+            $results | Format-Table -AutoSize
+            Write-Host "PSScriptAnalyzer found $($results.Count) issue(s)"
+            exit 1
+          }
+          Write-Host "PSScriptAnalyzer found no issues"
+
+  test-powershell:
+    name: Test PowerShell on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-2022, ubuntu-24.04]
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Run PowerShell Test Suite
+        shell: pwsh
+        run: "& '1-Disk-Usage-Monitoring-with-Email-Alert/tests/test_disk_monitor.ps1'"
