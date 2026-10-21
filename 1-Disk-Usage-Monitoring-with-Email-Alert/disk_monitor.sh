@@ -30,6 +30,7 @@ NOTIFY_MODE="mail"
 MAIL_TO="${DISK_MONITOR_TO:-}"
 MAIL_COMMAND_OVERRIDE="${DISK_MONITOR_MAIL_COMMAND:-}"
 USAGE_OVERRIDE="${DISK_MONITOR_USAGE_OVERRIDE:-}"
+USAGE_COMMAND_OVERRIDE="${DISK_MONITOR_USAGE_COMMAND:-df}"
 LOG_FILE=""
 VERBOSE=false
 
@@ -100,7 +101,7 @@ get_disk_usage() {
         return 0
     fi
 
-    if ! output="$(df -P "$PARTITION" 2>/dev/null)"; then
+    if ! output="$("$USAGE_COMMAND_OVERRIDE" -P "$PARTITION" 2>/dev/null)"; then
         return 1
     fi
 
@@ -247,6 +248,13 @@ validate_configuration() {
         printf "%bError: Partition '%s' does not exist.%b\n" \
             "$COLOR_RED" "$PARTITION" "$COLOR_RESET" >&2
         log_message "ERROR" "Partition does not exist: '$PARTITION'."
+        exit 1
+    fi
+
+    if ! command -v "$USAGE_COMMAND_OVERRIDE" >/dev/null 2>&1; then
+        printf "%bError: Measurement command '%s' was not found.%b\n" \
+            "$COLOR_RED" "$USAGE_COMMAND_OVERRIDE" "$COLOR_RESET" >&2
+        log_message "ERROR" "Measurement command not found: '$USAGE_COMMAND_OVERRIDE'."
         exit 1
     fi
 

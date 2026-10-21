@@ -52,6 +52,15 @@ printf '/dev/stub0        1000000  500000    500000      %s%% /\n' "$usage"
 STUB
     chmod +x "$STUB_DIR/df"
 
+    cat > "$STUB_DIR/df_alt" <<'STUB'
+#!/bin/bash
+# Fake measurement command used to prove the command can be replaced.
+usage="${STUB_DF_ALT_USAGE:-77}"
+printf 'Filesystem     1024-blocks      Used Available Capacity Mounted on\n'
+printf '/dev/stub0        1000000  500000    500000      %s%% /\n' "$usage"
+STUB
+    chmod +x "$STUB_DIR/df_alt"
+
     cat > "$STUB_DIR/mail" <<'STUB'
 #!/bin/bash
 # Fake mail agent. Records its arguments and stdin so the test can assert
@@ -76,7 +85,7 @@ STUB
     export STUB_DF_USAGE=49
     export STUB_DF_FAIL=0
     export STUB_MAIL_FAIL=0
-    unset DISK_MONITOR_TO DISK_MONITOR_MAIL_COMMAND DISK_MONITOR_USAGE_OVERRIDE || true
+    unset DISK_MONITOR_TO DISK_MONITOR_MAIL_COMMAND DISK_MONITOR_USAGE_OVERRIDE DISK_MONITOR_USAGE_COMMAND || true
 }
 
 teardown() {
@@ -382,6 +391,38 @@ test_invalid_usage_override() {
     teardown
 }
 
+# Test 22: The measurement command can be replaced.
+test_usage_command_override() {
+    setup
+    export STUB_DF_ALT_USAGE=77
+    export DISK_MONITOR_USAGE_COMMAND="$STUB_DIR/df_alt"
+    run_monitor -t 70 --to ops@example.com
+    assert_equals "0" "$LAST_EXIT_CODE" "Test 22a: A replaced measurement command is accepted"
+    assert_contains "$LAST_STDOUT" "77%" "Test 22b: The replaced command supplies the usage"
+    assert_contains "$(cat "$CAPTURE_FILE" 2>/dev/null || true)" "77%" "Test 22c: The alert carries the replaced value"
+    teardown
+}
+
+# Test 23: An unresolvable measurement command is a configuration error.
+test_missing_usage_command() {
+    setup
+    export DISK_MONITOR_USAGE_COMMAND="$TEST_SANDBOX/not-a-real-command"
+    run_monitor -t 80 --to ops@example.com
+    assert_equals "1" "$LAST_EXIT_CODE" "Test 23: An unresolvable measurement command exits with code 1"
+    teardown
+}
+
+# Test 24: The default measurement source works against the real host.
+test_default_measurement_source() {
+    setup
+    PATH="$ORIGINAL_PATH"
+    export PATH
+    run_monitor -t 100 --notify none
+    assert_equals "0" "$LAST_EXIT_CODE" "Test 24a: The default measurement source exits with code 0"
+    assert_contains "$LAST_STDOUT" "measured" "Test 24b: The default source is labelled as measured"
+    teardown
+}
+
 # Run all tests
 printf "%bStarting Bash Disk Monitor Test Suite...%b\n" "$CYAN" "$RESET"
 test_help_menu
@@ -405,6 +446,9 @@ test_mail_command_from_environment
 test_verbose
 test_usage_override
 test_invalid_usage_override
+test_usage_command_override
+test_missing_usage_command
+test_default_measurement_source
 
 printf "============================================================\n"
 printf "Tests Summary: %b%d Passed%b, %b%d Failed%b\n" "$GREEN" "$PASSED_TESTS" "$RESET" "$RED" "$FAILED_TESTS" "$RESET"
