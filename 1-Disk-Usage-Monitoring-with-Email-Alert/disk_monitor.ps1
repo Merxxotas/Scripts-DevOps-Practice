@@ -298,7 +298,7 @@ function Resolve-Setting {
 # Loads the configuration file and applies the precedence to every setting.
 # A file named explicitly must exist; a default one that is absent is not an
 # error.
-function Resolve-Settings {
+function Resolve-Configuration {
     $candidate = ""
     $explicit = $false
 
@@ -498,7 +498,7 @@ function Invoke-DiskMonitor {
         exit 0
     }
 
-    Resolve-Settings
+    Resolve-Configuration
 
     if ($script:Threshold -notmatch '^\d+$' -or [int]$script:Threshold -lt 1 -or [int]$script:Threshold -gt 100) {
         Write-ErrorLine "$($Colors.Red)Error: Threshold must be an integer between 1 and 100.$($Colors.Reset)"

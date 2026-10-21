@@ -207,7 +207,7 @@ function Assert-Match {
 }
 
 # Asserts that the mail agent was never invoked
-function Assert-Lacks {
+function Assert-Absent {
     param(
         [Parameter(Mandatory = $false)][AllowNull()][AllowEmptyString()][string]$Haystack = "",
         [Parameter(Mandatory = $true)][string]$Needle,
@@ -562,7 +562,7 @@ function Test-ConfigPrecedenceFlag {
     $env:DISK_MONITOR_STUB_DF_USAGE = "70"
     Invoke-Monitor -Arguments @("-Config", $configFile, "-Threshold", "90", "-Notify", "none")
     Assert-Equal -Expected 0 -Actual $script:LastRunExitCode -TestName "Test 27a: The run succeeds"
-    Assert-Lacks -Haystack $script:LastStdout -Needle "WARNING" -TestName "Test 27b: The flag overrides the configured threshold"
+    Assert-Absent -Haystack $script:LastStdout -Needle "WARNING" -TestName "Test 27b: The flag overrides the configured threshold"
     Exit-TestEnvironment
 }
 
@@ -575,7 +575,7 @@ function Test-ConfigPrecedenceEnvironment {
     $env:DISK_MONITOR_THRESHOLD = "90"
     Invoke-Monitor -Arguments @("-Config", $configFile, "-Notify", "none")
     Assert-Equal -Expected 0 -Actual $script:LastRunExitCode -TestName "Test 28a: The run succeeds"
-    Assert-Lacks -Haystack $script:LastStdout -Needle "WARNING" -TestName "Test 28b: The environment overrides the configured threshold"
+    Assert-Absent -Haystack $script:LastStdout -Needle "WARNING" -TestName "Test 28b: The environment overrides the configured threshold"
     Exit-TestEnvironment
 }
 
