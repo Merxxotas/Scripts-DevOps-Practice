@@ -14,9 +14,10 @@
 
     The threshold is a string and not a number, because the configuration file
     and the environment may hold a value that is not a number, and the tool
-    has to report it instead of dropping it. The range of the parameter is
-    checked by the binder, and the value of every source is checked again by
-    the validation, which is what the doctor reports.
+    has to report it instead of dropping it. The value of every source is
+    judged by the validation, which is what the doctor reports, and the
+    binder holds no range and no set, because a value that the binder
+    refuses is a value the doctor never sees.
 
 .PARAMETER Partition
     Mount point to watch. Defaults to the root of the current drive on Windows
@@ -84,14 +85,12 @@ param(
     [string]$Partition = "",
 
     [Parameter(Mandatory = $false)]
-    [ValidateRange(1, 100)]
     [string]$Threshold = "80",
 
     [Parameter(Mandatory = $false)]
     [switch]$DryRun,
 
     [Parameter(Mandatory = $false)]
-    [ValidateSet("none", "mail", "http")]
     [string]$Notify = "mail",
 
     [Parameter(Mandatory = $false)]

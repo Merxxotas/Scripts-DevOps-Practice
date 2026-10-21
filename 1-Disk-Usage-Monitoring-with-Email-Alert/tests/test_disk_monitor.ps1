@@ -1825,17 +1825,23 @@ function Test-DoctorReportsAReadableConfigurationFile {
 # Test 85: A threshold that does not fit in an integer is a configuration
 # error, and the doctor names it instead of overflowing. The value is 2^64
 # plus one, which a 64-bit comparison wraps to 1 and accepts as a threshold.
-# It comes from the configuration file, because the parameter of the command
-# line is bound to an integer and refuses the value before the doctor runs.
+# It is tried from the command line and from the configuration file, because
+# a value of the file that the binder refuses is a value the doctor never
+# sees.
 function Test-DoctorRejectsAnOverflowingThreshold {
     Enter-TestEnvironment
+    Invoke-Monitor -Arguments @("-Doctor", "-Threshold", "18446744073709551617", "-Notify", "http", "-Url", "https://ntfy.sh/disk-alerts")
+    Assert-Equal -Expected 1 -Actual $script:LastRunExitCode -TestName "Test 85a: A threshold that does not fit in an integer exits with code 1"
+    Assert-Match -Haystack $script:LastStdout -Needle "not an integer between 1 and 100" -TestName "Test 85b: The doctor names the invalid threshold"
+    Invoke-Monitor -Arguments @("-Threshold", "18446744073709551617", "-Notify", "http", "-Url", "https://ntfy.sh/disk-alerts")
+    Assert-Equal -Expected 1 -Actual $script:LastRunExitCode -TestName "Test 85c: The run rejects the same threshold"
+
     $configFile = Join-Path $TestSandbox "diskmonitor.conf"
     Set-Content -LiteralPath $configFile -Value "threshold = 18446744073709551617"
     Invoke-Monitor -Arguments @("-Doctor", "-Config", $configFile, "-Notify", "http", "-Url", "https://ntfy.sh/disk-alerts")
-    Assert-Equal -Expected 1 -Actual $script:LastRunExitCode -TestName "Test 85a: A threshold that does not fit in an integer exits with code 1"
-    Assert-Match -Haystack $script:LastStdout -Needle "not an integer between 1 and 100" -TestName "Test 85b: The doctor names the invalid threshold"
+    Assert-Equal -Expected 1 -Actual $script:LastRunExitCode -TestName "Test 85d: A threshold of the configuration file that does not fit in an integer exits with code 1"
     Invoke-Monitor -Arguments @("-Config", $configFile, "-Notify", "http", "-Url", "https://ntfy.sh/disk-alerts")
-    Assert-Equal -Expected 1 -Actual $script:LastRunExitCode -TestName "Test 85c: The run rejects the same threshold"
+    Assert-Equal -Expected 1 -Actual $script:LastRunExitCode -TestName "Test 85e: The run rejects the same threshold of the configuration file"
     Exit-TestEnvironment
 }
 

@@ -1446,6 +1446,13 @@ test_doctor_rejects_an_overflowing_threshold() {
     assert_contains "$LAST_STDOUT" "not an integer between 1 and 100" "Test 85b: The doctor names the invalid threshold"
     run_monitor --threshold 18446744073709551617 --notify http --url https://ntfy.sh/disk-alerts
     assert_equals "1" "$LAST_EXIT_CODE" "Test 85c: The run rejects the same threshold"
+
+    local config_file="$TEST_SANDBOX/monitor.conf"
+    printf 'threshold = 18446744073709551617\n' > "$config_file"
+    run_monitor --doctor --config "$config_file" --notify http --url https://ntfy.sh/disk-alerts
+    assert_equals "1" "$LAST_EXIT_CODE" "Test 85d: A threshold of the configuration file that does not fit in an integer exits with code 1"
+    run_monitor --config "$config_file" --notify http --url https://ntfy.sh/disk-alerts
+    assert_equals "1" "$LAST_EXIT_CODE" "Test 85e: The run rejects the same threshold of the configuration file"
     teardown
 }
 
