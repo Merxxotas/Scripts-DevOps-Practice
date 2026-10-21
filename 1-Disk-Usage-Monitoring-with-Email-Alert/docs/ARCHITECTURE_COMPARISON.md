@@ -53,8 +53,8 @@ implementation may drift from it.
 | **Audit levels** | `INFO` for a completed run, `ERROR` for a failure |
 | **Guardrails** | `-n` / `-DryRun` reports without sending; `--notify none` / `-Notify none` suppresses the hand-off entirely |
 
-Both suites assert the same 24 scenarios against the same public interface, so a divergence in any
-row above is a test failure, not a documentation drift.
+Both suites assert the same 25 scenarios and 55 assertions against the same public interface, so
+a divergence in any row above is a test failure, not a documentation drift.
 
 ---
 
