@@ -42,15 +42,26 @@ working methodology.
 ### ✅ 1 — Disk Usage Monitoring with Email Alert *(Shipped)*
 
 A sensor, not an actuator: it measures the usage of one mounted filesystem and, when the usage
-crosses a threshold, hands an alert to the mail agent the host already provides. It holds no
-credentials and opens no socket of its own. Crossing the threshold is **not** a failure — the
-alert is the product, so the run still exits `0`.
+crosses a threshold, hands an alert to one of three transports: `none`, `mail` or `http`. The
+`mail` transport invokes the mail agent the host already provides. The `http` transport is one
+request with a body to a URL, so ntfy, Telegram, Discord, Slack and a self-hosted receiver all
+share the same code path. Each setting resolves from a flag, then a `DISK_MONITOR_*` environment
+variable, then the configuration file, then the built-in default. `--doctor` reports the
+resolved configuration, where each value came from and what is missing, without measuring the
+disk or sending anything. Crossing the threshold is **not** a failure — the alert is the product,
+so the run still exits `0`. The transport, the configuration file and the doctor are the pattern
+the remaining seven seed modules inherit.
 
 - `disk_monitor.sh` (Bash) · `disk_monitor.ps1` (PowerShell 7) · `PSScriptAnalyzerSettings.psd1`
 - `README.md` · `SPECS.md` · `ROADMAP.md` · `CODESTYLE.md`
-- `tests/` — 25 scenarios and 55 assertions per implementation, mirrored one for one
+- `.diskmonitor.conf` — optional; 13 keys in a minimal `key = value` format, git-ignored because
+  a `header` may hold a token
+- `tests/` — 260 assertions pass on the Bash suite locally; the PowerShell suite mirrors the same
+  scenarios and runs in CI
 - `docs/` — `ARCHITECTURE_COMPARISON.md`, `SCENARIOS.md`, `labs/LAB1-3`
-- CI: `.github/workflows/ci-disk-monitor.yml` — 4 jobs: ShellCheck, Bash on ubuntu + macOS, PSScriptAnalyzer, PowerShell on Windows + Ubuntu
+- CI: `.github/workflows/ci-disk-monitor.yml` — six jobs: `lint-bash` (ShellCheck) and
+  `lint-powershell` (PSScriptAnalyzer), `test-bash` on `ubuntu-24.04` and `macos-14`, and
+  `test-powershell` on `windows-2022` and `ubuntu-24.04`
 - Wiki: [13](wiki/13-Disk-Monitor-Overview.md) · [14](wiki/14-Disk-Monitor-Bash-vs-PowerShell.md) · [15](wiki/15-Disk-Monitor-Scenarios-and-Labs.md)
 
 **Defects found and fixed while shipping it.** The seed was 75 lines that had never run: it had
@@ -69,9 +80,9 @@ never been in git, so nothing about it had ever been verified.
 | The PowerShell suite failed PSScriptAnalyzer — two unapproved verbs, two plural nouns, global counters | Approved verbs, singular nouns, and script-scoped state |
 
 **Known gaps**, recorded rather than hidden: one partition per invocation, no `--json` or `--csv`
-output and no direct SMTP or webhook transport are deliberate v1 non-goals; the audit write is
-best-effort, so on a full disk the audit line may be the thing that cannot be written; and the CI
-matrix is x86-only, so there is no ARM64 runner yet.
+output and no direct SMTP transport are deliberate v1 non-goals; the audit write is best-effort,
+so on a full disk the audit line may be the thing that cannot be written; and the CI matrix is
+x86-only, so there is no ARM64 runner yet.
 
 ### ✅ 2 — Log Cleanup *(Shipped)*
 

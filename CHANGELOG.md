@@ -63,6 +63,61 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
 
+## 2026-10-22 — Disk Usage Monitoring module: universal transport
+
+**Module 1 — Disk Usage Monitoring with Email Alert** gains a transport that works on any Linux
+distribution or Windows version, a minimal configuration file and a `--doctor` command. The `mail`
+transport keeps working exactly as before; the new `http` transport is one request with a body to
+a URL, so every HTTP notification service is covered without provider-specific code.
+
+### Added
+
+- **The `http` transport** — `--notify http` sends the alert as a request with a body to any URL,
+  with `--url`, `--body-template`, `--header` and `--timeout`, and the method from the
+  configuration file. The body template supports `{subject}`, `{body}`, `{partition}`, `{usage}`,
+  `{threshold}`, `{recipient}`, `{host}` and `{timestamp}`, so a JSON template speaks to Telegram,
+  Discord and Slack. The client is an external command, resolved as `--http-command` →
+  `DISK_MONITOR_HTTP_COMMAND` → `curl`, so the same client is used on every platform.
+- **The configuration file** — a minimal `key = value` format with 13 keys and no parser library,
+  because a minimal Linux image has no `jq` or TOML library and Windows PowerShell has no TOML
+  parser. The path resolves as `--config` → `DISK_MONITOR_CONFIG` → `./.diskmonitor.conf` →
+  `~/.config/disk-monitor/config`, and every setting resolves as flag → `DISK_MONITOR_*`
+  environment variable → file → built-in default.
+- **`--doctor`** — reports the resolved configuration and where each value came from, whether the
+  measurement command and the transport client resolve, and whether the recipient or endpoint is
+  set. It measures nothing and sends nothing. Exit `0` when the tool is ready and `1` when
+  something is missing, with a one-line remedy for the platform it was found on.
+- **A parity test** — each suite reads the other implementation as a source file and compares the
+  flags, the `DISK_MONITOR_*` names and the configuration keys as set equality in both directions,
+  so a flag added on one side and forgotten on the other fails both suites.
+
+### Changed
+
+- **The transport set is `none`, `mail` and `http`.** `mail` is unchanged, and any other value,
+  including `smtp`, exits `1` with a refusal that names the three supported transports.
+- **A header value is never printed and never written to the audit log**, because a header may
+  carry a bearer token. `.diskmonitor.conf` is git-ignored for the same reason.
+- **The exit codes keep their meaning** — `0` success, `1` configuration or safety violation, `2`
+  partial failure. A missing endpoint, a missing HTTP client, an unreadable configuration file and
+  a malformed value exit `1`; an attempted request that fails exits `2`.
+- **`MODULES.md` and the root `README.md`** — module 1 now describes both transports, the observed
+  Bash test count and the six-job CI matrix.
+
+### Fixed
+
+- **The PowerShell help omitted `http`.** The comment-based help offered `none` and `mail`, so
+  `Get-Help` on Windows described a transport set without the new backend. The parity test caught
+  it, and the help now lists all three.
+
+### Verification
+
+- **Bash suite, local** — 260 assertions passed, 0 failed.
+- **PowerShell suite and both lint gates** — CI-only on the development machine, which has neither
+  `pwsh` nor `shellcheck`; the workflow runs the PowerShell suite on `windows-2022` and
+  `ubuntu-24.04`, and runs ShellCheck and PSScriptAnalyzer on the implementation and its suite.
+
+---
+
 ## 2026-10-21 — Disk Usage Monitoring module
 
 **Module 1 — Disk Usage Monitoring with Email Alert** goes from a seed script pair to a fully

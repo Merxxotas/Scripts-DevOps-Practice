@@ -10,7 +10,7 @@ This repository is a **multi-language monorepo**. While it includes foundational
 
 | Folder / Module | Primary Technologies | Purpose & Architecture |
 | :--- | :--- | :--- |
-| `1-Disk-Usage-Monitoring-with-Email-Alert` | Bash / PowerShell | **Disk Monitor:** threshold disk monitoring & a credential-free hand-off to the host's mail agent |
+| `1-Disk-Usage-Monitoring-with-Email-Alert` | Bash / PowerShell | disk alerts over mail or HTTP |
 | `2-Log-Cleanup-Script-(Delete-Files-Older-Than-X-Days)` | Bash / PowerShell | Automated log retention & directory purging |
 | `3-Automated-Database-Backup-with-Timestamp` | Bash / PowerShell | Timestamped database dump & rotation utilities |
 | `4-Service-Monitor-And-Auto-Restart` | Bash / PowerShell | System service uptime monitoring & auto-restart |
