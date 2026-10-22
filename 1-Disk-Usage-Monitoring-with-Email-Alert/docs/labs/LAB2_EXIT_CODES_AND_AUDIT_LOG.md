@@ -14,6 +14,7 @@ what it does *not* mean.
 - A Linux or macOS host with Bash 4+ (or a Windows host with PowerShell 7+).
 - Execution permission on `disk_monitor.sh` (or `disk_monitor.ps1`).
 - No mail account, no credentials, no MTA. **This lab never sends an email.**
+- No network access. The HTTP transport is exercised with a stand-in client on `PATH`.
 
 > Run every command from the module folder:
 > ```bash
@@ -27,8 +28,8 @@ what it does *not* mean.
 | Code | Meaning | Produced by |
 | :--: | :--- | :--- |
 | `0` | Success | The check ran; the alert was delivered, not needed, or deliberately suppressed. |
-| `1` | Configuration / safety error | Unknown flag, threshold outside 1–100, missing partition, unset recipient, unresolvable mail agent, unresolvable measurement command. |
-| `2` | Partial failure | The usage could not be read, or the alert could not be handed to the mail agent. |
+| `1` | Configuration / safety error | Unknown flag, threshold outside 1–100, missing partition, unset recipient, missing endpoint, invalid URL, timeout, method or header, unresolvable mail agent, HTTP client or measurement command. |
+| `2` | Partial failure | The usage could not be read, or the alert could not be handed to the mail agent or the HTTP client. |
 
 > **A breach is not a failure.** The run that *detects* a full disk exits `0`. Only the monitor's
 > own breakdown exits non-zero. If your wrapper pages on every non-zero exit, it will page on the
@@ -68,10 +69,45 @@ cat >/dev/null
 exit 0
 EOF
 
+cat > /tmp/lab2_disk/recording-http-client.sh <<'EOF'
+#!/bin/bash
+# A stand-in for the HTTP client: records the request shape and delivers
+# nothing. It never echoes a header value.
+method=""; timeout=""; headers=0; names=""; last=""; prev=""
+for arg in "$@"; do
+    case "$prev" in
+        --request) method="$arg" ;;
+        --max-time) timeout="$arg" ;;
+        --header) headers=$((headers + 1)); names="$names ${arg%%:*}" ;;
+    esac
+    prev="$arg"; last="$arg"
+done
+printf 'method  : %s\n' "$method"
+printf 'timeout : %s\n' "$timeout"
+printf 'headers : %s (%s)\n' "$headers" "$names"
+printf 'url     : %s\n' "$last"
+printf '%s\n' '--- body on stdin ---'
+cat
+EOF
+
+cat > /tmp/lab2_disk/failing-http-client.sh <<'EOF'
+#!/bin/bash
+# A client that resolves but refuses the request, so the module can exercise
+# the "the check worked, the delivery did not" path.
+cat >/dev/null
+exit 7
+EOF
+
 chmod +x /tmp/lab2_disk/df-broken
 chmod +x /tmp/lab2_disk/failing-mail-agent.sh
 chmod +x /tmp/lab2_disk/fake-mail-agent.sh
+chmod +x /tmp/lab2_disk/recording-http-client.sh
+chmod +x /tmp/lab2_disk/failing-http-client.sh
 ```
+
+`recording-http-client.sh` is the same contract as `curl`: it accepts the argv the module builds,
+reads the body from stdin and exits `0`. `failing-http-client.sh` reads the body and exits `7`,
+which stands in for a refused connection or a timeout.
 
 Start from a clean environment so the host's own variables cannot influence the result:
 
@@ -234,6 +270,21 @@ Error: Measurement command '/tmp/lab2_disk/not-a-real-command' was not found.
 exit=1
 ```
 
+### 1g — The HTTP endpoint is missing
+
+`--notify http` without a URL is exactly as broken as `mail` without a recipient: there is nowhere
+to send the alert. It is refused before the disk is measured.
+
+```bash
+./disk_monitor.sh --notify http
+echo "exit=$?"
+```
+
+```text
+Error: No endpoint. Use --url, or set DISK_MONITOR_URL.
+exit=1
+```
+
 > **Rule of thumb for `1`:** it will stay broken until someone edits a file. A scheduler should
 > page on it.
 
@@ -285,6 +336,48 @@ exit=2
 Note that the report on stdout still shows the breach. The monitor did its job and said so; the
 delivery failed and it said that too. **This is the dangerous case**: the disk is over the
 threshold and nobody was told.
+
+### 2c — The alert could not be handed to the HTTP client
+
+The same distinction applies to the HTTP transport. A client that resolves — so the configuration
+is valid — but cannot deliver is a partial failure, not a configuration error:
+
+```bash
+AUDIT=/tmp/lab2_disk/transport-audit.log
+rm -f "$AUDIT"
+
+DISK_MONITOR_USAGE_OVERRIDE=91 ./disk_monitor.sh -p / -t 80 --notify http \
+    --url https://example.invalid/disk \
+    --http-command /tmp/lab2_disk/failing-http-client.sh -l "$AUDIT"
+echo "exit=$?"
+```
+
+```text
+============================================================
+                DevOps Disk Usage Monitor
+============================================================
+Partition         : /
+Usage             : 91% (overridden)
+Threshold         : 80%
+Endpoint          : https://example.invalid/disk
+HTTP Client       : /tmp/lab2_disk/failing-http-client.sh
+Execution Mode    : LIVE (Alerts Active)
+Audit Log File    : /tmp/lab2_disk/transport-audit.log
+WARNING: Disk usage exceeds the threshold.
+Error: The alert could not be handed to the HTTP client.
+exit=2
+```
+
+The audit line:
+
+```text
+2026-10-22T17:53:35Z [ERROR] FAILED to hand the alert to the HTTP client (Usage: 91%, Source: overridden)
+```
+
+`1` says the deployment is wrong; `2` says the request was attempted and failed. An unreachable
+endpoint, a timeout and an HTTP error status all produce `2`: the client is asked to fail, so a
+`4xx` or `5xx` is a failed hand-off and never a recorded delivery. The first two may succeed on the
+next run; the third usually needs the endpoint, the credential or the routing fixed first.
 
 ---
 
@@ -366,7 +459,103 @@ cat "$AUDIT"
 
 ---
 
-## Step 7: Clean Up
+## Step 7: A Header Value Never Reaches the Log
+
+A header may carry a bearer token. The audit log is a durable file that outlives the run, so the
+module never writes a header value into it — and never prints one either. Prove it on this host.
+
+### 7a. Run the HTTP transport with a secret header
+
+```bash
+AUDIT=/tmp/lab2_disk/header-audit.log
+OUT=/tmp/lab2_disk/header-run.out
+rm -f "$AUDIT" "$OUT"
+
+DISK_MONITOR_USAGE_OVERRIDE=91 ./disk_monitor.sh -p / -t 80 --notify http \
+    --url https://ntfy.sh/lab-disk-alerts \
+    --header 'Authorization: Bearer S3CRET-TOKEN' \
+    --http-command /tmp/lab2_disk/recording-http-client.sh \
+    -l "$AUDIT" > "$OUT" 2>&1
+echo "exit=$?"
+```
+
+```text
+exit=0
+```
+
+The recording client received the header — it prints the count and the name, never the value:
+
+```text
+method  : POST
+timeout : 10
+headers : 1 ( Authorization)
+url     : https://ntfy.sh/lab-disk-alerts
+```
+
+### 7b. Grep the audit log and the captured output for the secret
+
+```bash
+grep -c 'S3CRET-TOKEN' "$AUDIT" "$OUT" || true
+```
+
+```text
+/tmp/lab2_disk/header-audit.log:0
+/tmp/lab2_disk/header-run.out:0
+```
+
+Zero in the audit log and zero in everything the monitor printed. The `|| true` is there because
+`grep` exits `1` when it finds nothing, and finding nothing is the expected result.
+
+The audit line records the endpoint and the measurement, not the credential:
+
+```text
+2026-10-22T17:53:42Z [INFO] ALERT SENT to https://ntfy.sh/lab-disk-alerts (Usage: 91%, Source: overridden, Threshold: 80%)
+```
+
+### 7c. The doctor reports a count, not a value
+
+```bash
+./disk_monitor.sh --notify http --url https://ntfy.sh/lab-disk-alerts \
+    --header 'Authorization: Bearer S3CRET-TOKEN' --doctor
+```
+
+An excerpt of the report:
+
+```text
+HTTP headers        : 1 (flag)
+Status              : READY
+```
+
+The number says the header is configured, the provenance says where it came from, and the value is
+absent. `-v` shows the same pair on the `Transport` line: `headers 1 (flag)`.
+
+### 7d. A malformed header is named by position
+
+```bash
+./disk_monitor.sh --notify http --url https://example.invalid/disk \
+    --header 'Bearer S3CRET-TOKEN'
+echo "exit=$?"
+```
+
+```text
+Error: Header 1 is malformed. Expected 'Name: value'.
+exit=1
+```
+
+The error names header `1`, not its text. A value with no colon is the common paste error; the
+refusal is a configuration error (`1`), and the token is not echoed.
+
+### What this does not hide
+
+The value is visible in the process argument list while the request runs, because that is how an
+HTTP client receives a header. The module cannot change that without writing the token to a file,
+which is worse. The endpoint is printed and logged too: if the URL itself holds a token — a
+Telegram, Discord or Slack webhook URL does — that token is in the audit log. The header mechanism
+protects the header, not the URL.
+
+---
+
+## Step 8: Clean Up
 
 ```bash
 rm -rf /tmp/lab2_disk
@@ -384,6 +573,10 @@ rm -rf /tmp/lab2_disk
 | The unknown flag | The help text on stdout **and** the error on stderr. |
 | The audit log | 10 lines for 11 runs — the unknown flag leaves no trace. |
 | The `ALERT SENT` line | Present only for the run whose mail agent succeeded. |
+| `--notify http` with no endpoint | `Error: No endpoint. Use --url, or set DISK_MONITOR_URL.`, exit `1`. |
+| A failing HTTP client | `Error: The alert could not be handed to the HTTP client.`, exit `2`, one `[ERROR]` line. |
+| `grep -c 'S3CRET-TOKEN'` | `0` in both the audit log and the captured output. |
+| The doctor with one header | `HTTP headers : 1 (flag)` and no value. |
 
 ---
 
@@ -408,10 +601,12 @@ rm -rf /tmp/lab2_disk
    echo "exit=$?"
    ```
 
+   The report ends with:
+
    ```text
    Audit Log File    : /etc/disk-monitor/audit.log
    Disk usage is within the threshold.
-   ./disk_monitor.sh: line 87: /etc/disk-monitor/audit.log: No such file or directory
+   ./disk_monitor.sh: line 208: /etc/disk-monitor/audit.log: No such file or directory
    exit=0
    ```
 
@@ -438,10 +633,12 @@ rm -rf /tmp/lab2_disk
    echo "exit=$?"
    ```
 
+   The report ends with:
+
    ```text
    Audit Log File    : /tmp/lab2_disk/append.log
    Disk usage is within the threshold.
-   ./disk_monitor.sh: line 87: /tmp/lab2_disk/append.log: Is a directory
+   ./disk_monitor.sh: line 208: /tmp/lab2_disk/append.log: Is a directory
    exit=0
    ```
 
