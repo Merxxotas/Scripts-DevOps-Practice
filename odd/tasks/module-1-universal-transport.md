@@ -171,13 +171,14 @@ Windows behaviour of the HTTP transport provable rather than asserted.
 | T2 | S5, S6, S7, S8 | The HTTP transport: both implementations, with a stub client on `PATH` | Inline | ✅ | `fd12e3e` + `aae787e` — **171 passed, 0 failed** on all four suite jobs in run `39654069737` |
 | T3 | S12, S13 | The doctor command: both implementations, with the per-platform remedy | Inline | ✅ | `cc99bd4` + `df29e38` + `efba983` + `e5c32d5` — **243 passed, 0 failed** on the Bash suite and **green on all six CI jobs** (run `39677118704`: Bash on Linux and macOS, PowerShell on Ubuntu and Windows, both lint gates) |
 | T4 | S14, S15, S20 | Parity proof across the two implementations, including the transports that already existed | Inline | ✅ | `a93f0be` — **257 passed, 0 failed** on the Bash suite (+14 assertions); parity tests mirrored in both suites; native review `review-7f70ee03fae2019c` approved, 10 advisories queued in T11 |
+| T4b | S8, S20 | An HTTP error status is a failed hand-off, not a recorded delivery | Inline | ✅ | `11b016c` — **260 passed, 0 failed** (+3); native review `review-f424331810f51362` approved, 5 advisories queued in T11 |
 | T5 | S16, S19 | The CI pipeline: no new job needed, but the new behaviour must be proven on all three platforms | Inline | ⬜ | — |
-| T6 | S2, S3, S16 | `SPECS.md`, `ROADMAP.md`, `CODESTYLE.md`, `README.md` | Delegated | ⬜ | — |
-| T7 | S3, S5, S6 | `docs/ARCHITECTURE_COMPARISON.md`, `docs/SCENARIOS.md`, `docs/labs/LAB1-3.md` | Delegated | ⬜ | — |
-| T8 | S3 | The wiki pages 13 to 15, the sidebar, the home page and the architecture page | Delegated | ⬜ | — |
-| T9 | S3, S16 | `MODULES.md`, the root `README.md` and `CHANGELOG.md` | Delegated | ⬜ | — |
+| T6 | S2, S3, S16 | `SPECS.md`, `ROADMAP.md`, `CODESTYLE.md`, `README.md` | Delegated | ✅ | `46a70c0` — 951 insertions; help and doctor blocks diffed byte for byte against the running tool |
+| T7 | S3, S5, S6 | `docs/ARCHITECTURE_COMPARISON.md`, `docs/SCENARIOS.md`, `docs/labs/LAB1-3.md` | Delegated | ✅ | `b5d3cc6` — 1766 insertions; every lab command executed with an isolated `HOME` |
+| T8 | S3 | The wiki pages 13 to 15, the sidebar, the home page and the architecture page | Delegated | ✅ | `cfad30b` — clean-clone build of 14 pages; page 15 added to the repository |
+| T9 | S3, S16 | `MODULES.md`, the root `README.md` and `CHANGELOG.md` | Delegated | ✅ | `50261ba` — stale scenario and job counts corrected; 29 relative links resolved |
 | T10 | S17, S18 | Full local matrix verification; close with a `Risk:` line | Inline | ⬜ | — |
-| T11 | S11, S13 | The advisory findings of the native reviews of the doctor and parity work | Inline | ⬜ | 65 findings in all, none of them blocking; the lists are in **L11**, **L13** and **L14**; receipts `review-b79e589c5ce6f3ed`, `review-ae75ad75bbff3c98` and `review-7f70ee03fae2019c` |
+| T11 | S11, S13 | The advisory findings of the native reviews of the doctor and parity work | Inline | ⬜ | 70 findings in all, none of them blocking; the lists are in **L11**, **L13**, **L14** and **L15**; receipts `review-b79e589c5ce6f3ed`, `review-ae75ad75bbff3c98`, `review-7f70ee03fae2019c` and `review-f424331810f51362` |
 
 > Task IDs are stable; the table is ordered by execution sequence.
 
@@ -462,6 +463,71 @@ implementations is now a test and not a practice, and the test found a real dive
     would satisfy it. (`R3-weak-substring`.)
 - The next step: **T6 to T9** in parallel, the four documentation units, with **T11** behind them
   and **T5** answered by the CI run of the pushed branch.
+
+**L15** — 2026-10-22. T4b executed on `feat/1-universal-transport`. The transport was recording a
+delivery that never happened, and neither suite could see it.
+
+- **The defect.** A receiver that answered `401` had its body printed, the run printed
+  `Alert sent`, exited `0`, and the audit line said `ALERT SENT`. The stub of the suites answered
+  `200` or refused the connection, so no case covered an error status. S8 says "A request that was
+  attempted and failed is a partial failure: exit 2", so this was a defect of the implementation
+  and not a limitation of the documentation.
+- **Reproduced before it was fixed.** A twenty-line receiver answered `401` to every request, and
+  both scripts were pointed at it with a stub-free run: three effects, all three wrong. The same
+  receiver answering `200` proved the fix changed nothing on the success path.
+- **The fix is one argument.** `send_http_alert` and `Send-HttpAlert` pass `--fail` in the client
+  argv, so a status of 400 or above becomes a non-zero exit of the client, and the failure path
+  that already existed does the rest: the error reaches standard error, the audit line records
+  the failure, and the run exits 2. `--fail` also suppresses the body of an error response, which
+  is why the `401` page no longer reaches standard output.
+- **RED first.** Test 91 in both suites: a stub answering `401` must produce exit 2, standard
+  error containing `FAILED to hand the alert`, and no `ALERT SENT` in the audit. Against the
+  branch it failed in the three assertions of that contract, at 257 passing. **GREEN:** 260
+  passed, 0 failed.
+- **The suites needed a second knob.** The existing stub answered `200` by writing a body, so the
+  status became a variable: `STUB_HTTP_STATUS` on the Bash side, and
+  `DISK_MONITOR_STUB_HTTP_STATUS` with `http_status_stub.ps1` on the PowerShell side, which keeps
+  the older stub and its body-writing behaviour in place.
+- **The review approved the candidate.** Receipt `review-f424331810f51362`, tier `high`, 171
+  changed lines, correction budget 86; no correction was required and the authority burned with
+  the exact acknowledgement. Five advisories came back, all non-blocking, and they join T11:
+  - A replacement client that rejects `--fail` now fails every alert. The README shows `--fail`
+    in the argv and says a replacement must accept that argument set; the finding stays open
+    because the failure mode stays. (`R4-1`, `R3-http-command-contract`.)
+  - A `3xx` is not an error for the client unless it follows redirects, so a redirect is still
+    audited as a delivery. (`R4-2`, `R3-redirect-recorded-sent`.)
+  - The audit line records that the hand-off failed and not the status that failed it, so the
+    record alone cannot tell a timeout from a rejection. (`R4-3`.)
+- The next step: **T6 to T9**, the four documentation units.
+
+**L16** — 2026-10-22. T6 to T9 executed on `feat/1-universal-transport`, as four delegated units
+with disjoint edit surfaces and the shared contract carried in each prompt.
+
+- **The units and their commits.** `46a70c0` — the module's `README.md`, `SPECS.md`,
+  `ROADMAP.md` and `CODESTYLE.md` (951 insertions, 136 deletions). `b5d3cc6` — `docs/`, with
+  `ARCHITECTURE_COMPARISON.md`, `SCENARIOS.md` and the three labs (1,766 and 300). `cfad30b` —
+  the wiki pages 13 to 15, the home page and the architecture page (1,263 and 114). `50261ba` —
+  `MODULES.md`, the root `README.md` and `CHANGELOG.md` (75 and 9).
+- **The evidence behind the prose.** The help blocks and the doctor output were diffed byte for
+  byte against the running tool instead of retyped. Every lab command ran with an isolated `HOME`
+  and its output was pasted from the run. The wiki was built from a clean clone of the fourteen
+  pages that existed before, which is what caught the sidebar entry pointing at a page that did
+  not exist until page 15 landed.
+- **The fix reached the prose.** The transport's argv now shows `--fail` in every block — README,
+  SPECS, `ARCHITECTURE_COMPARISON` twice, wiki 13 and its observed `ARGV:` line. The three
+  passages that taught a `4xx` as a success were rewritten (`SCENARIOS`, LAB2, LAB3 §6.6 with its
+  two tables and Step 7); §6.6 now proves the failed hand-off instead — exit 2, standard error
+  naming the hand-off, and nothing saying `ALERT SENT`.
+- **The counts follow the suite.** 257 became 260 in the README three times, in wiki 15 twice, in
+  `MODULES.md` and in `CHANGELOG.md`. `ROADMAP.md` gained a ticked milestone for `--fail`, because
+  the roadmap is the record of what the code does, and the code now refuses an error status.
+- **The measurement is worth recording.** The forecast was ~1,200 authored lines; the four units
+  authored 4,055 insertions against 559 deletions. Most of the volume is a rewrite of pages that
+  described a transport which no longer exists, and the labs are executable transcripts, which
+  are long by nature. The ~400-line heuristic exists to protect review size, and this branch has
+  no pull requests to protect: the delivery is a fast-forward merge into `main`, recorded in T10.
+- The next step: **T11**, the advisory findings in the queue, then **T5**, the CI evidence, then
+  **T10**.
 
 ## Close
 
