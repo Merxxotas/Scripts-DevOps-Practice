@@ -56,7 +56,7 @@ working disk: a raw script pair each, with no contract yet.
 
 | Folder / Module | Primary Technologies | Purpose & Architecture |
 | :--- | :--- | :--- |
-| `1-Disk-Usage-Monitoring-with-Email-Alert` | Bash / PowerShell | **Disk Monitor:** threshold disk monitoring & a credential-free hand-off to the host's mail agent |
+| `1-Disk-Usage-Monitoring-with-Email-Alert` | Bash / PowerShell | **Disk Monitor:** threshold monitoring, three transports |
 | `2-Log-Cleanup-Script-(Delete-Files-Older-Than-X-Days)` | Bash / PowerShell | Automated log retention & directory purging |
 | `5-CPU-and-Memory-Usage-Monitor` | Bash / PowerShell / Python / Docker | **CPU Monitor:** resource monitoring & process kill/restart, in three implementations sharing one data contract |
 | `11-Scheduling-And-Automation` | **Python & Go** | **EventOps:** cross-platform event-driven automation daemon (Webhooks + File Watcher) |
