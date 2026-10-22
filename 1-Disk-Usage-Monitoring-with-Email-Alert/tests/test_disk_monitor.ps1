@@ -1833,6 +1833,7 @@ function Test-DoctorReportsAReadableConfigurationFile {
         Assert-Match -Haystack $script:LastStdout -Needle "can be read by other users" -TestName "Test 84b: The doctor reports the readable configuration file"
         if ($IsWindows) {
             Assert-Match -Haystack $script:LastStdout -Needle "icacls" -TestName "Test 84c: The remedy names the command that restricts the file"
+            Assert-Match -Haystack $script:LastStdout -Needle "/remove:g" -TestName "Test 84e: The Windows remedy removes the explicit Everyone grant"
         } else {
             Assert-Match -Haystack $script:LastStdout -Needle "chmod 600" -TestName "Test 84c: The remedy names the command that restricts the file"
         }
@@ -1849,6 +1850,23 @@ function Test-DoctorReportsAReadableConfigurationFile {
 
     Invoke-Monitor -Arguments @("-Doctor", "-Config", $restrictedFile, "-Notify", "http", "-Url", "https://ntfy.sh/disk-alerts")
     Assert-Absent -Haystack $script:LastStdout -Needle "can be read by other users" -TestName "Test 84d: A restricted configuration file is not reported"
+
+    if (-not $IsWindows) {
+        # The host prints a mode without its leading zeros, so a file whose
+        # owner has no permission is printed with two digits or one. The group
+        # and the others still read it, and the doctor has to say so even
+        # though it cannot read the file itself.
+        & chmod 044 $configFile
+        Invoke-Monitor -Arguments @("-Doctor", "-Config", $configFile, "-Notify", "http", "-Url", "https://ntfy.sh/disk-alerts")
+        Assert-Match -Haystack $script:LastStdout -Needle "cannot be read" -TestName "Test 84f: The doctor reports a configuration file it cannot read"
+        Assert-Match -Haystack $script:LastStdout -Needle "can be read by other users" -TestName "Test 84g: A readable file whose mode lost its leading zero is reported"
+        Assert-Equal -Expected 1 -Actual $script:LastRunExitCode -TestName "Test 84h: A configuration file the tool cannot read is a problem"
+
+        & chmod 400 $configFile
+        Invoke-Monitor -Arguments @("-Doctor", "-Config", $configFile, "-Notify", "http", "-Url", "https://ntfy.sh/disk-alerts")
+        Assert-Absent -Haystack $script:LastStdout -Needle "can be read by other users" -TestName "Test 84i: A file only its owner can read is not reported"
+        Assert-Absent -Haystack $script:LastStdout -Needle "cannot be read" -TestName "Test 84j: A file its owner can read is not reported as unreadable"
+    }
     Exit-TestEnvironment
 }
 
@@ -1870,6 +1888,7 @@ function Test-DoctorRejectsAnOverflowingThreshold {
     Set-Content -LiteralPath $configFile -Value "threshold = 18446744073709551617"
     Invoke-Monitor -Arguments @("-Doctor", "-Config", $configFile, "-Notify", "http", "-Url", "https://ntfy.sh/disk-alerts")
     Assert-Equal -Expected 1 -Actual $script:LastRunExitCode -TestName "Test 85d: A threshold of the configuration file that does not fit in an integer exits with code 1"
+    Assert-Match -Haystack $script:LastStdout -Needle "not an integer between 1 and 100" -TestName "Test 85f: The doctor names the invalid threshold of the configuration file"
     Invoke-Monitor -Arguments @("-Config", $configFile, "-Notify", "http", "-Url", "https://ntfy.sh/disk-alerts")
     Assert-Equal -Expected 1 -Actual $script:LastRunExitCode -TestName "Test 85e: The run rejects the same threshold of the configuration file"
     Exit-TestEnvironment
@@ -2009,9 +2028,13 @@ function Test-PublicInterfaceMatchesTheBashSide {
     Assert-Match -Haystack $powershellFlags -Needle "partition" -TestName "Test 88b: The PowerShell flag extraction holds the interface"
     Assert-Match -Haystack $bashFlags -Needle "help" -TestName "Test 88c: The Bash flag extraction holds the help flag"
     Assert-Match -Haystack $powershellFlags -Needle "help" -TestName "Test 88d: The PowerShell flag extraction holds the help flag"
-    Assert-Equal -Expected $bashFlags -Actual $powershellFlags -TestName "Test 88e: Both implementations offer the same flags"
-    Assert-Equal -Expected $bashEnvironment -Actual $powershellEnvironment -TestName "Test 88f: Both implementations read the same environment variables"
-    Assert-Equal -Expected $bashKeys -Actual $powershellKeys -TestName "Test 88g: Both implementations accept the same configuration keys"
+    Assert-Match -Haystack $bashEnvironment -Needle "DISK_MONITOR_URL" -TestName "Test 88e: The Bash environment extraction holds the transport"
+    Assert-Match -Haystack $powershellEnvironment -Needle "DISK_MONITOR_URL" -TestName "Test 88f: The PowerShell environment extraction holds the transport"
+    Assert-Match -Haystack $bashKeys -Needle "url" -TestName "Test 88g: The Bash key extraction holds the transport"
+    Assert-Match -Haystack $powershellKeys -Needle "url" -TestName "Test 88h: The PowerShell key extraction holds the transport"
+    Assert-Equal -Expected $bashFlags -Actual $powershellFlags -TestName "Test 88i: Both implementations offer the same flags"
+    Assert-Equal -Expected $bashEnvironment -Actual $powershellEnvironment -TestName "Test 88j: Both implementations read the same environment variables"
+    Assert-Equal -Expected $bashKeys -Actual $powershellKeys -TestName "Test 88k: Both implementations accept the same configuration keys"
     Exit-TestEnvironment
 }
 
@@ -2042,17 +2065,14 @@ function Test-DocumentedTransportSetMatchesTheBashSide {
     Exit-TestEnvironment
 }
 
-# Test 90: The SMTP transport and the local mail agent transport are out of
-# scope on purpose. The value that would select an SMTP transport is refused
-# with the supported set named, which is what keeps the seam a value rather
-# than a dead flag.
+# Test 90: The SMTP transport is not offered. The local mail agent is the
+# supported default and is not what this test refuses; only the `smtp` value
+# is, and the refusal names the supported set as one phrase.
 function Test-SmtpTransportIsNotOffered {
     Enter-TestEnvironment
     Invoke-Monitor -Arguments @("-Notify", "smtp", "-To", "ops@example.com")
     Assert-Equal -Expected 1 -Actual $script:LastRunExitCode -TestName "Test 90a: The smtp backend exits with code 1"
-    Assert-Match -Haystack $script:LastStderr -Needle "none" -TestName "Test 90b: The refusal names the none backend"
-    Assert-Match -Haystack $script:LastStderr -Needle "mail" -TestName "Test 90c: The refusal names the mail backend"
-    Assert-Match -Haystack $script:LastStderr -Needle "http" -TestName "Test 90d: The refusal names the http backend"
+    Assert-Match -Haystack $script:LastStderr -Needle "Notify backend must be 'none', 'mail' or 'http'." -TestName "Test 90b: The refusal names the supported set as one phrase"
     Exit-TestEnvironment
 }
 
@@ -2099,7 +2119,95 @@ Test-DoctorSanitizesThePrintedValue
 Test-PublicInterfaceMatchesTheBashSide
 Test-DocumentedTransportSetMatchesTheBashSide
 Test-SmtpTransportIsNotOffered
+# Test 92: The remedy of the doctor is a command the reader pastes. A path
+# that holds a space and a quote must not break it, and the command has to
+# restrict the file when it is run.
+function Test-DoctorRemedySurvivesAQuotedPath {
+    Enter-TestEnvironment
+    $configDir = Join-Path $TestSandbox "it's config"
+    $null = New-Item -ItemType Directory -Path $configDir -Force
+    $configFile = Join-Path $configDir "monitor.conf"
+    Set-Content -LiteralPath $configFile -Value "url = https://ntfy.sh/disk-alerts"
+
+    if ($IsWindows) {
+        $acl = Get-Acl -LiteralPath $configFile
+        $rule = New-Object System.Security.AccessControl.FileSystemAccessRule("Everyone", "Read", "Allow")
+        $null = $acl.AddAccessRule($rule)
+        Set-Acl -LiteralPath $configFile -AclObject $acl
+    } else {
+        & chmod 644 $configFile
+    }
+
+    Invoke-Monitor -Arguments @("-Doctor", "-Config", $configFile, "-Notify", "http", "-Url", "https://ntfy.sh/disk-alerts")
+    Assert-Match -Haystack $script:LastStdout -Needle "Restrict it:" -TestName "Test 92a: The doctor offers the remedy"
+
+    $remedy = ""
+    foreach ($line in ($script:LastStdout -split "`n")) {
+        if ($line -match "Restrict it: ") {
+            $remedy = ($line -split "Restrict it: ", 2)[1].Trim()
+            break
+        }
+    }
+
+    if ($IsWindows) {
+        Assert-Match -Haystack $remedy -Needle "/remove:g" -TestName "Test 92b: The Windows remedy removes the explicit Everyone grant"
+    } else {
+        # The remedy is a command for the shell of the host, and the shell of a
+        # Unix host is not PowerShell, so it is handed to bash as the reader
+        # would paste it.
+        & bash -c $remedy
+        $mode = & stat -c "%a" $configFile
+        Assert-Equal -Expected "600" -Actual $mode -TestName "Test 92b: The remedy restricts the file when it is pasted"
+    }
+
+    # The other remedy of the configuration file names the command that grants
+    # read access, and it embeds the same path. On the Unix host it reuses the
+    # quoting of the remedy above. The Windows host denies the read access
+    # through an access control entry a test cannot deny and restore safely,
+    # so that half is skipped.
+    if ($IsWindows) {
+        Write-Host "$([char]27)[0;33m[SKIP]$([char]27)[0m Test 92c: The read remedy of this host needs an access control entry a test cannot deny safely"
+    } else {
+        & chmod 044 $configFile
+        Invoke-Monitor -Arguments @("-Doctor", "-Config", $configFile, "-Notify", "http", "-Url", "https://ntfy.sh/disk-alerts")
+        Assert-Equal -Expected 1 -Actual $script:LastRunExitCode -TestName "Test 92c: A configuration file the tool cannot read is a problem"
+        Assert-Match -Haystack $script:LastStdout -Needle "chmod u+r" -TestName "Test 92d: The doctor offers the command that grants read access"
+
+        $readRemedy = ""
+        foreach ($line in ($script:LastStdout -split "`n")) {
+            if ($line -match "read permission: ") {
+                $readRemedy = ($line -split "read permission: ", 2)[1].Trim()
+                break
+            }
+        }
+        & bash -c $readRemedy
+        $mode = & stat -c "%a" $configFile
+        Assert-Equal -Expected "444" -Actual $mode -TestName "Test 92e: The doctor remedy grants read access when it is pasted"
+
+        # The run path prints the same remedy, and it is the only instruction
+        # the reader gets there, so it has to survive the same path and end
+        # where the command ends.
+        & chmod 044 $configFile
+        Invoke-Monitor -Arguments @("-Config", $configFile, "-Notify", "http", "-Url", "https://ntfy.sh/disk-alerts")
+        Assert-Equal -Expected 1 -Actual $script:LastRunExitCode -TestName "Test 92f: An unreadable configuration file stops the run"
+        Assert-Match -Haystack $script:LastStderr -Needle "chmod u+r" -TestName "Test 92g: The run names the command that grants read access"
+
+        $readRemedy = ""
+        foreach ($line in ($script:LastStderr -split "`n")) {
+            if ($line -match "read permission: ") {
+                $readRemedy = ($line -split "read permission: ", 2)[1].Trim()
+                break
+            }
+        }
+        & bash -c $readRemedy
+        $mode = & stat -c "%a" $configFile
+        Assert-Equal -Expected "444" -Actual $mode -TestName "Test 92h: The run remedy grants read access when it is pasted"
+    }
+    Exit-TestEnvironment
+}
+
 Test-HttpErrorStatusIsAFailedHandoff
+Test-DoctorRemedySurvivesAQuotedPath
 
 Write-Host "============================================================"
 Write-Host "Tests Summary: $([char]27)[0;32m$script:PassedCount Passed$([char]27)[0m, $([char]27)[0;31m$script:FailedCount Failed$([char]27)[0m"

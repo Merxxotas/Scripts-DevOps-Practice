@@ -354,8 +354,10 @@ transport detail, not something a scheduled line changes.
 ```
 
 A file named by `--config` or `DISK_MONITOR_CONFIG` must exist; a missing one is exit `1`. An
-absent default file is not an error, and the built-in defaults are used. The same resolution runs
-on both implementations, and `--doctor` reports its result as the `Config file` field.
+absent default file is not an error, and the built-in defaults are used. A file that exists but
+cannot be read by the account that runs the tool is also exit `1`, because falling back to the
+defaults would measure the disk with another threshold and another transport. The same resolution
+runs on both implementations, and `--doctor` reports its result as the `Config file` field.
 
 ### 5.5 The file is sensitive
 
@@ -364,6 +366,11 @@ A configuration file may hold a bearer token in a `header` value. Three rules fo
 - The repository ignores `.diskmonitor.conf`, so a local file cannot be committed by accident.
 - `--doctor` warns when the selected file is readable by other users, and prints the remedy for
   the platform it found. The warning does not change the exit code, because the tool still runs.
+  The remedy is a command the reader pastes, so the path is quoted for the shell of the platform;
+  on Windows the remedy also removes the explicit `Everyone` grant that caused the warning. The
+  read-access remedy printed by the doctor and by a run is quoted the same way, and it ends the
+  line so nothing of the sentence is pasted as part of the path.
+- A file that exists but cannot be read is a problem and exits `1`, in the doctor and in a run.
 - Nothing copies a line of the file into a log, and the doctor reports the header count and its
   source, never a value.
 

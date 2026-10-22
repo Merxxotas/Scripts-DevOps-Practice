@@ -108,10 +108,27 @@ a URL, so every HTTP notification service is covered without provider-specific c
 - **The PowerShell help omitted `http`.** The comment-based help offered `none` and `mail`, so
   `Get-Help` on Windows described a transport set without the new backend. The parity test caught
   it, and the help now lists all three.
+- **The doctor called a readable file private.** The host prints a mode without its leading
+  zeros, so a file whose owner has no permission lost the digit the classifier assumed, and a
+  file the group and the others could read was reported as private. The mode is now read from
+  the right, whatever its length.
+- **The remedy of the doctor broke on a path that holds a quote**, which made the command the
+  reader pastes unusable. The path is quoted for the shell of the platform, and the Windows
+  remedy removes the explicit `Everyone` grant that caused the warning instead of leaving it in
+  place. The read-access remedy of both the doctor and a run carried the same defect in a second
+  place, and its run-path copy ended with the period of the sentence, which the reader would have
+  pasted as part of the path; both are quoted now and the command ends the line.
+- **An unreadable configuration file killed the run with a shell error** instead of a typed
+  configuration error, and the doctor — the command whose job is to name that problem — never
+  ran. An existing file this account cannot read is now a problem for the doctor and exit `1`
+  for a run.
+- **The parity extractors tripped the ShellCheck gate.** A literal `$` in a single-quoted `sed`
+  program is reported as SC2016, so the lint job of the Bash half failed; the anchor now spells
+  the `$` as a bracket expression.
 
 ### Verification
 
-- **Bash suite, local** — 260 assertions passed, 0 failed.
+- **Bash suite, local** — 277 assertions passed, 0 failed.
 - **PowerShell suite and both lint gates** — CI-only on the development machine, which has neither
   `pwsh` nor `shellcheck`; the workflow runs the PowerShell suite on `windows-2022` and
   `ubuntu-24.04`, and runs ShellCheck and PSScriptAnalyzer on the implementation and its suite.

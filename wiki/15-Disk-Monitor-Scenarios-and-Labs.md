@@ -545,14 +545,14 @@ bash tests/test_disk_monitor.sh
 
 ```
 ============================================================
-Tests Summary: 260 Passed, 0 Failed
+Tests Summary: 277 Passed, 0 Failed
 ============================================================
 ```
 
 The suite never sends a real email, never opens a network connection and
 never depends on the host's disk layout: the measurement command, the mail
 agent and the HTTP client are stubbed, and every configuration file lives
-under a temporary sandbox. That is what makes 260 assertions deterministic.
+under a temporary sandbox. That is what makes 277 assertions deterministic.
 
 Since the parity work, the suite also reads `disk_monitor.ps1` as a source
 file and compares the flag set, the environment names and the configuration

@@ -201,6 +201,9 @@ $script:ResolvedHeaders = @()
 # The configuration file was named explicitly but does not exist
 $script:ConfigFileMissing = $false
 
+# The configuration file exists but cannot be read by this account
+$script:ConfigFileUnreadable = $false
+
 # The problems the doctor found
 $script:DoctorProblem = @()
 $script:DoctorWarning = @()
@@ -475,6 +478,9 @@ function Resolve-Configuration {
                 $script:ConfigFilePath = $candidate
                 $script:ConfigFileMissing = $true
             }
+        } elseif (-not (Test-ConfigFileReadable -Path $candidate)) {
+            $script:ConfigFilePath = $candidate
+            $script:ConfigFileUnreadable = $true
         } else {
             Read-ConfigFile -Path $candidate
         }
@@ -1023,14 +1029,60 @@ function Test-FileReadableByOther {
 # Prints the command that restricts a file to its owner. The remedy names
 # the platform it was found on, because the permission model of Windows is
 # an access control list and the permission model of a Unix host is a mode.
+# The path is quoted for the shell that pastes the command, so a quote in
+# the path is doubled instead of closing the quote. The Windows remedy
+# removes the inherited entries and the explicit grant of Everyone, because
+# the rule that caused the report is explicit and would survive the
+# inheritance change on its own.
 function Get-ConfigFileRestrictCommand {
     param([string]$Path)
 
+    # The remedy is pasted into the shell of the platform, so the quote of a
+    # path is escaped in the way that shell reads.
     if ($IsWindows) {
-        return "icacls '$Path' /inheritance:r /grant:r '$($env:USERNAME):(R,W)'"
+        $quotedPath = $Path -replace "'", "''"
+        $remedy = "icacls '$quotedPath' /inheritance:r /remove:g '*S-1-1-0'"
+        return "$remedy /grant:r '$($env:USERNAME):(R,W)'"
     }
 
-    return "chmod 600 '$Path'"
+    $quotedPath = $Path -replace "'", "'\''"
+
+    return "chmod 600 '$quotedPath'"
+}
+
+# Prints the command that gives the owner read access to a file. The remedy
+# names the permission model of the platform, because a Unix host grants the
+# mode and a Windows host grants an access control entry.
+function Get-ConfigFileReadCommand {
+    param([string]$Path)
+
+    if ($IsWindows) {
+        $quotedPath = $Path -replace "'", "''"
+        return "icacls '$quotedPath' /grant:r '$($env:USERNAME):(R)'"
+    }
+
+    $quotedPath = $Path -replace "'", "'\''"
+
+    return "chmod u+r '$quotedPath'"
+}
+
+# Reports whether the account that runs the tool can read the file. A file
+# that exists but cannot be read is a configuration error, and not a file
+# without settings: the run would otherwise fall back to the defaults.
+function Test-ConfigFileReadable {
+    param([string]$Path)
+
+    try {
+        $stream = [System.IO.File]::Open(
+            $Path,
+            [System.IO.FileMode]::Open,
+            [System.IO.FileAccess]::Read,
+            [System.IO.FileShare]::ReadWrite)
+        $stream.Dispose()
+        return $true
+    } catch {
+        return $false
+    }
 }
 
 # Writes one field of the doctor report. The source of the value is shown
@@ -1226,10 +1278,15 @@ function Invoke-Doctor {
     # The configuration file
     if ($script:ConfigFileMissing) {
         Add-DoctorProblem "The configuration file '$($script:ConfigFilePath)' was not found. Create it, or point -Config at a file that exists."
-    } elseif (-not [string]::IsNullOrEmpty($script:ConfigFilePath) -and (Test-Path -LiteralPath $script:ConfigFilePath -PathType Leaf)) {
-        # The file may hold a token, so a file other users can read is
-        # reported. It is a warning and not a problem: the tool still runs,
-        # and a new file is readable by others until it is restricted.
+    } elseif ($script:ConfigFileUnreadable) {
+        $readCommand = Get-ConfigFileReadCommand -Path $script:ConfigFilePath
+        Add-DoctorProblem "The configuration file '$($script:ConfigFilePath)' exists but cannot be read. Give its owner read permission: $readCommand"
+    }
+
+    # A file may hold a token, so a file other users can read is reported. The
+    # warning is independent of the two problems above: a file that cannot be
+    # read is exactly the file whose mode the reader needs to see.
+    if (-not [string]::IsNullOrEmpty($script:ConfigFilePath) -and (Test-Path -LiteralPath $script:ConfigFilePath -PathType Leaf)) {
         if (Test-FileReadableByOther -Path $script:ConfigFilePath) {
             $restrictCommand = Get-ConfigFileRestrictCommand -Path $script:ConfigFilePath
             Add-DoctorWarning "The configuration file '$($script:ConfigFilePath)' can be read by other users. Restrict it: $restrictCommand"
@@ -1313,6 +1370,8 @@ function Invoke-Doctor {
 
     if ($script:ConfigFileMissing) {
         Write-DoctorField -Label "Config file" -Value "(not found: $($script:ConfigFilePath))"
+    } elseif ($script:ConfigFileUnreadable) {
+        Write-DoctorField -Label "Config file" -Value "(cannot be read: $($script:ConfigFilePath))"
     } elseif (-not [string]::IsNullOrEmpty($script:ConfigFilePath)) {
         Write-DoctorField -Label "Config file" -Value $script:ConfigFilePath
     } else {
@@ -1407,6 +1466,14 @@ function Invoke-DiskMonitor {
 
     if ($script:ConfigFileMissing -and -not $Doctor) {
         Write-ErrorLine "$($Colors.Red)Error: Configuration file '$($script:ConfigFilePath)' does not exist.$($Colors.Reset)"
+        exit 1
+    }
+
+    if ($script:ConfigFileUnreadable -and -not $Doctor) {
+        $readCommand = Get-ConfigFileReadCommand -Path $script:ConfigFilePath
+        # The remedy ends the line: a period after it would become part of the
+        # path the reader pastes.
+        Write-ErrorLine "$($Colors.Red)Error: Configuration file '$($script:ConfigFilePath)' cannot be read. Give its owner read permission: $readCommand$($Colors.Reset)"
         exit 1
     }
 

@@ -406,16 +406,21 @@ The file itself is found in this order:
 4. `~/.config/disk-monitor/config`
 
 A file named explicitly must exist: if it does not, the run exits `1` rather
-than silently continuing without the configuration the operator asked for.
-An absent *default* file is not an error, because most hosts configure the
-tool through the environment alone.
+than silently continuing without the configuration the operator asked for. A
+file that exists but cannot be read is exit `1` for the same reason: the run
+would otherwise measure the disk with defaults the operator never chose. An
+absent *default* file is not an error, because most hosts configure the tool
+through the environment alone.
 
 ### The file is sensitive
 
 The repository ignores `.diskmonitor.conf`, because a header may hold a
 token. The doctor warns when the file can be read by other users and prints
 the `chmod 600` remedy; the warning does not make the tool "not ready",
-because a fresh file is readable by others until it is restricted.
+because a fresh file is readable by others until it is restricted. The
+remedy is meant to be pasted, so the path is quoted for the shell of the
+platform, and the Windows remedy also removes the explicit `Everyone` grant
+that caused the warning.
 
 ---
 

@@ -56,7 +56,7 @@ the remaining seven seed modules inherit.
 - `README.md` · `SPECS.md` · `ROADMAP.md` · `CODESTYLE.md`
 - `.diskmonitor.conf` — optional; 13 keys in a minimal `key = value` format, git-ignored because
   a `header` may hold a token
-- `tests/` — 260 assertions pass on the Bash suite locally; the PowerShell suite mirrors the same
+- `tests/` — 277 assertions pass on the Bash suite locally; the PowerShell suite mirrors the same
   scenarios and runs in CI
 - `docs/` — `ARCHITECTURE_COMPARISON.md`, `SCENARIOS.md`, `labs/LAB1-3`
 - CI: `.github/workflows/ci-disk-monitor.yml` — six jobs: `lint-bash` (ShellCheck) and

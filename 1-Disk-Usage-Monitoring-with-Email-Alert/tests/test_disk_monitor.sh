@@ -1463,6 +1463,71 @@ test_doctor_reports_a_readable_configuration_file() {
     chmod 600 "$config_file"
     run_monitor --doctor --config "$config_file" --notify http --url https://ntfy.sh/disk-alerts
     assert_not_contains "$LAST_STDOUT" "can be read by other users" "Test 84d: A restricted configuration file is not reported"
+
+    # The host prints a mode without its leading zeros, so a file whose owner
+    # has no permission is printed with two digits or one. The group and the
+    # others still read it, and the doctor has to say so even though it cannot
+    # read the file itself.
+    chmod 044 "$config_file"
+    run_monitor --doctor --config "$config_file" --notify http --url https://ntfy.sh/disk-alerts
+    assert_contains "$LAST_STDOUT" "cannot be read" "Test 84e: The doctor reports a configuration file it cannot read"
+    assert_contains "$LAST_STDOUT" "can be read by other users" "Test 84f: A readable file whose mode lost its leading zero is reported"
+    assert_equals "1" "$LAST_EXIT_CODE" "Test 84g: A configuration file the tool cannot read is a problem"
+
+    chmod 400 "$config_file"
+    run_monitor --doctor --config "$config_file" --notify http --url https://ntfy.sh/disk-alerts
+    assert_not_contains "$LAST_STDOUT" "can be read by other users" "Test 84h: A file only its owner can read is not reported"
+    assert_not_contains "$LAST_STDOUT" "cannot be read" "Test 84i: A file its owner can read is not reported as unreadable"
+    teardown
+}
+
+# Test 92: The remedy of the doctor is a command the reader pastes. A path
+# that holds a space and a quote must not break it, and the command has to
+# restrict the file when it is run.
+test_doctor_remedy_survives_a_quoted_path() {
+    setup
+    local config_dir="$TEST_SANDBOX/it's config"
+    local config_file=""
+    local remedy=""
+    local mode=""
+
+    mkdir -p "$config_dir"
+    config_file="$config_dir/monitor.conf"
+    printf 'url = https://ntfy.sh/disk-alerts\n' > "$config_file"
+    chmod 644 "$config_file"
+
+    run_monitor --doctor --config "$config_file" --notify http --url https://ntfy.sh/disk-alerts
+    assert_contains "$LAST_STDOUT" "Restrict it:" "Test 92a: The doctor offers the remedy"
+
+    remedy="$(printf '%s\n' "$LAST_STDOUT" | sed -n 's/.*Restrict it: //p' | head -n 1)"
+    assert_contains "$remedy" "chmod 600" "Test 92b: The remedy names the command that restricts the file"
+    eval "$remedy" || true
+    mode="$(stat -c '%a' "$config_file" 2>/dev/null || stat -f '%Lp' "$config_file")"
+    assert_equals "600" "$mode" "Test 92c: The remedy restricts the file when it is pasted"
+
+    # The other remedy of the configuration file names the command that grants
+    # read access, and it embeds the same path. It is quoted for the shell that
+    # pastes it too, so the quote in the path does not close the quote of the
+    # command and the pasted command grants the access it promises.
+    chmod 044 "$config_file"
+    run_monitor --doctor --config "$config_file" --notify http --url https://ntfy.sh/disk-alerts
+    assert_equals "1" "$LAST_EXIT_CODE" "Test 92d: A configuration file the tool cannot read is a problem"
+    remedy="$(printf '%s\n' "$LAST_STDOUT" | sed -n 's/.*read permission: //p' | head -n 1)"
+    assert_contains "$remedy" "chmod u+r" "Test 92e: The doctor offers the command that grants read access"
+    eval "$remedy" || true
+    mode="$(stat -c '%a' "$config_file" 2>/dev/null || stat -f '%Lp' "$config_file")"
+    assert_equals "444" "$mode" "Test 92f: The doctor remedy grants read access when it is pasted"
+
+    # The run path prints the same remedy, and it is the only instruction the
+    # reader gets there, so it has to survive the same path.
+    chmod 044 "$config_file"
+    run_monitor --config "$config_file" --notify http --url https://ntfy.sh/disk-alerts
+    assert_equals "1" "$LAST_EXIT_CODE" "Test 92g: An unreadable configuration file stops the run"
+    remedy="$(printf '%s\n' "$LAST_STDERR" | sed -n 's/.*read permission: //p' | head -n 1)"
+    assert_contains "$remedy" "chmod u+r" "Test 92h: The run names the command that grants read access"
+    eval "$remedy" || true
+    mode="$(stat -c '%a' "$config_file" 2>/dev/null || stat -f '%Lp' "$config_file")"
+    assert_equals "444" "$mode" "Test 92i: The run remedy grants read access when it is pasted"
     teardown
 }
 
@@ -1481,6 +1546,7 @@ test_doctor_rejects_an_overflowing_threshold() {
     printf 'threshold = 18446744073709551617\n' > "$config_file"
     run_monitor --doctor --config "$config_file" --notify http --url https://ntfy.sh/disk-alerts
     assert_equals "1" "$LAST_EXIT_CODE" "Test 85d: A threshold of the configuration file that does not fit in an integer exits with code 1"
+    assert_contains "$LAST_STDOUT" "not an integer between 1 and 100" "Test 85f: The doctor names the invalid threshold of the configuration file"
     run_monitor --config "$config_file" --notify http --url https://ntfy.sh/disk-alerts
     assert_equals "1" "$LAST_EXIT_CODE" "Test 85e: The run rejects the same threshold of the configuration file"
     teardown
@@ -1586,17 +1652,22 @@ implementation_environment_names() {
     grep -oE 'DISK_MONITOR_[A-Z_]+' "$1" | sort -u
 }
 
-# Prints the configuration keys the Bash implementation accepts.
+# Prints the configuration keys the Bash implementation accepts. The `$` of
+# the anchor is written as a bracket expression, because it belongs to the
+# implementation's source and not to this script: a literal dollar sign in a
+# single-quoted string is what ShellCheck reports as SC2016.
 bash_config_keys() {
-    sed -n '/case "\$key" in/,/esac/p' "$1" |
+    sed -n '/case "[$]key" in/,/esac/p' "$1" |
         grep -oE '^[[:space:]]+[a-z_]+\)' |
         sed -E 's/^[[:space:]]+//; s/\)$//' |
         sort -u
 }
 
-# Prints the configuration keys the PowerShell implementation accepts.
+# Prints the configuration keys the PowerShell implementation accepts. The
+# `$` of the anchor is written as a bracket expression for the same reason as
+# above: it is part of the source the extractor reads.
 powershell_config_keys() {
-    sed -n '/switch (\$key) {/,/^        }/p' "$1" |
+    sed -n '/switch ([$]key) {/,/^        }/p' "$1" |
         grep -oE '^[[:space:]]+"[a-z_]+"' |
         sed -E 's/^[[:space:]]+"//; s/"$//' |
         sort -u
@@ -1633,9 +1704,13 @@ test_parity_of_the_public_interface() {
     assert_contains "$powershell_flags" "partition" "Test 88b: The PowerShell flag extraction holds the interface"
     assert_contains "$bash_flags" "doctor" "Test 88c: The Bash flag extraction holds the doctor"
     assert_contains "$powershell_flags" "doctor" "Test 88d: The PowerShell flag extraction holds the doctor"
-    assert_equals "$bash_flags" "$powershell_flags" "Test 88e: Both implementations offer the same flags"
-    assert_equals "$bash_environment" "$powershell_environment" "Test 88f: Both implementations read the same environment variables"
-    assert_equals "$bash_keys" "$powershell_keys" "Test 88g: Both implementations accept the same configuration keys"
+    assert_contains "$bash_environment" "DISK_MONITOR_URL" "Test 88e: The Bash environment extraction holds the transport"
+    assert_contains "$powershell_environment" "DISK_MONITOR_URL" "Test 88f: The PowerShell environment extraction holds the transport"
+    assert_contains "$bash_keys" "url" "Test 88g: The Bash key extraction holds the transport"
+    assert_contains "$powershell_keys" "url" "Test 88h: The PowerShell key extraction holds the transport"
+    assert_equals "$bash_flags" "$powershell_flags" "Test 88i: Both implementations offer the same flags"
+    assert_equals "$bash_environment" "$powershell_environment" "Test 88j: Both implementations read the same environment variables"
+    assert_equals "$bash_keys" "$powershell_keys" "Test 88k: Both implementations accept the same configuration keys"
     teardown
 }
 
@@ -1662,17 +1737,14 @@ test_parity_of_the_documented_transports() {
     teardown
 }
 
-# Test 90: The SMTP transport and the local mail agent transport are out of
-# scope on purpose. The value that would select an SMTP transport is refused
-# with the supported set named, which is what keeps the seam a value rather
-# than a dead flag.
+# Test 90: The SMTP transport is not offered. The local mail agent is the
+# supported default and is not what this test refuses; only the `smtp` value
+# is, and the refusal names the supported set as one phrase.
 test_smtp_transport_is_not_offered() {
     setup
     run_monitor --notify smtp --to ops@example.com
     assert_equals "1" "$LAST_EXIT_CODE" "Test 90a: The smtp backend exits with code 1"
-    assert_contains "$LAST_STDERR" "none" "Test 90b: The refusal names the none backend"
-    assert_contains "$LAST_STDERR" "mail" "Test 90c: The refusal names the mail backend"
-    assert_contains "$LAST_STDERR" "http" "Test 90d: The refusal names the http backend"
+    assert_contains "$LAST_STDERR" "Notify backend must be 'none', 'mail' or 'http'." "Test 90b: The refusal names the supported set as one phrase"
     teardown
 }
 
@@ -1791,6 +1863,7 @@ test_parity_of_the_public_interface
 test_parity_of_the_documented_transports
 test_smtp_transport_is_not_offered
 test_http_error_status_is_a_failed_handoff
+test_doctor_remedy_survives_a_quoted_path
 
 printf "============================================================\n"
 printf "Tests Summary: %b%d Passed%b, %b%d Failed%b\n" "$GREEN" "$PASSED_TESTS" "$RESET" "$RED" "$FAILED_TESTS" "$RESET"

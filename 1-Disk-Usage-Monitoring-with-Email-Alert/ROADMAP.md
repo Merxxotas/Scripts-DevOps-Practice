@@ -173,6 +173,16 @@ run observed it; nothing here is checked because the code was written.
 - [x] **An HTTP error status is a failed hand-off, not a delivery:** the client is asked to
   fail, so a `4xx` or `5xx` exits `2` and the audit line says `FAILED` instead of `ALERT SENT`;
   **260 passed, 0 failed** on the Bash suite, three assertions more than the parity commit above.
+- [x] **The advisories of the four reviews are closed or accepted:** the ShellCheck finding of
+  the parity extractors, the mode whose leading zero the host drops, the remedy the reader
+  pastes, the empty-scrape guards and the weak assertions; **271 passed, 0 failed** on the Bash
+  suite, fourteen assertions more than the parity commit above.
+- [x] **The read-access remedy is paste-safe too:** the correction review found the second sink
+  of the quoting defect — the `chmod u+r` remedy of the doctor and of a run interpolated the
+  path raw, and the run copy ended with the period of the sentence. Both are quoted with the
+  helper the restrict remedy already used, the command ends the line on both sides, and a test
+  pastes each remedy from a path that holds a quote; **277 passed, 0 failed** on the Bash suite,
+  six assertions more than the advisory batch.
 - [x] **The mail transport still works:** a mail run exits `0`, reaches the agent with the
   recipient, and never touches the HTTP client (commit `a93f0be`).
 - [x] **The transport work passed its native review:** receipt `review-7f70ee03fae2019c`,

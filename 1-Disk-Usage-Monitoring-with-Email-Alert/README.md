@@ -41,7 +41,7 @@ same exit codes and the same report fields.
 - 🚦 **Exit codes as a contract** — `0` success, `1` configuration or safety error, `2` partial
   failure. A scheduler can react to them.
 - ⚖️ **Full parity** — both implementations expose the same options, and the Bash suite asserts
-  260 behaviours against the same public interface the PowerShell suite mirrors.
+  277 behaviours against the same public interface the PowerShell suite mirrors.
 
 ---
 
@@ -56,7 +56,7 @@ same exit codes and the same report fields.
 ├── SPECS.md                         # Technical specification & architecture
 ├── ROADMAP.md                       # Phased milestones
 ├── CODESTYLE.md                     # Coding conventions
-├── tests/                           # Automated suites (260 assertions on the Bash side)
+├── tests/                           # Automated suites (277 assertions on the Bash side)
 │   ├── test_disk_monitor.sh
 │   └── test_disk_monitor.ps1
 └── docs/                            # In-depth guides & interactive labs
@@ -515,6 +515,7 @@ frame is colourised at a terminal; the text is what a pipe or a log receives.
 | `(config)` | The configuration file supplied the value |
 | `(not required)` | The active transport does not use this setting |
 | `(none found)` / `(not found: <path>)` | No default file exists / the selected file does not exist — the latter is a problem |
+| `(cannot be read: <path>)` | The selected file exists but this account cannot read it — a problem |
 
 The exit code answers one question — can this tool do its job?
 
@@ -527,7 +528,10 @@ A ready host prints `Status              : READY` and exits `0`; the frame and t
 the same. The remedy names the install command of the platform the tool was found on, not a
 generic suggestion. A configuration file that other users can read is reported as a **warning**
 with its remedy and does **not** change the exit code: the tool still runs, and a freshly created
-file is readable by others until it is restricted.
+file is readable by others until it is restricted. The remedy is a command you can paste, with the
+path quoted the way the shell of that platform reads it, including a path that holds a quote. A
+file that exists but cannot be read is a **problem** and exits `1`: without it the run would fall
+back to the defaults, and the doctor is where the permission of the file is named.
 
 ---
 
@@ -842,7 +846,7 @@ Set `DISK_MONITOR_TO` and `DISK_MONITOR_MAIL_COMMAND` in the task's environment,
 bash 1-Disk-Usage-Monitoring-with-Email-Alert/tests/test_disk_monitor.sh
 ```
 
-The Bash suite runs anywhere Bash does and reports **260 assertions, 0 failed**. The PowerShell
+The Bash suite runs anywhere Bash does and reports **277 assertions, 0 failed**. The PowerShell
 suite needs PowerShell 7 and runs in the module's CI pipeline on **Windows and Ubuntu**, because
 the Windows-native volume API cannot be stubbed on `PATH` — the shared environment contract is
 what makes the alert branch testable on both.
