@@ -2,12 +2,13 @@
 # ==============================================================================
 # Script Name: disk_monitor.sh
 # Description: Disk usage monitor with threshold alerting. Measures the usage
-#              of a mounted filesystem and hands an alert to the host's mail
-#              agent when the usage crosses a threshold.
+#              of a mounted filesystem and hands an alert to the configured
+#              transport when the usage crosses a threshold. The transport is
+#              the host mail agent or an HTTP endpoint.
 #
 #              The module holds no credentials and opens no socket of its own.
-#              It composes the alert and hands it to a mail agent that the
-#              host already provides.
+#              The HTTP request is sent by an external client, and a
+#              credential travels in a header the caller supplies.
 # ==============================================================================
 
 set -euo pipefail

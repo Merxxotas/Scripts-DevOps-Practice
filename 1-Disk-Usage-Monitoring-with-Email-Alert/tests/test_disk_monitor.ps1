@@ -1871,6 +1871,161 @@ function Test-DoctorSanitizesThePrintedValue {
     Exit-TestEnvironment
 }
 
+# ------------------------------------------------------------------------------
+# Parity with the Bash implementation (S20)
+#
+# The module contract requires both implementations to offer the same flags, to
+# read the same environment variables and to accept the same configuration
+# keys. The other implementation is read as a source file, because this suite
+# runs under one interpreter and the interface of the other side is declared in
+# its argument parser.
+# ------------------------------------------------------------------------------
+
+# Returns the long flags of the Bash argument parser
+function Get-BashPublicFlag {
+    param([string]$Path)
+
+    $text = Get-Content -Raw -LiteralPath $Path
+    $block = [regex]::Match($text, "(?ms)^parse_arguments\(\) \{.*?^\}").Value
+    $flag = [regex]::Matches($block, "--([a-z][a-z-]*)\)") |
+        ForEach-Object { $_.Groups[1].Value }
+
+    return @($flag | Sort-Object -Unique)
+}
+
+# Returns the parameters of this implementation as long flags. -Verbose is
+# added because it is a common parameter of the binder and never appears in
+# the param block even though the caller sees it.
+function Get-PowerShellPublicFlag {
+    param([string]$Path)
+
+    $text = Get-Content -Raw -LiteralPath $Path
+    $block = [regex]::Match($text, "(?ms)^param\(.*?^\)").Value
+    $parameter = [regex]::Matches($block, "\[(?:string|string\[\]|switch)\]\`$([A-Za-z]+)") |
+        ForEach-Object { $_.Groups[1].Value }
+
+    $flag = foreach ($name in $parameter) {
+        ($name -creplace "([a-z0-9])([A-Z])", '$1-$2').ToLowerInvariant()
+    }
+
+    if ($text -match "(?m)^\[CmdletBinding\(\)\]") {
+        $flag = @($flag) + "verbose"
+    }
+
+    return @($flag | Sort-Object -Unique)
+}
+
+# Returns the environment variables an implementation reads
+function Get-ImplementationEnvironmentName {
+    param([string]$Path)
+
+    $text = Get-Content -Raw -LiteralPath $Path
+    $name = [regex]::Matches($text, "DISK_MONITOR_[A-Z_]+") |
+        ForEach-Object { $_.Value }
+
+    return @($name | Sort-Object -Unique)
+}
+
+# Returns the configuration keys the Bash implementation accepts
+function Get-BashConfigKey {
+    param([string]$Path)
+
+    $text = Get-Content -Raw -LiteralPath $Path
+    $block = [regex]::Match($text, '(?ms)case "\$key" in.*?esac').Value
+    $key = [regex]::Matches($block, '(?m)^ +([a-z_]+)\)') |
+        ForEach-Object { $_.Groups[1].Value }
+
+    return @($key | Sort-Object -Unique)
+}
+
+# Returns the configuration keys this implementation accepts
+function Get-PowerShellConfigKey {
+    param([string]$Path)
+
+    $text = Get-Content -Raw -LiteralPath $Path
+    $block = [regex]::Match($text, '(?ms)switch \(\$key\) \{.*?^ {8}\}').Value
+    $key = [regex]::Matches($block, '(?m)^ +"([a-z_]+)"') |
+        ForEach-Object { $_.Groups[1].Value }
+
+    return @($key | Sort-Object -Unique)
+}
+
+# Returns the notification backends a piece of help text names
+function Get-NotifyBackend {
+    param([string]$Text)
+
+    $value = [regex]::Matches($Text, "\b(none|mail|http)\b") |
+        ForEach-Object { $_.Groups[1].Value }
+
+    return @($value | Sort-Object -Unique)
+}
+
+# Test 88: The two implementations offer the same flags, read the same
+# environment variables and accept the same configuration keys
+function Test-PublicInterfaceMatchesTheBashSide {
+    Enter-TestEnvironment
+    $bashScript = Join-Path (Split-Path -Parent $ScriptDir) "disk_monitor.sh"
+
+    $bashFlags = (Get-BashPublicFlag -Path $bashScript) -join " "
+    $powershellFlags = (Get-PowerShellPublicFlag -Path $MonitorScript) -join " "
+    $bashEnvironment = (Get-ImplementationEnvironmentName -Path $bashScript) -join " "
+    $powershellEnvironment = (Get-ImplementationEnvironmentName -Path $MonitorScript) -join " "
+    $bashKeys = (Get-BashConfigKey -Path $bashScript) -join " "
+    $powershellKeys = (Get-PowerShellConfigKey -Path $MonitorScript) -join " "
+
+    # The extractions are asserted to hold the interface, so a parser that
+    # silently matched nothing cannot let the comparison below pass.
+    Assert-Match -Haystack $bashFlags -Needle "partition" -TestName "Test 88a: The Bash flag extraction holds the interface"
+    Assert-Match -Haystack $powershellFlags -Needle "partition" -TestName "Test 88b: The PowerShell flag extraction holds the interface"
+    Assert-Match -Haystack $bashFlags -Needle "help" -TestName "Test 88c: The Bash flag extraction holds the help flag"
+    Assert-Match -Haystack $powershellFlags -Needle "help" -TestName "Test 88d: The PowerShell flag extraction holds the help flag"
+    Assert-Equal -Expected $bashFlags -Actual $powershellFlags -TestName "Test 88e: Both implementations offer the same flags"
+    Assert-Equal -Expected $bashEnvironment -Actual $powershellEnvironment -TestName "Test 88f: Both implementations read the same environment variables"
+    Assert-Equal -Expected $bashKeys -Actual $powershellKeys -TestName "Test 88g: Both implementations accept the same configuration keys"
+    Exit-TestEnvironment
+}
+
+# Test 89: Every help surface of both implementations names the same
+# notification backends. A transport that works on one platform and is
+# undocumented on the other is a transport the user of that platform cannot
+# find, so the documentation is part of the interface.
+function Test-DocumentedTransportSetMatchesTheBashSide {
+    Enter-TestEnvironment
+    $bashScript = Join-Path (Split-Path -Parent $ScriptDir) "disk_monitor.sh"
+    $bashText = Get-Content -Raw -LiteralPath $bashScript
+    $powershellText = Get-Content -Raw -LiteralPath $MonitorScript
+
+    $bashHelp = [regex]::Match($bashText, "(?ms)^show_help\(\) \{.*?^\}").Value
+    $bashNotifyLine = @($bashHelp -split "`n" | Where-Object { $_ -like "*--notify*" }) -join "`n"
+    $bashBackends = (Get-NotifyBackend -Text $bashNotifyLine) -join " "
+
+    $commentHelp = [regex]::Match($powershellText, "(?ms)^\.PARAMETER Notify.*?^\.PARAMETER").Value
+    $commentBackends = (Get-NotifyBackend -Text $commentHelp) -join " "
+
+    $usageHelp = [regex]::Match($powershellText, "(?ms)^function Show-Help \{.*?^\}").Value
+    $usageNotifyLine = @($usageHelp -split "`n" | Where-Object { $_ -like "*-Notify*" }) -join "`n"
+    $usageBackends = (Get-NotifyBackend -Text $usageNotifyLine) -join " "
+
+    Assert-Match -Haystack $bashBackends -Needle "http" -TestName "Test 89a: The Bash help names the HTTP backend"
+    Assert-Equal -Expected $bashBackends -Actual $commentBackends -TestName "Test 89b: The comment-based help names the same backends as the Bash help"
+    Assert-Equal -Expected $bashBackends -Actual $usageBackends -TestName "Test 89c: The usage text names the same backends as the Bash help"
+    Exit-TestEnvironment
+}
+
+# Test 90: The SMTP transport and the local mail agent transport are out of
+# scope on purpose. The value that would select an SMTP transport is refused
+# with the supported set named, which is what keeps the seam a value rather
+# than a dead flag.
+function Test-SmtpTransportIsNotOffered {
+    Enter-TestEnvironment
+    Invoke-Monitor -Arguments @("-Notify", "smtp", "-To", "ops@example.com")
+    Assert-Equal -Expected 1 -Actual $script:LastRunExitCode -TestName "Test 90a: The smtp backend exits with code 1"
+    Assert-Match -Haystack $script:LastStderr -Needle "none" -TestName "Test 90b: The refusal names the none backend"
+    Assert-Match -Haystack $script:LastStderr -Needle "mail" -TestName "Test 90c: The refusal names the mail backend"
+    Assert-Match -Haystack $script:LastStderr -Needle "http" -TestName "Test 90d: The refusal names the http backend"
+    Exit-TestEnvironment
+}
+
 Test-HttpMalformedConfigLineIsNotEchoed
 Test-DoctorReportsTheConfiguration
 Test-DoctorChangesNothing
@@ -1890,6 +2045,9 @@ Test-DoctorReportsAReadableConfigurationFile
 Test-DoctorRejectsAnOverflowingThreshold
 Test-DoctorReportsAMeasurementCommandFromTheConfigFile
 Test-DoctorSanitizesThePrintedValue
+Test-PublicInterfaceMatchesTheBashSide
+Test-DocumentedTransportSetMatchesTheBashSide
+Test-SmtpTransportIsNotOffered
 
 Write-Host "============================================================"
 Write-Host "Tests Summary: $([char]27)[0;32m$script:PassedCount Passed$([char]27)[0m, $([char]27)[0;31m$script:FailedCount Failed$([char]27)[0m"

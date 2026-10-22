@@ -4,10 +4,11 @@
     Disk usage monitor with threshold alerting.
 
 .DESCRIPTION
-    Measures the usage of a mounted filesystem and hands an alert to the host
-    mail agent when the usage crosses a threshold. The module holds no
-    credentials and opens no socket of its own: it composes the alert and
-    hands it to a mail agent that the host already provides.
+    Measures the usage of a mounted filesystem and hands an alert to the
+    configured transport when the usage crosses a threshold. The transport is
+    the host mail agent or an HTTP endpoint. The HTTP request is sent by an
+    external client, so the module opens no socket of its own and holds no
+    credential: a credential travels in a header the caller supplies.
 
     The measurement source is the POSIX df output on Linux and macOS, and the
     native volume API on Windows. Both report the capacity as a percentage.
@@ -30,7 +31,7 @@
     Report the alert without handing it to the mail agent.
 
 .PARAMETER Notify
-    Notification backend, either "none" or "mail" (Default: mail).
+    Notification backend, either "none", "mail" or "http" (Default: mail).
 
 .PARAMETER To
     Alert recipient. Defaults to the DISK_MONITOR_TO environment variable.

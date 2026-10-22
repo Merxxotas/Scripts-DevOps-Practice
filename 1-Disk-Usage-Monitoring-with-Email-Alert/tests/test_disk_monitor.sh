@@ -12,6 +12,10 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 MONITOR_SCRIPT="$SCRIPT_DIR/disk_monitor.sh"
+# The other implementation is read as a source file by the parity tests: this
+# suite runs under one interpreter, and the interface of the other side is
+# declared in its argument parser.
+MONITOR_SCRIPT_PS="$SCRIPT_DIR/disk_monitor.ps1"
 TEST_SANDBOX="$(mktemp -d "${TMPDIR:-/tmp}/test_disk_monitor.XXXXXX")"
 STUB_DIR="$TEST_SANDBOX/stubs"
 CAPTURE_FILE="$TEST_SANDBOX/mail_capture.txt"
@@ -1511,6 +1515,141 @@ assert_no_line_starts_with() {
     fi
 }
 
+# ==============================================================================
+# Parity between the two implementations (S20)
+#
+# The module contract requires the Bash and the PowerShell implementation to
+# offer the same flags, to read the same environment variables and to accept
+# the same configuration keys. The suite runs under one interpreter, so the
+# other implementation is read as a source file: the interface of each side is
+# declared in its argument parser, and that is plain text.
+# ==============================================================================
+
+# Prints the long flags of the Bash argument parser, one per line, without the
+# leading dashes.
+bash_public_flags() {
+    sed -n '/^parse_arguments()/,/^}/p' "$1" |
+        grep -oE '\-\-[a-z][a-z-]*\)' |
+        sed -E 's/^--//; s/\)$//' |
+        sort -u
+}
+
+# Prints the parameters of the PowerShell param block as long flags, one per
+# line, without the leading dashes. -Verbose is added when the script is an
+# advanced function, because it is a common parameter of the binder and never
+# appears in the block even though the caller sees it.
+powershell_public_flags() {
+    local parameters=""
+
+    parameters="$(sed -n '/^param(/,/^)/p' "$1" |
+        grep -oE '\[(string|string\[\]|switch)\]\$[A-Za-z]+' |
+        sed 's/.*\$//')"
+
+    if grep -q '^\[CmdletBinding()\]' "$1"; then
+        parameters="${parameters}"$'\n'"Verbose"
+    fi
+
+    printf '%s\n' "$parameters" |
+        sed -E 's/([a-z0-9])([A-Z])/\1-\2/g' |
+        tr '[:upper:]' '[:lower:]' |
+        sort -u
+}
+
+# Prints the environment variables an implementation reads, one per line.
+implementation_environment_names() {
+    grep -oE 'DISK_MONITOR_[A-Z_]+' "$1" | sort -u
+}
+
+# Prints the configuration keys the Bash implementation accepts.
+bash_config_keys() {
+    sed -n '/case "\$key" in/,/esac/p' "$1" |
+        grep -oE '^[[:space:]]+[a-z_]+\)' |
+        sed -E 's/^[[:space:]]+//; s/\)$//' |
+        sort -u
+}
+
+# Prints the configuration keys the PowerShell implementation accepts.
+powershell_config_keys() {
+    sed -n '/switch (\$key) {/,/^        }/p' "$1" |
+        grep -oE '^[[:space:]]+"[a-z_]+"' |
+        sed -E 's/^[[:space:]]+"//; s/"$//' |
+        sort -u
+}
+
+# Prints the notification backends a piece of help text names.
+notify_backends_in() {
+    grep -owE '(none|mail|http)' | sort -u
+}
+
+# Test 88: The two implementations offer the same flags, read the same
+# environment variables and accept the same configuration keys. A flag that
+# exists on one side only is a defect, and this is the assertion that makes it
+# one.
+test_parity_of_the_public_interface() {
+    local bash_flags=""
+    local powershell_flags=""
+    local bash_environment=""
+    local powershell_environment=""
+    local bash_keys=""
+    local powershell_keys=""
+
+    setup
+    bash_flags="$(bash_public_flags "$MONITOR_SCRIPT" | tr '\n' ' ')"
+    powershell_flags="$(powershell_public_flags "$MONITOR_SCRIPT_PS" | tr '\n' ' ')"
+    bash_environment="$(implementation_environment_names "$MONITOR_SCRIPT" | tr '\n' ' ')"
+    powershell_environment="$(implementation_environment_names "$MONITOR_SCRIPT_PS" | tr '\n' ' ')"
+    bash_keys="$(bash_config_keys "$MONITOR_SCRIPT" | tr '\n' ' ')"
+    powershell_keys="$(powershell_config_keys "$MONITOR_SCRIPT_PS" | tr '\n' ' ')"
+
+    # The extractions are asserted to hold the interface, so a parser that
+    # silently matched nothing cannot let the comparison below pass.
+    assert_contains "$bash_flags" "partition" "Test 88a: The Bash flag extraction holds the interface"
+    assert_contains "$powershell_flags" "partition" "Test 88b: The PowerShell flag extraction holds the interface"
+    assert_contains "$bash_flags" "doctor" "Test 88c: The Bash flag extraction holds the doctor"
+    assert_contains "$powershell_flags" "doctor" "Test 88d: The PowerShell flag extraction holds the doctor"
+    assert_equals "$bash_flags" "$powershell_flags" "Test 88e: Both implementations offer the same flags"
+    assert_equals "$bash_environment" "$powershell_environment" "Test 88f: Both implementations read the same environment variables"
+    assert_equals "$bash_keys" "$powershell_keys" "Test 88g: Both implementations accept the same configuration keys"
+    teardown
+}
+
+# Test 89: Every help surface of both implementations names the same
+# notification backends. A transport that works on one platform and is
+# undocumented on the other is a transport the user of that platform cannot
+# find, so the documentation is part of the interface.
+test_parity_of_the_documented_transports() {
+    local bash_backends=""
+    local comment_help_backends=""
+    local usage_text_backends=""
+
+    setup
+    bash_backends="$(sed -n '/^show_help()/,/^}/p' "$MONITOR_SCRIPT" |
+        grep -F -- '--notify' | notify_backends_in | tr '\n' ' ')"
+    comment_help_backends="$(sed -n '/^\.PARAMETER Notify/,/^\.PARAMETER MailCommand/p' "$MONITOR_SCRIPT_PS" |
+        notify_backends_in | tr '\n' ' ')"
+    usage_text_backends="$(sed -n '/^function Show-Help/,/^}/p' "$MONITOR_SCRIPT_PS" |
+        grep -F -- '-Notify' | notify_backends_in | tr '\n' ' ')"
+
+    assert_contains "$bash_backends" "http" "Test 89a: The Bash help names the HTTP backend"
+    assert_equals "$bash_backends" "$comment_help_backends" "Test 89b: The PowerShell comment-based help names the same backends as the Bash help"
+    assert_equals "$bash_backends" "$usage_text_backends" "Test 89c: The PowerShell usage text names the same backends as the Bash help"
+    teardown
+}
+
+# Test 90: The SMTP transport and the local mail agent transport are out of
+# scope on purpose. The value that would select an SMTP transport is refused
+# with the supported set named, which is what keeps the seam a value rather
+# than a dead flag.
+test_smtp_transport_is_not_offered() {
+    setup
+    run_monitor --notify smtp --to ops@example.com
+    assert_equals "1" "$LAST_EXIT_CODE" "Test 90a: The smtp backend exits with code 1"
+    assert_contains "$LAST_STDERR" "none" "Test 90b: The refusal names the none backend"
+    assert_contains "$LAST_STDERR" "mail" "Test 90c: The refusal names the mail backend"
+    assert_contains "$LAST_STDERR" "http" "Test 90d: The refusal names the http backend"
+    teardown
+}
+
 # Run all tests
 printf "%bStarting Bash Disk Monitor Test Suite...%b\n" "$CYAN" "$RESET"
 test_help_menu
@@ -1600,6 +1739,9 @@ test_doctor_reports_a_readable_configuration_file
 test_doctor_rejects_an_overflowing_threshold
 test_doctor_reports_a_measurement_command_from_the_config_file
 test_doctor_sanitizes_the_printed_value
+test_parity_of_the_public_interface
+test_parity_of_the_documented_transports
+test_smtp_transport_is_not_offered
 
 printf "============================================================\n"
 printf "Tests Summary: %b%d Passed%b, %b%d Failed%b\n" "$GREEN" "$PASSED_TESTS" "$RESET" "$RED" "$FAILED_TESTS" "$RESET"
