@@ -131,6 +131,31 @@ exit 0
 STUB
     chmod +x "$STUB_DIR/curl_alt"
 
+    cat > "$STUB_DIR/curl_status" <<'STUB'
+#!/bin/bash
+# Fake HTTP client that reproduces curl's handling of an HTTP error status.
+# Real curl exits 0 for a 4xx unless it is told to fail, which is the whole
+# point: the exit code is decided by the arguments the module passes, not by
+# an opinion the stub holds on its own.
+status="${STUB_HTTP_STATUS:-200}"
+{
+    printf 'ARGC:%s\n' "$#"
+    printf 'ARG:%s\n' "$@"
+    printf 'STDIN-BEGIN\n'
+    cat
+    printf 'STDIN-END\n'
+} >> "${STUB_HTTP_CAPTURE:-/dev/null}"
+for argument in "$@"; do
+    if [[ "$argument" == "--fail" && "$status" -ge 400 ]]; then
+        printf 'curl: (22) The requested URL returned error: %s\n' "$status" >&2
+        exit 22
+    fi
+done
+printf 'server body\n'
+exit 0
+STUB
+    chmod +x "$STUB_DIR/curl_status"
+
     PATH="$STUB_DIR:$ORIGINAL_PATH"
     export PATH
     : > "$CAPTURE_FILE"
@@ -145,6 +170,7 @@ STUB
     export STUB_DF_FAIL=0
     export STUB_MAIL_FAIL=0
     export STUB_HTTP_FAIL=0
+    export STUB_HTTP_STATUS=200
     unset DISK_MONITOR_TO DISK_MONITOR_MAIL_COMMAND DISK_MONITOR_USAGE_OVERRIDE DISK_MONITOR_USAGE_COMMAND \
         DISK_MONITOR_CONFIG DISK_MONITOR_THRESHOLD DISK_MONITOR_PARTITION DISK_MONITOR_NOTIFY \
         DISK_MONITOR_LOG_FILE DISK_MONITOR_URL DISK_MONITOR_BODY_TEMPLATE DISK_MONITOR_HEADER \
@@ -1650,6 +1676,28 @@ test_smtp_transport_is_not_offered() {
     teardown
 }
 
+# Test 91: An HTTP error status is a failed hand-off, not a delivery. curl
+# exits 0 for a 4xx unless it is asked to fail, so the module has to ask: an
+# alert a service rejected must not be recorded as sent.
+test_http_error_status_is_a_failed_handoff() {
+    setup
+    export STUB_DF_USAGE=95
+    export STUB_HTTP_STATUS=401
+    local audit_file="$TEST_SANDBOX/logs/audit.log"
+    run_monitor -t 80 --notify http --url "https://ntfy.sh/disk-alerts" \
+        --http-command "$STUB_DIR/curl_status" -l "$audit_file"
+
+    assert_equals "2" "$LAST_EXIT_CODE" "Test 91a: A rejected request exits with code 2"
+
+    local audit_content=""
+    audit_content="$(cat "$audit_file" 2>/dev/null || true)"
+    assert_not_contains "$audit_content" "ALERT SENT" \
+        "Test 91b: The audit log does not claim the alert was sent"
+    assert_contains "$audit_content" "FAILED to hand the alert" \
+        "Test 91c: The audit log records the failed hand-off"
+    teardown
+}
+
 # Run all tests
 printf "%bStarting Bash Disk Monitor Test Suite...%b\n" "$CYAN" "$RESET"
 test_help_menu
@@ -1742,6 +1790,7 @@ test_doctor_sanitizes_the_printed_value
 test_parity_of_the_public_interface
 test_parity_of_the_documented_transports
 test_smtp_transport_is_not_offered
+test_http_error_status_is_a_failed_handoff
 
 printf "============================================================\n"
 printf "Tests Summary: %b%d Passed%b, %b%d Failed%b\n" "$GREEN" "$PASSED_TESTS" "$RESET" "$RED" "$FAILED_TESTS" "$RESET"

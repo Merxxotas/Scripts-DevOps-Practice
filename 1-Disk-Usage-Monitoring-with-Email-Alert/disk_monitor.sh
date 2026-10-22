@@ -938,10 +938,12 @@ render_body_template() {
 }
 
 # Hands the alert to the resolved HTTP client. The contract is:
-#   <http-command> --silent --show-error --max-time <seconds>
+#   <http-command> --silent --show-error --fail --max-time <seconds>
 #                   --request <method> --header <name: value>...
 #                   --data-binary @- <url>
-# with the rendered body on standard input.
+# with the rendered body on standard input. --fail is not optional: without
+# it the client exits 0 for a 4xx or a 5xx, so a rejected alert would be
+# reported and audited as sent.
 send_http_alert() {
     local url="$1"
     local body="$2"
@@ -950,7 +952,7 @@ send_http_alert() {
     local header=""
     local -a client_args
 
-    client_args=(--silent --show-error --max-time "$timeout" --request "$method")
+    client_args=(--silent --show-error --fail --max-time "$timeout" --request "$method")
     if [[ "${#HTTP_HEADERS[@]}" -gt 0 ]]; then
         for header in "${HTTP_HEADERS[@]}"; do
             client_args+=(--header "$header")

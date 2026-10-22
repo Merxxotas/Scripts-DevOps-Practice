@@ -34,6 +34,7 @@ $ErrFile = Join-Path $TestSandbox "stderr.txt"
 $UsageStub = Join-Path $StubDir "usage_stub.ps1"
 $MailStub = Join-Path $StubDir "mail_stub.ps1"
 $HttpStub = Join-Path $StubDir "http_stub.ps1"
+$HttpStatusStub = Join-Path $StubDir "http_status_stub.ps1"
 $script:OriginalPath = $env:PATH
 
 # The interpreter is resolved once, by its own path, so the suite can run a
@@ -157,6 +158,33 @@ if ($env:DISK_MONITOR_STUB_HTTP_FAIL -eq "1") {
 exit 0
 '@ | Set-Content -LiteralPath $HttpStub -Encoding utf8
 
+    # HTTP client stub that reproduces curl's handling of an HTTP error
+    # status. Real curl exits 0 for a 4xx unless it is told to fail, which is
+    # the whole point: the exit code is decided by the arguments the module
+    # passes, not by an opinion the stub holds on its own.
+    @'
+$lines = @()
+$lines += "ARGC:$($args.Count)"
+foreach ($item in $args) {
+    $lines += "ARG:$item"
+}
+$lines += "STDIN-BEGIN"
+$lines += ($input | Out-String)
+$lines += "STDIN-END"
+Add-Content -LiteralPath $env:DISK_MONITOR_STUB_HTTP_CAPTURE -Value $lines
+
+$status = 200
+if (-not [string]::IsNullOrEmpty($env:DISK_MONITOR_STUB_HTTP_STATUS)) {
+    $status = [int]$env:DISK_MONITOR_STUB_HTTP_STATUS
+}
+if ($args -contains "--fail" -and $status -ge 400) {
+    [Console]::Error.WriteLine("curl: (22) The requested URL returned error: $status")
+    exit 22
+}
+Write-Output "server body"
+exit 0
+'@ | Set-Content -LiteralPath $HttpStatusStub -Encoding utf8
+
     # A client shim on PATH, so the default resolution can be observed. The
     # shim is never invoked by the suite: only the resolution is observed.
     if ($IsWindows) {
@@ -184,6 +212,7 @@ exit 0
     $env:DISK_MONITOR_STUB_DF_FAIL = "0"
     $env:DISK_MONITOR_STUB_MAIL_FAIL = "0"
     $env:DISK_MONITOR_STUB_HTTP_FAIL = "0"
+    $env:DISK_MONITOR_STUB_HTTP_STATUS = "200"
     $env:DISK_MONITOR_USAGE_COMMAND = $UsageStub
     Remove-Item Env:DISK_MONITOR_USAGE_OVERRIDE -ErrorAction SilentlyContinue
     Remove-Item Env:DISK_MONITOR_TO -ErrorAction SilentlyContinue
@@ -210,6 +239,7 @@ function Exit-TestEnvironment {
     Remove-Item Env:DISK_MONITOR_STUB_DF_FAIL -ErrorAction SilentlyContinue
     Remove-Item Env:DISK_MONITOR_STUB_MAIL_FAIL -ErrorAction SilentlyContinue
     Remove-Item Env:DISK_MONITOR_STUB_HTTP_FAIL -ErrorAction SilentlyContinue
+    Remove-Item Env:DISK_MONITOR_STUB_HTTP_STATUS -ErrorAction SilentlyContinue
     Remove-Item Env:DISK_MONITOR_USAGE_COMMAND -ErrorAction SilentlyContinue
     Remove-Item Env:DISK_MONITOR_USAGE_OVERRIDE -ErrorAction SilentlyContinue
     Remove-Item Env:DISK_MONITOR_TO -ErrorAction SilentlyContinue
@@ -2026,6 +2056,27 @@ function Test-SmtpTransportIsNotOffered {
     Exit-TestEnvironment
 }
 
+# Test 91: An HTTP error status is a failed hand-off, not a delivery. curl
+# exits 0 for a 4xx unless it is asked to fail, so the module has to ask: an
+# alert a service rejected must not be recorded as sent.
+function Test-HttpErrorStatusIsAFailedHandoff {
+    Enter-TestEnvironment
+    $env:DISK_MONITOR_STUB_DF_USAGE = "95"
+    $env:DISK_MONITOR_STUB_HTTP_STATUS = "401"
+    $auditFile = Join-Path $TestSandbox "logs/audit.log"
+    Invoke-Monitor -Arguments @("-Threshold", "80", "-Notify", "http", "-Url", "https://ntfy.sh/disk-alerts", "-HttpCommand", $HttpStatusStub, "-LogFile", $auditFile)
+    Assert-Equal -Expected 2 -Actual $script:LastRunExitCode -TestName "Test 91a: A rejected request exits with code 2"
+
+    $audit = ""
+    if (Test-Path -LiteralPath $auditFile) {
+        $raw = Get-Content -Raw -LiteralPath $auditFile
+        if ($null -ne $raw) { $audit = $raw }
+    }
+    Assert-Absent -Haystack $audit -Needle "ALERT SENT" -TestName "Test 91b: The audit log does not claim the alert was sent"
+    Assert-Match -Haystack $audit -Needle "FAILED to hand the alert" -TestName "Test 91c: The audit log records the failed hand-off"
+    Exit-TestEnvironment
+}
+
 Test-HttpMalformedConfigLineIsNotEchoed
 Test-DoctorReportsTheConfiguration
 Test-DoctorChangesNothing
@@ -2048,6 +2099,7 @@ Test-DoctorSanitizesThePrintedValue
 Test-PublicInterfaceMatchesTheBashSide
 Test-DocumentedTransportSetMatchesTheBashSide
 Test-SmtpTransportIsNotOffered
+Test-HttpErrorStatusIsAFailedHandoff
 
 Write-Host "============================================================"
 Write-Host "Tests Summary: $([char]27)[0;32m$script:PassedCount Passed$([char]27)[0m, $([char]27)[0;31m$script:FailedCount Failed$([char]27)[0m"

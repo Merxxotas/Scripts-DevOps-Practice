@@ -1171,10 +1171,12 @@ function Format-BodyTemplate {
 }
 
 # Hands the alert to the resolved HTTP client. The contract is:
-#   <http-command> --silent --show-error --max-time <seconds>
+#   <http-command> --silent --show-error --fail --max-time <seconds>
 #                   --request <method> --header <name: value>...
 #                   --data-binary @- <url>
-# with the rendered body on standard input.
+# with the rendered body on standard input. --fail is not optional: without
+# it the client exits 0 for a 4xx or a 5xx, so a rejected alert would be
+# reported and audited as sent.
 function Send-HttpAlert {
     param(
         [string]$Endpoint,
@@ -1188,6 +1190,7 @@ function Send-HttpAlert {
     $clientArgs = @(
         "--silent",
         "--show-error",
+        "--fail",
         "--max-time",
         $TimeoutSeconds.ToString([System.Globalization.CultureInfo]::InvariantCulture),
         "--request",
