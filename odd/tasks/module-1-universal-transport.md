@@ -170,14 +170,14 @@ Windows behaviour of the HTTP transport provable rather than asserted.
 | T1 | S9, S10, S11 | The configuration file: parser, precedence, secret handling, both implementations | Inline | ✅ | `a3cea7a` + three fixes — **77 passed, 0 failed** on all four suite jobs in run `39646002248` |
 | T2 | S5, S6, S7, S8 | The HTTP transport: both implementations, with a stub client on `PATH` | Inline | ✅ | `fd12e3e` + `aae787e` — **171 passed, 0 failed** on all four suite jobs in run `39654069737` |
 | T3 | S12, S13 | The doctor command: both implementations, with the per-platform remedy | Inline | ✅ | `cc99bd4` + `df29e38` + `efba983` + `e5c32d5` — **243 passed, 0 failed** on the Bash suite and **green on all six CI jobs** (run `39677118704`: Bash on Linux and macOS, PowerShell on Ubuntu and Windows, both lint gates) |
-| T4 | S14, S15, S20 | Parity proof across the two implementations, including the transports that already existed | Inline | ⬜ | — |
+| T4 | S14, S15, S20 | Parity proof across the two implementations, including the transports that already existed | Inline | ✅ | `a93f0be` — **257 passed, 0 failed** on the Bash suite (+14 assertions); parity tests mirrored in both suites; native review `review-7f70ee03fae2019c` approved, 10 advisories queued in T11 |
 | T5 | S16, S19 | The CI pipeline: no new job needed, but the new behaviour must be proven on all three platforms | Inline | ⬜ | — |
 | T6 | S2, S3, S16 | `SPECS.md`, `ROADMAP.md`, `CODESTYLE.md`, `README.md` | Delegated | ⬜ | — |
 | T7 | S3, S5, S6 | `docs/ARCHITECTURE_COMPARISON.md`, `docs/SCENARIOS.md`, `docs/labs/LAB1-3.md` | Delegated | ⬜ | — |
 | T8 | S3 | The wiki pages 13 to 15, the sidebar, the home page and the architecture page | Delegated | ⬜ | — |
 | T9 | S3, S16 | `MODULES.md`, the root `README.md` and `CHANGELOG.md` | Delegated | ⬜ | — |
 | T10 | S17, S18 | Full local matrix verification; close with a `Risk:` line | Inline | ⬜ | — |
-| T11 | S11, S13 | The advisory findings of the two native reviews of the doctor work | Inline | ⬜ | 55 findings in all, none of them blocking; the list is in **L11** and **L13**; receipts `review-b79e589c5ce6f3ed` and `review-ae75ad75bbff3c98` |
+| T11 | S11, S13 | The advisory findings of the native reviews of the doctor and parity work | Inline | ⬜ | 65 findings in all, none of them blocking; the lists are in **L11**, **L13** and **L14**; receipts `review-b79e589c5ce6f3ed`, `review-ae75ad75bbff3c98` and `review-7f70ee03fae2019c` |
 
 > Task IDs are stable; the table is ordered by execution sequence.
 
@@ -412,7 +412,56 @@ approved the candidate without a correction. The receipt is `review-ae75ad75bbff
 - The next step: **T4**, the parity proof across the two implementations, with T11 in the
   queue behind it.
 
----
+**L14** — 2026-10-22. T4 executed on `feat/1-universal-transport`. The parity between the two
+implementations is now a test and not a practice, and the test found a real divergence.
+
+- **RED:** Test 89b failed against the branch. The comment-based help of the PowerShell script
+  offered the `none` and `mail` backends and omitted `http`, so `Get-Help` on Windows told the
+  reader that the transport this branch adds does not exist. **GREEN:** 257 passed, 0 failed on
+  the Bash suite, fourteen assertions more than the 243 of T3.
+- **How the proof works, and what it costs.** The suite runs under one interpreter, so the other
+  implementation is read as a source file: the long flags of the Bash `case` block, the parameters
+  of the PowerShell `param` block, the `DISK_MONITOR_*` names and the configuration keys of both
+  parsers. The comparison is set equality in both directions, so a flag added to one side and
+  forgotten on the other fails both suites. `-Verbose` is added by hand, because it is a common
+  parameter of the binder and never appears in the `param` block.
+- **The cost is that the proof reads declaration formatting.** A parameter declared with a type
+  the extractor does not know, or a `case` label shaped differently, is invisible to it. The
+  extractor asserts that it found `partition`, `doctor` and `help` before it compares, so it
+  cannot pass on an empty scrape of the flags; the environment and configuration extractions had
+  no such guard, and the review found it. That is T11 material, and it is listed below.
+- **Exit codes and guardrails are proven behaviourally and not by the extractor.** The two suites
+  run the same scenario matrix against their own implementation — invalid flag, threshold,
+  endpoint and transport exit 1; a failed measurement or handoff exits 2; a successful check
+  exits 0 — and the mail transport test of each side asserts the same three effects: exit 0, the
+  recipient reached the agent, the HTTP client was never touched. The extractor deliberately does
+  not compare these, because a static claim about an exit code is weaker than the run itself.
+- **S14 is a guard and not a defect fix.** `--notify smtp` exits 1 and the refusal names the
+  three supported backends, on both sides. The value that would select a deferred transport is
+  refused rather than reserved, which is what keeps the seam a value and not a dead flag.
+- **The review approved the candidate without a correction.** The receipt is
+  `review-7f70ee03fae2019c`, burned with the exact acknowledgement. Ten advisories came back, all
+  non-blocking, and they join T11:
+  - The environment-variable and configuration-key extractions are compared without a non-empty
+    guard, so a scrape that matches nothing would compare an empty string with an empty string
+    and pass. (`R2-1`, `R3-vacuous-guards`.)
+  - The PowerShell extraction anchors on a literal run of eight spaces, and the Bash comment-help
+    extraction ends at a hardcoded `.PARAMETER MailCommand` line, so a reformat or a rename can
+    widen or empty a block. (`R2-2`, `R3-hardcoded-range`.)
+  - The extractor measures declaration formatting, not the CLI contract, and recognizes only the
+    types and case-label shapes the two scripts use today. (`R3-extractor-scope`.)
+  - The same six extractors exist twice, once per interpreter, so a rule has four copies to keep
+    in step. (`R2-3`.)
+  - Test 90's comment says the local mail agent is out of scope, while the mail agent is the
+    supported default; only the `smtp` value is refused. (`R2-4`.)
+  - The help prose names the HTTP transport without naming the parameter or the environment
+    variable that activates it. (`R2-5`.)
+  - Nothing asserts that the documented backend set equals the implemented one, so a help entry
+    for a backend the validation rejects would keep the tests green. (`R3-doc-parity`.)
+  - Test 90 asserts bare substrings of stderr, so a message that mentions the words incidentally
+    would satisfy it. (`R3-weak-substring`.)
+- The next step: **T6 to T9** in parallel, the four documentation units, with **T11** behind them
+  and **T5** answered by the CI run of the pushed branch.
 
 ## Close
 
