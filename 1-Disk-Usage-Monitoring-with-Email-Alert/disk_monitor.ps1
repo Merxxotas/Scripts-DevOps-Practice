@@ -965,13 +965,13 @@ function Test-FileReadableByOther {
     param([string]$Path)
 
     if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) {
-        return $false
+        return $null
     }
 
     if ($IsWindows) {
         $acl = Get-Acl -LiteralPath $Path -ErrorAction SilentlyContinue
         if ($null -eq $acl) {
-            return $false
+            return $null
         }
 
         # Only the Everyone principal is reported on Windows, by name and by
@@ -998,11 +998,15 @@ function Test-FileReadableByOther {
     # their own flag and not by the spelling of the mode.
     $reader = [System.IO.File].GetMethod("GetUnixFileMode", [Type[]]@([string]))
     if ($null -ne $reader) {
-        $mode = [System.IO.File]::GetUnixFileMode($Path)
-        $groupRead = $mode.HasFlag([System.IO.UnixFileMode]::GroupRead)
-        $otherRead = $mode.HasFlag([System.IO.UnixFileMode]::OtherRead)
+        try {
+            $mode = [System.IO.File]::GetUnixFileMode($Path)
+            $groupRead = $mode.HasFlag([System.IO.UnixFileMode]::GroupRead)
+            $otherRead = $mode.HasFlag([System.IO.UnixFileMode]::OtherRead)
 
-        return ($groupRead -or $otherRead)
+            return ($groupRead -or $otherRead)
+        } catch {
+            return $null
+        }
     }
 
     # The API that reads the mode arrived in .NET 7, so the mode of the file
@@ -1285,11 +1289,16 @@ function Invoke-Doctor {
 
     # A file may hold a token, so a file other users can read is reported. The
     # warning is independent of the two problems above: a file that cannot be
-    # read is exactly the file whose mode the reader needs to see.
+    # read is exactly the file whose mode the reader needs to see. A mode the
+    # tool cannot read at all is also a finding, and not a silent pass.
     if (-not [string]::IsNullOrEmpty($script:ConfigFilePath) -and (Test-Path -LiteralPath $script:ConfigFilePath -PathType Leaf)) {
-        if (Test-FileReadableByOther -Path $script:ConfigFilePath) {
+        $readableByOthers = Test-FileReadableByOther -Path $script:ConfigFilePath
+        if ($readableByOthers -eq $true) {
             $restrictCommand = Get-ConfigFileRestrictCommand -Path $script:ConfigFilePath
             Add-DoctorWarning "The configuration file '$($script:ConfigFilePath)' can be read by other users. Restrict it: $restrictCommand"
+        } elseif ($null -eq $readableByOthers) {
+            $restrictCommand = Get-ConfigFileRestrictCommand -Path $script:ConfigFilePath
+            Add-DoctorWarning "The read permission of the configuration file '$($script:ConfigFilePath)' could not be determined. Restrict it to be safe: $restrictCommand"
         }
     }
 

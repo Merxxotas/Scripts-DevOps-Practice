@@ -530,7 +530,9 @@ generic suggestion. A configuration file that other users can read is reported a
 with its remedy and does **not** change the exit code: the tool still runs, and a freshly created
 file is readable by others until it is restricted. The remedy is a command you can paste, with the
 path quoted the way the shell of that platform reads it, including a path that holds a quote. A
-file that exists but cannot be read is a **problem** and exits `1`: without it the run would fall
+file whose permission bits the doctor cannot read at all is reported with the same warning and the
+same remedy: the tool cannot tell whether it is safe, so it treats it as unsafe. A file that exists
+but cannot be read is a **problem** and exits `1`: without it the run would fall
 back to the defaults, and the doctor is where the permission of the file is named.
 
 ---

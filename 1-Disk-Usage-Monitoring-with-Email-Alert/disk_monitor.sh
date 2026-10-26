@@ -801,7 +801,9 @@ file_permission_mode() {
 
 # Reports whether a file can be read by a user other than its owner. The
 # configuration file may hold a token, so a file that other users can read
-# is a finding the doctor has to report.
+# is a finding the doctor has to report. The answer is three-valued, because
+# a mode that cannot be read at all is not a private file: the caller is
+# told "unknown" instead of being left to assume it is safe.
 file_is_readable_by_others() {
     local path="$1"
     local mode=""
@@ -813,8 +815,10 @@ file_is_readable_by_others() {
     # The host prints the mode without its leading zeros, so a file whose
     # owner has no permission is printed with two digits or one. The digits
     # that matter are read from the right, so the length is not fixed here.
+    # An empty mode is not an answer: it is reported as unknown, exit 2, so
+    # the caller never mistakes a missing check for a clean file.
     if [[ ! "$mode" =~ ^[0-7]{1,4}$ ]]; then
-        return 1
+        return 2
     fi
 
     # The mode ends with the owner, the group and the others, so the group
@@ -1256,10 +1260,16 @@ run_doctor() {
 
     # A file may hold a token, so a file other users can read is reported. The
     # warning is independent of the two problems above: a file that cannot be
-    # read is exactly the file whose mode the reader needs to see.
-    if [[ -n "$CONFIG_FILE" && -f "$CONFIG_FILE" ]] && file_is_readable_by_others "$CONFIG_FILE"; then
-        restrict_command="chmod 600 $(quote_for_shell "$CONFIG_FILE")"
-        add_doctor_warning "The configuration file '$CONFIG_FILE' can be read by other users. Restrict it: $restrict_command"
+    # read is exactly the file whose mode the reader needs to see. A mode the
+    # tool cannot read at all is also a finding, and not a silent pass.
+    if [[ -n "$CONFIG_FILE" && -f "$CONFIG_FILE" ]]; then
+        if file_is_readable_by_others "$CONFIG_FILE"; then
+            restrict_command="chmod 600 $(quote_for_shell "$CONFIG_FILE")"
+            add_doctor_warning "The configuration file '$CONFIG_FILE' can be read by other users. Restrict it: $restrict_command"
+        elif [[ $? -eq 2 ]]; then
+            restrict_command="chmod 600 $(quote_for_shell "$CONFIG_FILE")"
+            add_doctor_warning "The read permission of the configuration file '$CONFIG_FILE' could not be determined. Restrict it to be safe: $restrict_command"
+        fi
     fi
 
     # The threshold

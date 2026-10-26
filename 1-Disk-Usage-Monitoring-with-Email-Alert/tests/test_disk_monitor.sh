@@ -1531,6 +1531,27 @@ test_doctor_remedy_survives_a_quoted_path() {
     teardown
 }
 
+# Test 93: A mode the tool cannot determine is not a clean file. The doctor
+# runs on hosts where stat is absent, and a file it cannot classify must not
+# pass silently: the honest answer is that the permission could not be
+# determined, with the remedy that restricts the file.
+test_doctor_warns_when_the_permission_cannot_be_determined() {
+    setup
+    local config_file="$TEST_SANDBOX/monitor.conf"
+    printf 'url = https://ntfy.sh/your-topic\n' > "$config_file"
+    chmod 600 "$config_file"
+    run_monitor_with_path "$STUB_DIR" --doctor --config "$config_file" \
+        --notify http --url https://ntfy.sh/disk-alerts \
+        --http-command "$STUB_DIR/curl"
+
+    assert_equals "0" "$LAST_EXIT_CODE" "Test 93a: Nothing is missing, so the tool is ready"
+    assert_contains "$LAST_STDOUT" "could not be determined" \
+        "Test 93b: An undetermined permission is reported"
+    assert_contains "$LAST_STDOUT" "chmod 600" \
+        "Test 93c: The remedy restricts the file"
+    teardown
+}
+
 # Test 85: A threshold that does not fit in an integer is a configuration
 # error, and the doctor names it instead of overflowing. The value is 2^64
 # plus one, which a 64-bit comparison wraps to 1 and accepts as a threshold.
@@ -1864,6 +1885,7 @@ test_parity_of_the_documented_transports
 test_smtp_transport_is_not_offered
 test_http_error_status_is_a_failed_handoff
 test_doctor_remedy_survives_a_quoted_path
+test_doctor_warns_when_the_permission_cannot_be_determined
 
 printf "============================================================\n"
 printf "Tests Summary: %b%d Passed%b, %b%d Failed%b\n" "$GREEN" "$PASSED_TESTS" "$RESET" "$RED" "$FAILED_TESTS" "$RESET"
