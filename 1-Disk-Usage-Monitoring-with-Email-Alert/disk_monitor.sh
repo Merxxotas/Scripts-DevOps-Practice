@@ -2,12 +2,13 @@
 # ==============================================================================
 # Script Name: disk_monitor.sh
 # Description: Disk usage monitor with threshold alerting. Measures the usage
-#              of a mounted filesystem and hands an alert to the host's mail
-#              agent when the usage crosses a threshold.
+#              of a mounted filesystem and hands an alert to the configured
+#              transport when the usage crosses a threshold. The transport is
+#              the host mail agent or an HTTP endpoint.
 #
 #              The module holds no credentials and opens no socket of its own.
-#              It composes the alert and hands it to a mail agent that the
-#              host already provides.
+#              The HTTP request is sent by an external client, and a
+#              credential travels in a header the caller supplies.
 # ==============================================================================
 
 set -euo pipefail
@@ -101,6 +102,9 @@ DOCTOR_MODE=false
 
 # The configuration file was named explicitly but does not exist
 CONFIG_FILE_MISSING=false
+
+# The configuration file exists but cannot be read by this account
+CONFIG_FILE_UNREADABLE=false
 
 # The problem found in the resolved headers, and the audit line it writes
 HEADER_PROBLEM=""
@@ -370,6 +374,15 @@ load_configuration() {
     fi
 
     CONFIG_FILE="$candidate"
+
+    # A file that exists but cannot be read is a configuration error, and not
+    # a file without settings: the run would otherwise fall back to the
+    # defaults and measure a disk with the wrong threshold and no recipient.
+    if [[ ! -r "$candidate" ]]; then
+        CONFIG_FILE_UNREADABLE=true
+        return 0
+    fi
+
     parse_config_file "$candidate"
 }
 
@@ -662,7 +675,9 @@ detect_kernel_name() {
 # the file every Linux distribution ships, so the report names the system the
 # tool was found on and not only the kernel. The kernel name comes from the
 # uname command when it is there, and from the shell's own variable when it
-# is not, so a minimal host is still named.
+# is not, so a minimal host is still named. When neither the kernel source
+# nor the distribution file answers, the helper falls back to the bare
+# string 'Linux'.
 resolve_platform_name() {
     local kernel=""
     local identifier=""
@@ -703,6 +718,13 @@ sanitize_for_display() {
     value="${value//$'\b'/}"
 
     printf '%s' "$value"
+}
+
+# Quotes a path as one word for the shell that pastes a printed remedy. The
+# reader copies a remedy out of the report and runs it, so a path that carries
+# a quote, a space or a metacharacter must not change what the command does.
+quote_for_shell() {
+    printf '%q' "$1"
 }
 
 # Removes the leading zeros of a numeric string, so a value is judged by its
@@ -763,9 +785,10 @@ is_valid_timeout() {
     return 0
 }
 
-# Reports the permission mode of a file in the three-digit octal form. The
-# POSIX stat and the BSD stat are both tried, because a Linux distribution
-# and a macOS host spell the option differently.
+# Reports the permission mode of a file in octal, as the host prints it: the
+# leading zeros are dropped, so a mode is one to four digits long. The POSIX
+# stat and the BSD stat are both tried, because a Linux distribution and a
+# macOS host spell the option differently.
 file_permission_mode() {
     local path="$1"
     local mode=""
@@ -780,7 +803,9 @@ file_permission_mode() {
 
 # Reports whether a file can be read by a user other than its owner. The
 # configuration file may hold a token, so a file that other users can read
-# is a finding the doctor has to report.
+# is a finding the doctor has to report. The answer is three-valued, because
+# a mode that cannot be read at all is not a private file: the caller is
+# told "unknown" instead of being left to assume it is safe.
 file_is_readable_by_others() {
     local path="$1"
     local mode=""
@@ -788,8 +813,14 @@ file_is_readable_by_others() {
     local other_digit=""
 
     mode="$(file_permission_mode "$path")"
-    if [[ ! "$mode" =~ ^[0-7]{3,4}$ ]]; then
-        return 1
+
+    # The host prints the mode without its leading zeros, so a file whose
+    # owner has no permission is printed with two digits or one. The digits
+    # that matter are read from the right, so the length is not fixed here.
+    # An empty mode is not an answer: it is reported as unknown, exit 2, so
+    # the caller never mistakes a missing check for a clean file.
+    if [[ ! "$mode" =~ ^[0-7]{1,4}$ ]]; then
+        return 2
     fi
 
     # The mode ends with the owner, the group and the others, so the group
@@ -937,10 +968,12 @@ render_body_template() {
 }
 
 # Hands the alert to the resolved HTTP client. The contract is:
-#   <http-command> --silent --show-error --max-time <seconds>
+#   <http-command> --silent --show-error --fail --max-time <seconds>
 #                   --request <method> --header <name: value>...
 #                   --data-binary @- <url>
-# with the rendered body on standard input.
+# with the rendered body on standard input. --fail is not optional: without
+# it the client exits 0 for a 4xx or a 5xx, so a rejected alert would be
+# reported and audited as sent.
 send_http_alert() {
     local url="$1"
     local body="$2"
@@ -949,7 +982,7 @@ send_http_alert() {
     local header=""
     local -a client_args
 
-    client_args=(--silent --show-error --max-time "$timeout" --request "$method")
+    client_args=(--silent --show-error --fail --max-time "$timeout" --request "$method")
     if [[ "${#HTTP_HEADERS[@]}" -gt 0 ]]; then
         for header in "${HTTP_HEADERS[@]}"; do
             client_args+=(--header "$header")
@@ -1216,18 +1249,28 @@ run_doctor() {
     local usage_command=""
     local http_client=""
     local mail_command=""
+    local restrict_command=""
 
     platform="$(resolve_platform_name)"
 
     # The configuration file
     if [[ "$CONFIG_FILE_MISSING" == true ]]; then
         add_doctor_problem "The configuration file '$CONFIG_FILE' was not found. Create it, or point --config at a file that exists."
-    elif [[ -n "$CONFIG_FILE" && -f "$CONFIG_FILE" ]]; then
-        # The file may hold a token, so a file other users can read is
-        # reported. It is a warning and not a problem: the tool still runs,
-        # and a new file is readable by others until it is restricted.
+    elif [[ "$CONFIG_FILE_UNREADABLE" == true ]]; then
+        add_doctor_problem "The configuration file '$CONFIG_FILE' exists but cannot be read. Give its owner read permission: chmod u+r $(quote_for_shell "$CONFIG_FILE")"
+    fi
+
+    # A file may hold a token, so a file other users can read is reported. The
+    # warning is independent of the two problems above: a file that cannot be
+    # read is exactly the file whose mode the reader needs to see. A mode the
+    # tool cannot read at all is also a finding, and not a silent pass.
+    if [[ -n "$CONFIG_FILE" && -f "$CONFIG_FILE" ]]; then
         if file_is_readable_by_others "$CONFIG_FILE"; then
-            add_doctor_warning "The configuration file '$CONFIG_FILE' can be read by other users. Restrict it: chmod 600 '$CONFIG_FILE'"
+            restrict_command="chmod 600 $(quote_for_shell "$CONFIG_FILE")"
+            add_doctor_warning "The configuration file '$CONFIG_FILE' can be read by other users. Restrict it: $restrict_command"
+        elif [[ $? -eq 2 ]]; then
+            restrict_command="chmod 600 $(quote_for_shell "$CONFIG_FILE")"
+            add_doctor_warning "The read permission of the configuration file '$CONFIG_FILE' could not be determined. Restrict it to be safe: $restrict_command"
         fi
     fi
 
@@ -1303,6 +1346,8 @@ run_doctor() {
 
     if [[ "$CONFIG_FILE_MISSING" == true ]]; then
         doctor_field "Config file" "(not found: $CONFIG_FILE)"
+    elif [[ "$CONFIG_FILE_UNREADABLE" == true ]]; then
+        doctor_field "Config file" "(cannot be read: $CONFIG_FILE)"
     elif [[ -n "$CONFIG_FILE" ]]; then
         doctor_field "Config file" "$CONFIG_FILE"
     else
@@ -1394,6 +1439,12 @@ main() {
     if [[ "$CONFIG_FILE_MISSING" == true && "$DOCTOR_MODE" != true ]]; then
         printf "%bError: Configuration file '%s' does not exist.%b\n" \
             "$COLOR_RED" "$CONFIG_FILE" "$COLOR_RESET" >&2
+        exit 1
+    fi
+
+    if [[ "$CONFIG_FILE_UNREADABLE" == true && "$DOCTOR_MODE" != true ]]; then
+        printf "%bError: Configuration file '%s' cannot be read. Give its owner read permission: chmod u+r %s%b\n" \
+            "$COLOR_RED" "$CONFIG_FILE" "$(quote_for_shell "$CONFIG_FILE")" "$COLOR_RESET" >&2
         exit 1
     fi
 

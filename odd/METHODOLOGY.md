@@ -140,6 +140,39 @@ shared file has one owner or the parent edits it at the end; and one seam check 
 
 ---
 
+## Delivery strategy
+
+- **Work-unit commits** on a feature branch, one per coherent behaviour change, with tests and docs
+  alongside the behaviour. **Conventional Commits**, scoped by module: `feat(log-cleanup):`,
+  `fix(eventops-go):`, `docs(log-cleanup):`, `ci(eventops):`, `test(eventops):`. **Never** add
+  `Co-Authored-By` or AI attribution trailers.
+- **Delivery strategies** (one per feature): `ask-on-risk` *(default)*, `auto-chain`, `single-pr`,
+  `exception-ok`. Above roughly **400 authored changed lines**, apply the strategy before the next
+  commit — a heuristic, **not** a hard cap. Never shrink scope to hit it, never drop tests to hit it.
+- **Push, PR creation and merge remain human decisions.** Never force-push, never amend published
+  history, never open a PR unprompted.
+
+## Native review (receipt-driven development)
+
+The review switch is **user-owned** — `gentle-ai review mode status` (read-only), `enable` (only
+when the user explicitly asks), `disable` (when the user asks to stop). It is **on by default and
+opt-out**; an unset preference permits review, but explicit global or clone-local **OFF** wins.
+Candidate **consent is separate** from the mode default — global RDD enabled permits review but never
+grants consent for a candidate.
+
+The candidate is a **work-unit commit or a PR slice** — never a TODO checkbox, never the accumulated
+feature branch. Never lower prospective candidate risk by substituting model judgement, task size or
+defect severity, and never infer low risk from a failed assessment. When RDD is disabled: do not
+start reviews, do not retry, and deliver under ordinary policy, reporting `disabled/unmanaged`.
+
+## Memory
+
+Engram is the cross-session memory layer for this project. Project key: `scripts-devops-practice`.
+Save proactively — decisions, bug fixes with root cause, non-obvious discoveries, conventions,
+config changes, user preferences — in the format `**What**` / `**Why**` / `**Where**` / `**Learned**`.
+On resume: `mem_context` → project-scoped `mem_search` → `mem_get_observation` → the feature
+document. Close with `mem_session_summary`.
+
 ## Related
 
 - [`AGENTS.md`](../AGENTS.md) — invariants, module contract, CI model, known gotchas.

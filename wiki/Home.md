@@ -45,9 +45,14 @@ This wiki provides comprehensive architecture guides, deep-dive comparisons, ste
 - **[[12-CPU-Monitor-Scenarios-and-Labs|12. CPU Monitor Scenarios & Interactive Labs]]**: Scheduled checks, runaway-process triage, and 3 hands-on labs that run the real commands.
 
 ### 5. Module 1: Disk Usage Monitor
-- **[[13-Disk-Monitor-Overview|13. Disk Usage Monitor — Overview & Specs]]**: The sensor half of the disk loop, the shared exit-code contract, and the credential-free hand-off to the host's mail agent.
-- **[[14-Disk-Monitor-Bash-vs-PowerShell|14. Disk Monitor — Bash vs PowerShell]]**: One contract in two runtimes, what the parity guarantees, and where the two legitimately differ.
-- **[[15-Disk-Monitor-Scenarios-and-Labs|15. Disk Monitor Scenarios & Interactive Labs]]**: Scheduled checks, the dry run before go-live, the VPS mail relay, and 3 hands-on labs.
+- **[[13-Disk-Monitor-Overview|13. Disk Usage Monitor — Overview & Specs]]**: The sensor half of the
+  disk loop, the shared exit-code contract, and three transports — `none`, `mail` and `http` — with
+  the configuration file and the doctor.
+- **[[14-Disk-Monitor-Bash-vs-PowerShell|14. Disk Monitor — Bash vs PowerShell]]**: One contract in
+  two runtimes, the transport dimension of the comparison, and the parity proof that reads each
+  implementation from the other suite.
+- **[[15-Disk-Monitor-Scenarios-and-Labs|15. Disk Monitor Scenarios & Interactive Labs]]**: Scheduled
+  checks over mail and HTTP, the configuration file, the doctor, the VPS relay, and 4 hands-on labs.
 
 ### 6. Quality & Engineering Standards
 - **[[08-CI-CD-Pipelines|08. CI/CD Pipelines & Testing Philosophy]]**: Path-based GitHub Actions monorepo isolation and multi-OS validation.

@@ -4,10 +4,11 @@
     Disk usage monitor with threshold alerting.
 
 .DESCRIPTION
-    Measures the usage of a mounted filesystem and hands an alert to the host
-    mail agent when the usage crosses a threshold. The module holds no
-    credentials and opens no socket of its own: it composes the alert and
-    hands it to a mail agent that the host already provides.
+    Measures the usage of a mounted filesystem and hands an alert to the
+    configured transport when the usage crosses a threshold. The transport is
+    the host mail agent or an HTTP endpoint. The HTTP request is sent by an
+    external client, so the module opens no socket of its own and holds no
+    credential: a credential travels in a header the caller supplies.
 
     The measurement source is the POSIX df output on Linux and macOS, and the
     native volume API on Windows. Both report the capacity as a percentage.
@@ -30,7 +31,7 @@
     Report the alert without handing it to the mail agent.
 
 .PARAMETER Notify
-    Notification backend, either "none" or "mail" (Default: mail).
+    Notification backend, either "none", "mail" or "http" (Default: mail).
 
 .PARAMETER To
     Alert recipient. Defaults to the DISK_MONITOR_TO environment variable.
@@ -199,6 +200,9 @@ $script:ResolvedHeaders = @()
 
 # The configuration file was named explicitly but does not exist
 $script:ConfigFileMissing = $false
+
+# The configuration file exists but cannot be read by this account
+$script:ConfigFileUnreadable = $false
 
 # The problems the doctor found
 $script:DoctorProblem = @()
@@ -474,6 +478,9 @@ function Resolve-Configuration {
                 $script:ConfigFilePath = $candidate
                 $script:ConfigFileMissing = $true
             }
+        } elseif (-not (Test-ConfigFileReadable -Path $candidate)) {
+            $script:ConfigFilePath = $candidate
+            $script:ConfigFileUnreadable = $true
         } else {
             Read-ConfigFile -Path $candidate
         }
@@ -784,7 +791,9 @@ function Get-ResolvedPartition {
 
 # Names the platform the tool is running on. The distribution is read from
 # the file every Linux distribution ships, so the report names the system the
-# tool was found on and not only the kernel.
+# tool was found on and not only the kernel. When neither the kernel source
+# nor the distribution file answers, the helper falls back to the bare
+# string 'Linux'.
 function Get-PlatformName {
     if ($IsWindows) {
         return "Windows"
@@ -958,13 +967,13 @@ function Test-FileReadableByOther {
     param([string]$Path)
 
     if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) {
-        return $false
+        return $null
     }
 
     if ($IsWindows) {
         $acl = Get-Acl -LiteralPath $Path -ErrorAction SilentlyContinue
         if ($null -eq $acl) {
-            return $false
+            return $null
         }
 
         # Only the Everyone principal is reported on Windows, by name and by
@@ -991,11 +1000,15 @@ function Test-FileReadableByOther {
     # their own flag and not by the spelling of the mode.
     $reader = [System.IO.File].GetMethod("GetUnixFileMode", [Type[]]@([string]))
     if ($null -ne $reader) {
-        $mode = [System.IO.File]::GetUnixFileMode($Path)
-        $groupRead = $mode.HasFlag([System.IO.UnixFileMode]::GroupRead)
-        $otherRead = $mode.HasFlag([System.IO.UnixFileMode]::OtherRead)
+        try {
+            $mode = [System.IO.File]::GetUnixFileMode($Path)
+            $groupRead = $mode.HasFlag([System.IO.UnixFileMode]::GroupRead)
+            $otherRead = $mode.HasFlag([System.IO.UnixFileMode]::OtherRead)
 
-        return ($groupRead -or $otherRead)
+            return ($groupRead -or $otherRead)
+        } catch {
+            return $null
+        }
     }
 
     # The API that reads the mode arrived in .NET 7, so the mode of the file
@@ -1004,12 +1017,12 @@ function Test-FileReadableByOther {
     # others.
     $item = Get-Item -LiteralPath $Path -ErrorAction SilentlyContinue
     if ($null -eq $item) {
-        return $false
+        return $null
     }
 
     $text = $item.Mode
     if ($text.Length -lt 9) {
-        return $false
+        return $null
     }
 
     $text = $text.Substring($text.Length - 9)
@@ -1022,14 +1035,60 @@ function Test-FileReadableByOther {
 # Prints the command that restricts a file to its owner. The remedy names
 # the platform it was found on, because the permission model of Windows is
 # an access control list and the permission model of a Unix host is a mode.
+# The path is quoted for the shell that pastes the command, so a quote in
+# the path is doubled instead of closing the quote. The Windows remedy
+# removes the inherited entries and the explicit grant of Everyone, because
+# the rule that caused the report is explicit and would survive the
+# inheritance change on its own.
 function Get-ConfigFileRestrictCommand {
     param([string]$Path)
 
+    # The remedy is pasted into the shell of the platform, so the quote of a
+    # path is escaped in the way that shell reads.
     if ($IsWindows) {
-        return "icacls '$Path' /inheritance:r /grant:r '$($env:USERNAME):(R,W)'"
+        $quotedPath = $Path -replace "'", "''"
+        $remedy = "icacls '$quotedPath' /inheritance:r /remove:g '*S-1-1-0'"
+        return "$remedy /grant:r '$($env:USERNAME):(R,W)'"
     }
 
-    return "chmod 600 '$Path'"
+    $quotedPath = $Path -replace "'", "'\''"
+
+    return "chmod 600 '$quotedPath'"
+}
+
+# Prints the command that gives the owner read access to a file. The remedy
+# names the permission model of the platform, because a Unix host grants the
+# mode and a Windows host grants an access control entry.
+function Get-ConfigFileReadCommand {
+    param([string]$Path)
+
+    if ($IsWindows) {
+        $quotedPath = $Path -replace "'", "''"
+        return "icacls '$quotedPath' /grant:r '$($env:USERNAME):(R)'"
+    }
+
+    $quotedPath = $Path -replace "'", "'\''"
+
+    return "chmod u+r '$quotedPath'"
+}
+
+# Reports whether the account that runs the tool can read the file. A file
+# that exists but cannot be read is a configuration error, and not a file
+# without settings: the run would otherwise fall back to the defaults.
+function Test-ConfigFileReadable {
+    param([string]$Path)
+
+    try {
+        $stream = [System.IO.File]::Open(
+            $Path,
+            [System.IO.FileMode]::Open,
+            [System.IO.FileAccess]::Read,
+            [System.IO.FileShare]::ReadWrite)
+        $stream.Dispose()
+        return $true
+    } catch {
+        return $false
+    }
 }
 
 # Writes one field of the doctor report. The source of the value is shown
@@ -1170,10 +1229,12 @@ function Format-BodyTemplate {
 }
 
 # Hands the alert to the resolved HTTP client. The contract is:
-#   <http-command> --silent --show-error --max-time <seconds>
+#   <http-command> --silent --show-error --fail --max-time <seconds>
 #                   --request <method> --header <name: value>...
 #                   --data-binary @- <url>
-# with the rendered body on standard input.
+# with the rendered body on standard input. --fail is not optional: without
+# it the client exits 0 for a 4xx or a 5xx, so a rejected alert would be
+# reported and audited as sent.
 function Send-HttpAlert {
     param(
         [string]$Endpoint,
@@ -1187,6 +1248,7 @@ function Send-HttpAlert {
     $clientArgs = @(
         "--silent",
         "--show-error",
+        "--fail",
         "--max-time",
         $TimeoutSeconds.ToString([System.Globalization.CultureInfo]::InvariantCulture),
         "--request",
@@ -1222,13 +1284,23 @@ function Invoke-Doctor {
     # The configuration file
     if ($script:ConfigFileMissing) {
         Add-DoctorProblem "The configuration file '$($script:ConfigFilePath)' was not found. Create it, or point -Config at a file that exists."
-    } elseif (-not [string]::IsNullOrEmpty($script:ConfigFilePath) -and (Test-Path -LiteralPath $script:ConfigFilePath -PathType Leaf)) {
-        # The file may hold a token, so a file other users can read is
-        # reported. It is a warning and not a problem: the tool still runs,
-        # and a new file is readable by others until it is restricted.
-        if (Test-FileReadableByOther -Path $script:ConfigFilePath) {
+    } elseif ($script:ConfigFileUnreadable) {
+        $readCommand = Get-ConfigFileReadCommand -Path $script:ConfigFilePath
+        Add-DoctorProblem "The configuration file '$($script:ConfigFilePath)' exists but cannot be read. Give its owner read permission: $readCommand"
+    }
+
+    # A file may hold a token, so a file other users can read is reported. The
+    # warning is independent of the two problems above: a file that cannot be
+    # read is exactly the file whose mode the reader needs to see. A mode the
+    # tool cannot read at all is also a finding, and not a silent pass.
+    if (-not [string]::IsNullOrEmpty($script:ConfigFilePath) -and (Test-Path -LiteralPath $script:ConfigFilePath -PathType Leaf)) {
+        $readableByOthers = Test-FileReadableByOther -Path $script:ConfigFilePath
+        if ($readableByOthers -eq $true) {
             $restrictCommand = Get-ConfigFileRestrictCommand -Path $script:ConfigFilePath
             Add-DoctorWarning "The configuration file '$($script:ConfigFilePath)' can be read by other users. Restrict it: $restrictCommand"
+        } elseif ($null -eq $readableByOthers) {
+            $restrictCommand = Get-ConfigFileRestrictCommand -Path $script:ConfigFilePath
+            Add-DoctorWarning "The read permission of the configuration file '$($script:ConfigFilePath)' could not be determined. Restrict it to be safe: $restrictCommand"
         }
     }
 
@@ -1309,6 +1381,8 @@ function Invoke-Doctor {
 
     if ($script:ConfigFileMissing) {
         Write-DoctorField -Label "Config file" -Value "(not found: $($script:ConfigFilePath))"
+    } elseif ($script:ConfigFileUnreadable) {
+        Write-DoctorField -Label "Config file" -Value "(cannot be read: $($script:ConfigFilePath))"
     } elseif (-not [string]::IsNullOrEmpty($script:ConfigFilePath)) {
         Write-DoctorField -Label "Config file" -Value $script:ConfigFilePath
     } else {
@@ -1403,6 +1477,14 @@ function Invoke-DiskMonitor {
 
     if ($script:ConfigFileMissing -and -not $Doctor) {
         Write-ErrorLine "$($Colors.Red)Error: Configuration file '$($script:ConfigFilePath)' does not exist.$($Colors.Reset)"
+        exit 1
+    }
+
+    if ($script:ConfigFileUnreadable -and -not $Doctor) {
+        $readCommand = Get-ConfigFileReadCommand -Path $script:ConfigFilePath
+        # The remedy ends the line: a period after it would become part of the
+        # path the reader pastes.
+        Write-ErrorLine "$($Colors.Red)Error: Configuration file '$($script:ConfigFilePath)' cannot be read. Give its owner read permission: $readCommand$($Colors.Reset)"
         exit 1
     }
 

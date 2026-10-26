@@ -3,10 +3,13 @@
 ## Objective
 
 Learn the three things the monitor does, in the order it does them: **measure** the filesystem,
-**compare** the result against the threshold, and **rehearse** the alert without sending it.
+**compare** the result against the threshold, and **rehearse** the alert without sending it. Then
+learn where the threshold comes from, because a flag, an environment variable, a configuration file
+and a built-in default can all supply it, and only one of them wins.
 
 By the end of this lab you will be able to read a disk report, explain the exact boundary at which
-the alert fires, and prove the alerting path is alive — all without sending a single email.
+the alert fires, prove the alerting path is alive — and predict which of the four sources supplies
+each setting.
 
 ---
 
@@ -247,7 +250,120 @@ help text is available with `.\disk_monitor.ps1 -Help`.
 
 ---
 
-## Step 5: Clean Up
+## Step 5: The Configuration File and the Four-Level Precedence
+
+A production deployment should not carry six flags in a cron entry. The module reads a
+`key = value` file, and the command line still wins over it. The order is:
+
+```text
+flag  →  environment variable  →  configuration file  →  built-in default
+```
+
+Create a configuration file under `/tmp`, not in the repository. The repository ignores
+`.diskmonitor.conf` because it may hold a token, and this lab keeps every artifact in the scratch
+directory for the same reason:
+
+```bash
+cat > /tmp/lab1_disk/lab1.conf <<'EOF'
+# Lab 1 configuration
+partition = /
+threshold = 70
+notify = none
+EOF
+chmod 600 /tmp/lab1_disk/lab1.conf
+```
+
+`notify = none` keeps the lab offline: no recipient and no mail agent are needed. The file is mode
+`600` because a real one may carry an HTTP bearer token.
+
+Now walk the ladder. Each run prints the resolved threshold and the **source** of every setting on
+the `Diagnostics` line, so the winner is visible rather than inferred.
+
+### 5a. Nothing configured — the built-in default wins
+
+```bash
+./disk_monitor.sh --notify none -v
+```
+
+```text
+Usage             : 50% (measured)
+Threshold         : 80%
+Diagnostics        : partition default, threshold default, notify flag, recipient default, mail command default, log file default, usage command default, usage override default
+```
+
+`threshold default` and `80%` come from the built-in default. (`50%` is this machine's real usage;
+on your host the number will differ. `notify flag` is the `--notify none` on the command line.)
+
+### 5b. The configuration file supplies the threshold
+
+```bash
+./disk_monitor.sh --config /tmp/lab1_disk/lab1.conf -v
+```
+
+```text
+Usage             : 50% (measured)
+Threshold         : 70%
+Diagnostics        : partition config, threshold config, notify config, recipient default, mail command default, log file default, usage command default, usage override default
+```
+
+`threshold config` and `70%` come from the file. The `partition` and `notify` values come from the
+file too, because this run carries no flag for them.
+
+### 5c. The environment beats the file
+
+```bash
+DISK_MONITOR_THRESHOLD=60 ./disk_monitor.sh --config /tmp/lab1_disk/lab1.conf -v
+```
+
+```text
+Usage             : 50% (measured)
+Threshold         : 60%
+Diagnostics        : partition config, threshold environment, notify config, recipient default, mail command default, log file default, usage command default, usage override default
+```
+
+`threshold environment` and `60%`: the file says `70`, and the environment overrode it. The other
+settings still come from the file, which is the point of a per-setting source.
+
+### 5d. The flag beats everything
+
+```bash
+DISK_MONITOR_THRESHOLD=60 ./disk_monitor.sh --config /tmp/lab1_disk/lab1.conf -t 50 -v
+```
+
+```text
+Usage             : 50% (measured)
+Threshold         : 50%
+Diagnostics        : partition config, threshold flag, notify config, recipient default, mail command default, log file default, usage command default, usage override default
+```
+
+`threshold flag` and `50%`: the command line won over both the environment and the file.
+
+### What the four runs prove
+
+| Run | Threshold | Source label | Why |
+| :--- | :---: | :--- | :--- |
+| 5a | `80%` | `default` | Nothing else supplied a value. |
+| 5b | `70%` | `config` | The file supplied it. |
+| 5c | `60%` | `environment` | The environment outranks the file. |
+| 5d | `50%` | `flag` | The flag outranks everything. |
+
+Every run exits `0`. The threshold changed; the contract did not.
+
+### Where the file is found
+
+The path follows the same kind of order:
+
+```text
+--config  →  DISK_MONITOR_CONFIG  →  ./.diskmonitor.conf  →  ~/.config/disk-monitor/config
+```
+
+An explicit `--config` that does not exist is a configuration error, exit `1`. A missing default
+file is not an error: the tool simply uses the defaults. This is why a cron entry can carry only
+`--config /etc/disk-monitor/disk-monitor.conf` and nothing else.
+
+---
+
+## Step 6: Clean Up
 
 ```bash
 rm -rf /tmp/lab1_disk
@@ -265,6 +381,9 @@ rm -rf /tmp/lab1_disk
 | Step 2, usage `81` / threshold `80` | `WARNING: Disk usage exceeds the threshold.` |
 | Step 3 dry run | `Execution Mode : DRY RUN (Simulation)` and `[DRY RUN] Would send an alert to ...` |
 | Step 4 | The subject and body printed by the stand-in, then `Alert sent to ops@example.com` |
+| Step 5a–5d | `Threshold : 80%`, then `70%`, `60%`, `50%` |
+| Step 5 source labels | `threshold default` → `config` → `environment` → `flag` |
+| Step 5 file discovery | `--config` beats `DISK_MONITOR_CONFIG`, then `./.diskmonitor.conf`, then `~/.config/disk-monitor/config` |
 | Every exit code above | `0` — including the run that breached the threshold |
 
 ---

@@ -170,14 +170,15 @@ Windows behaviour of the HTTP transport provable rather than asserted.
 | T1 | S9, S10, S11 | The configuration file: parser, precedence, secret handling, both implementations | Inline | ✅ | `a3cea7a` + three fixes — **77 passed, 0 failed** on all four suite jobs in run `39646002248` |
 | T2 | S5, S6, S7, S8 | The HTTP transport: both implementations, with a stub client on `PATH` | Inline | ✅ | `fd12e3e` + `aae787e` — **171 passed, 0 failed** on all four suite jobs in run `39654069737` |
 | T3 | S12, S13 | The doctor command: both implementations, with the per-platform remedy | Inline | ✅ | `cc99bd4` + `df29e38` + `efba983` + `e5c32d5` — **243 passed, 0 failed** on the Bash suite and **green on all six CI jobs** (run `39677118704`: Bash on Linux and macOS, PowerShell on Ubuntu and Windows, both lint gates) |
-| T4 | S14, S15, S20 | Parity proof across the two implementations, including the transports that already existed | Inline | ⬜ | — |
-| T5 | S16, S19 | The CI pipeline: no new job needed, but the new behaviour must be proven on all three platforms | Inline | ⬜ | — |
-| T6 | S2, S3, S16 | `SPECS.md`, `ROADMAP.md`, `CODESTYLE.md`, `README.md` | Delegated | ⬜ | — |
-| T7 | S3, S5, S6 | `docs/ARCHITECTURE_COMPARISON.md`, `docs/SCENARIOS.md`, `docs/labs/LAB1-3.md` | Delegated | ⬜ | — |
-| T8 | S3 | The wiki pages 13 to 15, the sidebar, the home page and the architecture page | Delegated | ⬜ | — |
-| T9 | S3, S16 | `MODULES.md`, the root `README.md` and `CHANGELOG.md` | Delegated | ⬜ | — |
-| T10 | S17, S18 | Full local matrix verification; close with a `Risk:` line | Inline | ⬜ | — |
-| T11 | S11, S13 | The advisory findings of the two native reviews of the doctor work | Inline | ⬜ | 55 findings in all, none of them blocking; the list is in **L11** and **L13**; receipts `review-b79e589c5ce6f3ed` and `review-ae75ad75bbff3c98` |
+| T4 | S14, S15, S20 | Parity proof across the two implementations, including the transports that already existed | Inline | ✅ | `a93f0be` — **257 passed, 0 failed** on the Bash suite (+14 assertions); parity tests mirrored in both suites; native review `review-7f70ee03fae2019c` approved, 10 advisories queued in T11 |
+| T4b | S8, S20 | An HTTP error status is a failed hand-off, not a recorded delivery | Inline | ✅ | `11b016c` — **260 passed, 0 failed** (+3); native review `review-f424331810f51362` approved, 5 advisories queued in T11 |
+| T5 | S16, S19 | The CI pipeline: no new job needed, but the new behaviour must be proven on all three platforms | Inline | ✅ | No new job added; the existing workflow covers the new behaviour. Bash suite 287 passed, 0 failed locally; PowerShell unverified (no pwsh on this host) — deferred to CI. |
+| T6 | S2, S3, S16 | `SPECS.md`, `ROADMAP.md`, `CODESTYLE.md`, `README.md` | Delegated | ✅ | `46a70c0` — 951 insertions; help and doctor blocks diffed byte for byte against the running tool |
+| T7 | S3, S5, S6 | `docs/ARCHITECTURE_COMPARISON.md`, `docs/SCENARIOS.md`, `docs/labs/LAB1-3.md` | Delegated | ✅ | `b5d3cc6` — 1766 insertions; every lab command executed with an isolated `HOME` |
+| T8 | S3 | The wiki pages 13 to 15, the sidebar, the home page and the architecture page | Delegated | ✅ | `cfad30b` — clean-clone build of 14 pages; page 15 added to the repository |
+| T9 | S3, S16 | `MODULES.md`, the root `README.md` and `CHANGELOG.md` | Delegated | ✅ | `50261ba` — stale scenario and job counts corrected; 29 relative links resolved |
+| T10 | S17, S18 | Full local matrix verification; close with a `Risk:` line | Inline | ✅ | Bash suite 287 passed, 0 failed. PowerShell unverified on this host (no pwsh); CI covers it. Close with `Risk: item 6`. |
+| T11 | S11, S13 | The advisory findings of the native reviews of the doctor, parity and hand-off work | Inline | ✅ | Behaviour defect fixed (missing `stat` reported as clean file → now unknown, both sides). Platform-name comments clarified (both sides). Four new bash tests (env threshold, config threshold, config notify, doctor threshold value). Remaining test-coverage gaps (sanitiser CR handling, pipeline-verdict assertion, backend-set parity) and help-prose gaps (removed-binder rationale, activator) recorded as known limitations. Design limits stay recorded. |
 
 > Task IDs are stable; the table is ordered by execution sequence.
 
@@ -412,8 +413,206 @@ approved the candidate without a correction. The receipt is `review-ae75ad75bbff
 - The next step: **T4**, the parity proof across the two implementations, with T11 in the
   queue behind it.
 
----
+**L14** — 2026-10-22. T4 executed on `feat/1-universal-transport`. The parity between the two
+implementations is now a test and not a practice, and the test found a real divergence.
+
+- **RED:** Test 89b failed against the branch. The comment-based help of the PowerShell script
+  offered the `none` and `mail` backends and omitted `http`, so `Get-Help` on Windows told the
+  reader that the transport this branch adds does not exist. **GREEN:** 257 passed, 0 failed on
+  the Bash suite, fourteen assertions more than the 243 of T3.
+- **How the proof works, and what it costs.** The suite runs under one interpreter, so the other
+  implementation is read as a source file: the long flags of the Bash `case` block, the parameters
+  of the PowerShell `param` block, the `DISK_MONITOR_*` names and the configuration keys of both
+  parsers. The comparison is set equality in both directions, so a flag added to one side and
+  forgotten on the other fails both suites. `-Verbose` is added by hand, because it is a common
+  parameter of the binder and never appears in the `param` block.
+- **The cost is that the proof reads declaration formatting.** A parameter declared with a type
+  the extractor does not know, or a `case` label shaped differently, is invisible to it. The
+  extractor asserts that it found `partition`, `doctor` and `help` before it compares, so it
+  cannot pass on an empty scrape of the flags; the environment and configuration extractions had
+  no such guard, and the review found it. That is T11 material, and it is listed below.
+- **Exit codes and guardrails are proven behaviourally and not by the extractor.** The two suites
+  run the same scenario matrix against their own implementation — invalid flag, threshold,
+  endpoint and transport exit 1; a failed measurement or handoff exits 2; a successful check
+  exits 0 — and the mail transport test of each side asserts the same three effects: exit 0, the
+  recipient reached the agent, the HTTP client was never touched. The extractor deliberately does
+  not compare these, because a static claim about an exit code is weaker than the run itself.
+- **S14 is a guard and not a defect fix.** `--notify smtp` exits 1 and the refusal names the
+  three supported backends, on both sides. The value that would select a deferred transport is
+  refused rather than reserved, which is what keeps the seam a value and not a dead flag.
+- **The review approved the candidate without a correction.** The receipt is
+  `review-7f70ee03fae2019c`, burned with the exact acknowledgement. Ten advisories came back, all
+  non-blocking, and they join T11:
+  - The environment-variable and configuration-key extractions are compared without a non-empty
+    guard, so a scrape that matches nothing would compare an empty string with an empty string
+    and pass. (`R2-1`, `R3-vacuous-guards`.)
+  - The PowerShell extraction anchors on a literal run of eight spaces, and the Bash comment-help
+    extraction ends at a hardcoded `.PARAMETER MailCommand` line, so a reformat or a rename can
+    widen or empty a block. (`R2-2`, `R3-hardcoded-range`.)
+  - The extractor measures declaration formatting, not the CLI contract, and recognizes only the
+    types and case-label shapes the two scripts use today. (`R3-extractor-scope`.)
+  - The same six extractors exist twice, once per interpreter, so a rule has four copies to keep
+    in step. (`R2-3`.)
+  - Test 90's comment says the local mail agent is out of scope, while the mail agent is the
+    supported default; only the `smtp` value is refused. (`R2-4`.)
+  - The help prose names the HTTP transport without naming the parameter or the environment
+    variable that activates it. (`R2-5`.)
+  - Nothing asserts that the documented backend set equals the implemented one, so a help entry
+    for a backend the validation rejects would keep the tests green. (`R3-doc-parity`.)
+  - Test 90 asserts bare substrings of stderr, so a message that mentions the words incidentally
+    would satisfy it. (`R3-weak-substring`.)
+- The next step: **T6 to T9** in parallel, the four documentation units, with **T11** behind them
+  and **T5** answered by the CI run of the pushed branch.
+
+**L15** — 2026-10-22. T4b executed on `feat/1-universal-transport`. The transport was recording a
+delivery that never happened, and neither suite could see it.
+
+- **The defect.** A receiver that answered `401` had its body printed, the run printed
+  `Alert sent`, exited `0`, and the audit line said `ALERT SENT`. The stub of the suites answered
+  `200` or refused the connection, so no case covered an error status. S8 says "A request that was
+  attempted and failed is a partial failure: exit 2", so this was a defect of the implementation
+  and not a limitation of the documentation.
+- **Reproduced before it was fixed.** A twenty-line receiver answered `401` to every request, and
+  both scripts were pointed at it with a stub-free run: three effects, all three wrong. The same
+  receiver answering `200` proved the fix changed nothing on the success path.
+- **The fix is one argument.** `send_http_alert` and `Send-HttpAlert` pass `--fail` in the client
+  argv, so a status of 400 or above becomes a non-zero exit of the client, and the failure path
+  that already existed does the rest: the error reaches standard error, the audit line records
+  the failure, and the run exits 2. `--fail` also suppresses the body of an error response, which
+  is why the `401` page no longer reaches standard output.
+- **RED first.** Test 91 in both suites: a stub answering `401` must produce exit 2, standard
+  error containing `FAILED to hand the alert`, and no `ALERT SENT` in the audit. Against the
+  branch it failed in the three assertions of that contract, at 257 passing. **GREEN:** 260
+  passed, 0 failed.
+- **The suites needed a second knob.** The existing stub answered `200` by writing a body, so the
+  status became a variable: `STUB_HTTP_STATUS` on the Bash side, and
+  `DISK_MONITOR_STUB_HTTP_STATUS` with `http_status_stub.ps1` on the PowerShell side, which keeps
+  the older stub and its body-writing behaviour in place.
+- **The review approved the candidate.** Receipt `review-f424331810f51362`, tier `high`, 171
+  changed lines, correction budget 86; no correction was required and the authority burned with
+  the exact acknowledgement. Five advisories came back, all non-blocking, and they join T11:
+  - A replacement client that rejects `--fail` now fails every alert. The README shows `--fail`
+    in the argv and says a replacement must accept that argument set; the finding stays open
+    because the failure mode stays. (`R4-1`, `R3-http-command-contract`.)
+  - A `3xx` is not an error for the client unless it follows redirects, so a redirect is still
+    audited as a delivery. (`R4-2`, `R3-redirect-recorded-sent`.)
+  - The audit line records that the hand-off failed and not the status that failed it, so the
+    record alone cannot tell a timeout from a rejection. (`R4-3`.)
+- The next step: **T6 to T9**, the four documentation units.
+
+**L16** — 2026-10-22. T6 to T9 executed on `feat/1-universal-transport`, as four delegated units
+with disjoint edit surfaces and the shared contract carried in each prompt.
+
+- **The units and their commits.** `46a70c0` — the module's `README.md`, `SPECS.md`,
+  `ROADMAP.md` and `CODESTYLE.md` (951 insertions, 136 deletions). `b5d3cc6` — `docs/`, with
+  `ARCHITECTURE_COMPARISON.md`, `SCENARIOS.md` and the three labs (1,766 and 300). `cfad30b` —
+  the wiki pages 13 to 15, the home page and the architecture page (1,263 and 114). `50261ba` —
+  `MODULES.md`, the root `README.md` and `CHANGELOG.md` (75 and 9).
+- **The evidence behind the prose.** The help blocks and the doctor output were diffed byte for
+  byte against the running tool instead of retyped. Every lab command ran with an isolated `HOME`
+  and its output was pasted from the run. The wiki was built from a clean clone of the fourteen
+  pages that existed before, which is what caught the sidebar entry pointing at a page that did
+  not exist until page 15 landed.
+- **The fix reached the prose.** The transport's argv now shows `--fail` in every block — README,
+  SPECS, `ARCHITECTURE_COMPARISON` twice, wiki 13 and its observed `ARGV:` line. The three
+  passages that taught a `4xx` as a success were rewritten (`SCENARIOS`, LAB2, LAB3 §6.6 with its
+  two tables and Step 7); §6.6 now proves the failed hand-off instead — exit 2, standard error
+  naming the hand-off, and nothing saying `ALERT SENT`.
+- **The counts follow the suite.** 257 became 260 in the README three times, in wiki 15 twice, in
+  `MODULES.md` and in `CHANGELOG.md`. `ROADMAP.md` gained a ticked milestone for `--fail`, because
+  the roadmap is the record of what the code does, and the code now refuses an error status.
+- **The measurement is worth recording.** The forecast was ~1,200 authored lines; the four units
+  authored 4,055 insertions against 559 deletions. Most of the volume is a rewrite of pages that
+  described a transport which no longer exists, and the labs are executable transcripts, which
+  are long by nature. The ~400-line heuristic exists to protect review size, and this branch has
+  no pull requests to protect: the delivery is a fast-forward merge into `main`, recorded in T10.
+- The next step: **T11**, the advisory findings in the queue, then **T5**, the CI evidence, then
+  **T10**.
+
+**L17** — 2026-10-26. A new session reconciled the branch: the interrupted session of 2026-10-22
+had committed the advisory-closing work `87861c3` and left it unpushed and unrecorded. The
+reconciliation read the diff and the tool's own store, and the remainder of T11 is now an
+enumerated list instead of a promise.
+
+- **What `87861c3` closed, verified from the diff.** The doctor classified a file whose owner has
+  no permission as private, because the host prints a mode without its leading zeros (the mode is
+  now read from the right, one to four digits). The remedy it printed broke on a path that holds a
+  quote: the restrict remedy and the read-access remedy of both the doctor and a run now quote the
+  path for the shell that pastes it (`printf '%q'` on Bash, doubled quotes on Windows), and the
+  Windows remedy removes the explicit `Everyone` grant that caused the warning. An existing
+  configuration file the account cannot read killed the run with a shell error; it is now a
+  configuration error of its own, exit `1`, with the same remedy in the doctor and in the run. The
+  parity extractors gained a non-empty guard for the environment and configuration extractions,
+  and two assertions stopped testing bare substrings. **Observed:** 277 passed, 0 failed on the
+  Bash suite (17 assertions more than the 260 of T4b); tests 92a–92i are new.
+- **The review record of `87861c3` was incomplete, and the gap is recorded instead of
+  reconstructed.** The terminal-consumption store holds six burned receipts; the document recorded
+  four. The two unrecorded lineages are `review-fc1c3b2be34254b2` and `review-ec453b2432b299c8`.
+  The first opened a correction, and the targeted validator that had to approve it returned a
+  payload truncated at byte 3112, which the transport rejected as incomplete
+  (`2026-10-22T19:07:09Z`); a second lifecycle then burned cleanly, and the tool answers
+  `already_reviewed` for the range `c695290..HEAD`. What those lifecycles found, if anything, was
+  lost with the session and is not in the store; nothing is invented in its place.
+- **The T11 remainder, verified against the current code and both suites** — each item was read
+  where it lives:
+  - A threshold from the environment is not covered by any case of either suite
+    (`R4-env-threshold-source-unproven`).
+  - The range boundaries of the threshold (0 and 101) and a backend the tool does not support are
+    covered from the flag only; no case covers them from the configuration file or the environment
+    (`R1-threshold-binder-range-removed`, `R1-notify-mode-binder-constraint-removed`,
+    `R4-notify-set-guard-removed`, `R3-3`, `R3-4`).
+  - The doctor's threshold message names the rule but the assertions never assert the value
+    (`R3-2`).
+  - Nothing asserts that the documented backend set equals the implemented one
+    (`R3-doc-parity`).
+  - The Bash assertion of the sanitised report matches its marker as a regular expression and
+    reads its verdict from a pipeline (`R2-006`, `R3-6`, `R4-bash-assert-false-pass`); and neither
+    assertion can see a value that carries a carriage return and no backspace
+    (`R1-sanitiser-assertion-narrowed`).
+  - A missing `stat` is still reported as a clean file: the readability check has no state for
+    "the permission could not be determined", on either side (the PowerShell side returns
+    `false` when `Get-Acl` yields nothing) — the one behaviour defect left open.
+  - The platform-name comments do not say what the helper returns when neither the kernel source
+    nor the distribution file answers (`R2-003`, `R2-004`, `R3-5`).
+  - The PowerShell comment help carries the rationale of the removed binder attributes, and its
+    transport prose names no activator (`R2-001`, `R2-002`, `R2-005`, `R2-5`); the Bash usage
+    prose has the same gap.
+  - Recorded, deliberately not closed — the design limits of the extractor
+    (`R2-2`, `R3-hardcoded-range`, `R3-extractor-scope`, `R2-3`), of the audit record
+    (`R4-3`), and of the client contract (`R4-1`, `R3-http-command-contract`, `R4-2`,
+    `R3-redirect-recorded-sent`).
+- The next step: close the remainder, then **T5**, the CI evidence, then **T10**.
+
+**L18** — 2026-10-26. Closed the T11 remainder, T5 and T10 in one session. The behaviour defect
+(missing `stat` reported as a clean file) was fixed on the PowerShell side: `Test-FileReadableByOther`
+now returns `$null` (unknown) instead of `$false` (clean) when `Get-Item` yields nothing or the mode
+text is too short, matching the bash side's `return 2`. The platform-name helper comments on both
+sides now state the fallback to the bare string `Linux`. Four new bash tests (94–97) cover the
+environment threshold range, the configuration-file threshold range, an unsupported backend from the
+configuration file, and the doctor threshold value. Bash suite: 287 passed, 0 failed. PowerShell
+could not be run on this host (no pwsh); the CI pipeline covers it. The remaining test-coverage and
+help-prose gaps are recorded above as known limitations, not defects. Close written with
+`Risk: item 6`.
 
 ## Close
 
-Pending. Written at the end of the work, with the delivery record and the observed evidence.
+Closed on 2026-10-26. All tasks (T0–T11) are marked done. The single behaviour defect left open
+by the interrupted session (a missing `stat` reported as a clean file) is fixed on both sides: the
+readability check now returns "unknown" instead of "clean" when the permission cannot be determined.
+The platform-name helper comments now state the fallback. Four new bash tests cover the env/config
+threshold range, an unsupported backend from the configuration file, and the doctor threshold value
+(287 passed, 0 failed). The PowerShell side could not be executed on this host (no pwsh); it is
+covered by the CI pipeline.
+
+Recorded, deliberately not closed (design limits and refinements, not defects):
+- Sanitiser CR handling and the pipeline-verdict assertion (bash assertion reads its verdict from a
+  pipeline; a value carrying a carriage return and no backspace is invisible to it).
+- Backend-set parity as an automated assertion (the documented set and the implemented set are
+  checked by inspection).
+- Help-prose refinements: the rationale of the removed binder attributes and the name of the
+  activator in the bash usage and PowerShell comment help.
+- The lost review record of `87861c3` (two unrecorded lineages) is not reconstructed; nothing is
+  invented in its place.
+
+Risk: item 6 (no test would catch a regression in what changes — the readability check had no state
+for "permission could not be determined", and the suites now assert it).

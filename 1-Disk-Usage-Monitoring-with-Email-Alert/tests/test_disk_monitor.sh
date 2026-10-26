@@ -12,6 +12,10 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 MONITOR_SCRIPT="$SCRIPT_DIR/disk_monitor.sh"
+# The other implementation is read as a source file by the parity tests: this
+# suite runs under one interpreter, and the interface of the other side is
+# declared in its argument parser.
+MONITOR_SCRIPT_PS="$SCRIPT_DIR/disk_monitor.ps1"
 TEST_SANDBOX="$(mktemp -d "${TMPDIR:-/tmp}/test_disk_monitor.XXXXXX")"
 STUB_DIR="$TEST_SANDBOX/stubs"
 CAPTURE_FILE="$TEST_SANDBOX/mail_capture.txt"
@@ -127,6 +131,31 @@ exit 0
 STUB
     chmod +x "$STUB_DIR/curl_alt"
 
+    cat > "$STUB_DIR/curl_status" <<'STUB'
+#!/bin/bash
+# Fake HTTP client that reproduces curl's handling of an HTTP error status.
+# Real curl exits 0 for a 4xx unless it is told to fail, which is the whole
+# point: the exit code is decided by the arguments the module passes, not by
+# an opinion the stub holds on its own.
+status="${STUB_HTTP_STATUS:-200}"
+{
+    printf 'ARGC:%s\n' "$#"
+    printf 'ARG:%s\n' "$@"
+    printf 'STDIN-BEGIN\n'
+    cat
+    printf 'STDIN-END\n'
+} >> "${STUB_HTTP_CAPTURE:-/dev/null}"
+for argument in "$@"; do
+    if [[ "$argument" == "--fail" && "$status" -ge 400 ]]; then
+        printf 'curl: (22) The requested URL returned error: %s\n' "$status" >&2
+        exit 22
+    fi
+done
+printf 'server body\n'
+exit 0
+STUB
+    chmod +x "$STUB_DIR/curl_status"
+
     PATH="$STUB_DIR:$ORIGINAL_PATH"
     export PATH
     : > "$CAPTURE_FILE"
@@ -141,6 +170,7 @@ STUB
     export STUB_DF_FAIL=0
     export STUB_MAIL_FAIL=0
     export STUB_HTTP_FAIL=0
+    export STUB_HTTP_STATUS=200
     unset DISK_MONITOR_TO DISK_MONITOR_MAIL_COMMAND DISK_MONITOR_USAGE_OVERRIDE DISK_MONITOR_USAGE_COMMAND \
         DISK_MONITOR_CONFIG DISK_MONITOR_THRESHOLD DISK_MONITOR_PARTITION DISK_MONITOR_NOTIFY \
         DISK_MONITOR_LOG_FILE DISK_MONITOR_URL DISK_MONITOR_BODY_TEMPLATE DISK_MONITOR_HEADER \
@@ -1433,6 +1463,92 @@ test_doctor_reports_a_readable_configuration_file() {
     chmod 600 "$config_file"
     run_monitor --doctor --config "$config_file" --notify http --url https://ntfy.sh/disk-alerts
     assert_not_contains "$LAST_STDOUT" "can be read by other users" "Test 84d: A restricted configuration file is not reported"
+
+    # The host prints a mode without its leading zeros, so a file whose owner
+    # has no permission is printed with two digits or one. The group and the
+    # others still read it, and the doctor has to say so even though it cannot
+    # read the file itself.
+    chmod 044 "$config_file"
+    run_monitor --doctor --config "$config_file" --notify http --url https://ntfy.sh/disk-alerts
+    assert_contains "$LAST_STDOUT" "cannot be read" "Test 84e: The doctor reports a configuration file it cannot read"
+    assert_contains "$LAST_STDOUT" "can be read by other users" "Test 84f: A readable file whose mode lost its leading zero is reported"
+    assert_equals "1" "$LAST_EXIT_CODE" "Test 84g: A configuration file the tool cannot read is a problem"
+
+    chmod 400 "$config_file"
+    run_monitor --doctor --config "$config_file" --notify http --url https://ntfy.sh/disk-alerts
+    assert_not_contains "$LAST_STDOUT" "can be read by other users" "Test 84h: A file only its owner can read is not reported"
+    assert_not_contains "$LAST_STDOUT" "cannot be read" "Test 84i: A file its owner can read is not reported as unreadable"
+    teardown
+}
+
+# Test 92: The remedy of the doctor is a command the reader pastes. A path
+# that holds a space and a quote must not break it, and the command has to
+# restrict the file when it is run.
+test_doctor_remedy_survives_a_quoted_path() {
+    setup
+    local config_dir="$TEST_SANDBOX/it's config"
+    local config_file=""
+    local remedy=""
+    local mode=""
+
+    mkdir -p "$config_dir"
+    config_file="$config_dir/monitor.conf"
+    printf 'url = https://ntfy.sh/disk-alerts\n' > "$config_file"
+    chmod 644 "$config_file"
+
+    run_monitor --doctor --config "$config_file" --notify http --url https://ntfy.sh/disk-alerts
+    assert_contains "$LAST_STDOUT" "Restrict it:" "Test 92a: The doctor offers the remedy"
+
+    remedy="$(printf '%s\n' "$LAST_STDOUT" | sed -n 's/.*Restrict it: //p' | head -n 1)"
+    assert_contains "$remedy" "chmod 600" "Test 92b: The remedy names the command that restricts the file"
+    eval "$remedy" || true
+    mode="$(stat -c '%a' "$config_file" 2>/dev/null || stat -f '%Lp' "$config_file")"
+    assert_equals "600" "$mode" "Test 92c: The remedy restricts the file when it is pasted"
+
+    # The other remedy of the configuration file names the command that grants
+    # read access, and it embeds the same path. It is quoted for the shell that
+    # pastes it too, so the quote in the path does not close the quote of the
+    # command and the pasted command grants the access it promises.
+    chmod 044 "$config_file"
+    run_monitor --doctor --config "$config_file" --notify http --url https://ntfy.sh/disk-alerts
+    assert_equals "1" "$LAST_EXIT_CODE" "Test 92d: A configuration file the tool cannot read is a problem"
+    remedy="$(printf '%s\n' "$LAST_STDOUT" | sed -n 's/.*read permission: //p' | head -n 1)"
+    assert_contains "$remedy" "chmod u+r" "Test 92e: The doctor offers the command that grants read access"
+    eval "$remedy" || true
+    mode="$(stat -c '%a' "$config_file" 2>/dev/null || stat -f '%Lp' "$config_file")"
+    assert_equals "444" "$mode" "Test 92f: The doctor remedy grants read access when it is pasted"
+
+    # The run path prints the same remedy, and it is the only instruction the
+    # reader gets there, so it has to survive the same path.
+    chmod 044 "$config_file"
+    run_monitor --config "$config_file" --notify http --url https://ntfy.sh/disk-alerts
+    assert_equals "1" "$LAST_EXIT_CODE" "Test 92g: An unreadable configuration file stops the run"
+    remedy="$(printf '%s\n' "$LAST_STDERR" | sed -n 's/.*read permission: //p' | head -n 1)"
+    assert_contains "$remedy" "chmod u+r" "Test 92h: The run names the command that grants read access"
+    eval "$remedy" || true
+    mode="$(stat -c '%a' "$config_file" 2>/dev/null || stat -f '%Lp' "$config_file")"
+    assert_equals "444" "$mode" "Test 92i: The run remedy grants read access when it is pasted"
+    teardown
+}
+
+# Test 93: A mode the tool cannot determine is not a clean file. The doctor
+# runs on hosts where stat is absent, and a file it cannot classify must not
+# pass silently: the honest answer is that the permission could not be
+# determined, with the remedy that restricts the file.
+test_doctor_warns_when_the_permission_cannot_be_determined() {
+    setup
+    local config_file="$TEST_SANDBOX/monitor.conf"
+    printf 'url = https://ntfy.sh/your-topic\n' > "$config_file"
+    chmod 600 "$config_file"
+    run_monitor_with_path "$STUB_DIR" --doctor --config "$config_file" \
+        --notify http --url https://ntfy.sh/disk-alerts \
+        --http-command "$STUB_DIR/curl"
+
+    assert_equals "0" "$LAST_EXIT_CODE" "Test 93a: Nothing is missing, so the tool is ready"
+    assert_contains "$LAST_STDOUT" "could not be determined" \
+        "Test 93b: An undetermined permission is reported"
+    assert_contains "$LAST_STDOUT" "chmod 600" \
+        "Test 93c: The remedy restricts the file"
     teardown
 }
 
@@ -1451,6 +1567,7 @@ test_doctor_rejects_an_overflowing_threshold() {
     printf 'threshold = 18446744073709551617\n' > "$config_file"
     run_monitor --doctor --config "$config_file" --notify http --url https://ntfy.sh/disk-alerts
     assert_equals "1" "$LAST_EXIT_CODE" "Test 85d: A threshold of the configuration file that does not fit in an integer exits with code 1"
+    assert_contains "$LAST_STDOUT" "not an integer between 1 and 100" "Test 85f: The doctor names the invalid threshold of the configuration file"
     run_monitor --config "$config_file" --notify http --url https://ntfy.sh/disk-alerts
     assert_equals "1" "$LAST_EXIT_CODE" "Test 85e: The run rejects the same threshold of the configuration file"
     teardown
@@ -1511,12 +1628,229 @@ assert_no_line_starts_with() {
     fi
 }
 
+# ==============================================================================
+# Parity between the two implementations (S20)
+#
+# The module contract requires the Bash and the PowerShell implementation to
+# offer the same flags, to read the same environment variables and to accept
+# the same configuration keys. The suite runs under one interpreter, so the
+# other implementation is read as a source file: the interface of each side is
+# declared in its argument parser, and that is plain text.
+# ==============================================================================
+
+# Prints the long flags of the Bash argument parser, one per line, without the
+# leading dashes.
+bash_public_flags() {
+    sed -n '/^parse_arguments()/,/^}/p' "$1" |
+        grep -oE '\-\-[a-z][a-z-]*\)' |
+        sed -E 's/^--//; s/\)$//' |
+        sort -u
+}
+
+# Prints the parameters of the PowerShell param block as long flags, one per
+# line, without the leading dashes. -Verbose is added when the script is an
+# advanced function, because it is a common parameter of the binder and never
+# appears in the block even though the caller sees it.
+powershell_public_flags() {
+    local parameters=""
+
+    parameters="$(sed -n '/^param(/,/^)/p' "$1" |
+        grep -oE '\[(string|string\[\]|switch)\]\$[A-Za-z]+' |
+        sed 's/.*\$//')"
+
+    if grep -q '^\[CmdletBinding()\]' "$1"; then
+        parameters="${parameters}"$'\n'"Verbose"
+    fi
+
+    printf '%s\n' "$parameters" |
+        sed -E 's/([a-z0-9])([A-Z])/\1-\2/g' |
+        tr '[:upper:]' '[:lower:]' |
+        sort -u
+}
+
+# Prints the environment variables an implementation reads, one per line.
+implementation_environment_names() {
+    grep -oE 'DISK_MONITOR_[A-Z_]+' "$1" | sort -u
+}
+
+# Prints the configuration keys the Bash implementation accepts. The `$` of
+# the anchor is written as a bracket expression, because it belongs to the
+# implementation's source and not to this script: a literal dollar sign in a
+# single-quoted string is what ShellCheck reports as SC2016.
+bash_config_keys() {
+    sed -n '/case "[$]key" in/,/esac/p' "$1" |
+        grep -oE '^[[:space:]]+[a-z_]+\)' |
+        sed -E 's/^[[:space:]]+//; s/\)$//' |
+        sort -u
+}
+
+# Prints the configuration keys the PowerShell implementation accepts. The
+# `$` of the anchor is written as a bracket expression for the same reason as
+# above: it is part of the source the extractor reads.
+powershell_config_keys() {
+    sed -n '/switch ([$]key) {/,/^        }/p' "$1" |
+        grep -oE '^[[:space:]]+"[a-z_]+"' |
+        sed -E 's/^[[:space:]]+"//; s/"$//' |
+        sort -u
+}
+
+# Prints the notification backends a piece of help text names.
+notify_backends_in() {
+    grep -owE '(none|mail|http)' | sort -u
+}
+
+# Test 88: The two implementations offer the same flags, read the same
+# environment variables and accept the same configuration keys. A flag that
+# exists on one side only is a defect, and this is the assertion that makes it
+# one.
+test_parity_of_the_public_interface() {
+    local bash_flags=""
+    local powershell_flags=""
+    local bash_environment=""
+    local powershell_environment=""
+    local bash_keys=""
+    local powershell_keys=""
+
+    setup
+    bash_flags="$(bash_public_flags "$MONITOR_SCRIPT" | tr '\n' ' ')"
+    powershell_flags="$(powershell_public_flags "$MONITOR_SCRIPT_PS" | tr '\n' ' ')"
+    bash_environment="$(implementation_environment_names "$MONITOR_SCRIPT" | tr '\n' ' ')"
+    powershell_environment="$(implementation_environment_names "$MONITOR_SCRIPT_PS" | tr '\n' ' ')"
+    bash_keys="$(bash_config_keys "$MONITOR_SCRIPT" | tr '\n' ' ')"
+    powershell_keys="$(powershell_config_keys "$MONITOR_SCRIPT_PS" | tr '\n' ' ')"
+
+    # The extractions are asserted to hold the interface, so a parser that
+    # silently matched nothing cannot let the comparison below pass.
+    assert_contains "$bash_flags" "partition" "Test 88a: The Bash flag extraction holds the interface"
+    assert_contains "$powershell_flags" "partition" "Test 88b: The PowerShell flag extraction holds the interface"
+    assert_contains "$bash_flags" "doctor" "Test 88c: The Bash flag extraction holds the doctor"
+    assert_contains "$powershell_flags" "doctor" "Test 88d: The PowerShell flag extraction holds the doctor"
+    assert_contains "$bash_environment" "DISK_MONITOR_URL" "Test 88e: The Bash environment extraction holds the transport"
+    assert_contains "$powershell_environment" "DISK_MONITOR_URL" "Test 88f: The PowerShell environment extraction holds the transport"
+    assert_contains "$bash_keys" "url" "Test 88g: The Bash key extraction holds the transport"
+    assert_contains "$powershell_keys" "url" "Test 88h: The PowerShell key extraction holds the transport"
+    assert_equals "$bash_flags" "$powershell_flags" "Test 88i: Both implementations offer the same flags"
+    assert_equals "$bash_environment" "$powershell_environment" "Test 88j: Both implementations read the same environment variables"
+    assert_equals "$bash_keys" "$powershell_keys" "Test 88k: Both implementations accept the same configuration keys"
+    teardown
+}
+
+# Test 89: Every help surface of both implementations names the same
+# notification backends. A transport that works on one platform and is
+# undocumented on the other is a transport the user of that platform cannot
+# find, so the documentation is part of the interface.
+test_parity_of_the_documented_transports() {
+    local bash_backends=""
+    local comment_help_backends=""
+    local usage_text_backends=""
+
+    setup
+    bash_backends="$(sed -n '/^show_help()/,/^}/p' "$MONITOR_SCRIPT" |
+        grep -F -- '--notify' | notify_backends_in | tr '\n' ' ')"
+    comment_help_backends="$(sed -n '/^\.PARAMETER Notify/,/^\.PARAMETER MailCommand/p' "$MONITOR_SCRIPT_PS" |
+        notify_backends_in | tr '\n' ' ')"
+    usage_text_backends="$(sed -n '/^function Show-Help/,/^}/p' "$MONITOR_SCRIPT_PS" |
+        grep -F -- '-Notify' | notify_backends_in | tr '\n' ' ')"
+
+    assert_contains "$bash_backends" "http" "Test 89a: The Bash help names the HTTP backend"
+    assert_equals "$bash_backends" "$comment_help_backends" "Test 89b: The PowerShell comment-based help names the same backends as the Bash help"
+    assert_equals "$bash_backends" "$usage_text_backends" "Test 89c: The PowerShell usage text names the same backends as the Bash help"
+    teardown
+}
+
+# Test 90: The SMTP transport is not offered. The local mail agent is the
+# supported default and is not what this test refuses; only the `smtp` value
+# is, and the refusal names the supported set as one phrase.
+test_smtp_transport_is_not_offered() {
+    setup
+    run_monitor --notify smtp --to ops@example.com
+    assert_equals "1" "$LAST_EXIT_CODE" "Test 90a: The smtp backend exits with code 1"
+    assert_contains "$LAST_STDERR" "Notify backend must be 'none', 'mail' or 'http'." "Test 90b: The refusal names the supported set as one phrase"
+    teardown
+}
+
+# Test 91: An HTTP error status is a failed hand-off, not a delivery. curl
+# exits 0 for a 4xx unless it is asked to fail, so the module has to ask: an
+# alert a service rejected must not be recorded as sent.
+test_http_error_status_is_a_failed_handoff() {
+    setup
+    export STUB_DF_USAGE=95
+    export STUB_HTTP_STATUS=401
+    local audit_file="$TEST_SANDBOX/logs/audit.log"
+    run_monitor -t 80 --notify http --url "https://ntfy.sh/disk-alerts" \
+        --http-command "$STUB_DIR/curl_status" -l "$audit_file"
+
+    assert_equals "2" "$LAST_EXIT_CODE" "Test 91a: A rejected request exits with code 2"
+
+    local audit_content=""
+    audit_content="$(cat "$audit_file" 2>/dev/null || true)"
+    assert_not_contains "$audit_content" "ALERT SENT" \
+        "Test 91b: The audit log does not claim the alert was sent"
+    assert_contains "$audit_content" "FAILED to hand the alert" \
+        "Test 91c: The audit log records the failed hand-off"
+    teardown
+}
+
+# Test 94: A threshold from the environment is validated as an integer between 1 and 100.
+test_threshold_from_environment_range() {
+    setup
+    export STUB_DF_USAGE=70
+    export DISK_MONITOR_THRESHOLD=0
+    run_monitor --notify none
+    assert_equals "1" "$LAST_EXIT_CODE" "Test 94a: An environment threshold of 0 exits with code 1"
+    export DISK_MONITOR_THRESHOLD=101
+    run_monitor --notify none
+    assert_equals "1" "$LAST_EXIT_CODE" "Test 94b: An environment threshold of 101 exits with code 1"
+    export DISK_MONITOR_THRESHOLD=abc
+    run_monitor --notify none
+    assert_equals "1" "$LAST_EXIT_CODE" "Test 94c: A non-numeric environment threshold exits with code 1"
+    unset DISK_MONITOR_THRESHOLD
+    teardown
+}
+
+# Test 95: A threshold from the configuration file is validated as an integer between 1 and 100.
+test_threshold_from_config_range() {
+    setup
+    local config_file="$TEST_SANDBOX/diskmonitor.conf"
+    export STUB_DF_USAGE=70
+    printf 'threshold = 0\n' > "$config_file"
+    run_monitor --config "$config_file" --notify none
+    assert_equals "1" "$LAST_EXIT_CODE" "Test 95a: A configured threshold of 0 exits with code 1"
+    printf 'threshold = 101\n' > "$config_file"
+    run_monitor --config "$config_file" --notify none
+    assert_equals "1" "$LAST_EXIT_CODE" "Test 95b: A configured threshold of 101 exits with code 1"
+    teardown
+}
+
+# Test 96: An unsupported notify backend from the configuration file is rejected.
+test_notify_from_config_unsupported() {
+    setup
+    local config_file="$TEST_SANDBOX/diskmonitor.conf"
+    export STUB_DF_USAGE=70
+    printf 'notify = carrier-pigeon\n' > "$config_file"
+    run_monitor --config "$config_file"
+    assert_equals "1" "$LAST_EXIT_CODE" "Test 96: An unsupported configured backend exits with code 1"
+    teardown
+}
+
+# Test 97: The doctor names the value of the threshold it reports.
+test_doctor_reports_threshold_value() {
+    setup
+    run_monitor --doctor --notify http --url https://ntfy.sh/disk-alerts -t 90
+    assert_contains "$LAST_STDOUT" "90" "Test 97: The doctor reports the threshold value"
+    teardown
+}
+
 # Run all tests
 printf "%bStarting Bash Disk Monitor Test Suite...%b\n" "$CYAN" "$RESET"
 test_help_menu
 test_unknown_flag
 test_threshold_validation
 test_notify_validation
+test_threshold_from_environment_range
+test_threshold_from_config_range
+test_notify_from_config_unsupported
+test_doctor_reports_threshold_value
 test_missing_partition
 test_missing_recipient
 test_missing_mail_agent
@@ -1600,6 +1934,12 @@ test_doctor_reports_a_readable_configuration_file
 test_doctor_rejects_an_overflowing_threshold
 test_doctor_reports_a_measurement_command_from_the_config_file
 test_doctor_sanitizes_the_printed_value
+test_parity_of_the_public_interface
+test_parity_of_the_documented_transports
+test_smtp_transport_is_not_offered
+test_http_error_status_is_a_failed_handoff
+test_doctor_remedy_survives_a_quoted_path
+test_doctor_warns_when_the_permission_cannot_be_determined
 
 printf "============================================================\n"
 printf "Tests Summary: %b%d Passed%b, %b%d Failed%b\n" "$GREEN" "$PASSED_TESTS" "$RESET" "$RED" "$FAILED_TESTS" "$RESET"

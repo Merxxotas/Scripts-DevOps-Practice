@@ -4,7 +4,7 @@ This roadmap records the **observed outcomes** of the module's development. Ever
 is backed by something that actually happened — a commit, a test run or a CI run. Every
 unchecked box is something that has **not** happened yet, and it stays unchecked until it does.
 
-Last verified: **2026-10-21**.
+Last verified: **2026-10-22**.
 
 ---
 
@@ -72,7 +72,7 @@ Last verified: **2026-10-21**.
 - [x] **One audit line per run:** `<ISO-8601 UTC> [<LEVEL>] <message>`, appended to the file
   given by `-l`.
 - [x] **Fixed message vocabulary:** the `INFO` and `ERROR` messages are listed in
-  [`SPECS.md`](SPECS.md) §6.2 and are identical on both sides.
+  [`SPECS.md`](SPECS.md) §6.2, with one vocabulary on both sides.
 - [x] **Best-effort audit write:** a failing log write is reported but never breaks the
   measurement.
 - [x] **Exit-code contract:** `0` success, `1` configuration or safety error, `2` partial
@@ -146,6 +146,59 @@ Last verified: **2026-10-21**.
 
 ---
 
+## Phase 8: The Universal Transport
+
+The transport, the configuration file and the doctor that turn a Linux-and-a-mail-agent alert
+path into one that runs on any Linux distribution and on Windows. A box is checked only when a
+run observed it; nothing here is checked because the code was written.
+
+- [x] **The configuration file, both implementations:** thirteen keys in a `key = value` format
+  with no parser library, the four-source precedence and the provenance record, proven by **77
+  passed, 0 failed** on all four suite jobs in run `39646002248` (commit `a3cea7a` and three
+  fixes).
+- [x] **The HTTP transport, both implementations:** one transport with no provider-specific
+  code, an external client resolved on `PATH`, and a header value that never reaches an output,
+  proven by **171 passed, 0 failed** on all four suite jobs in run `39654069737` (commits
+  `fd12e3e` and `aae787e`).
+- [x] **The doctor, both implementations:** a provenance report, a readiness exit code and the
+  remedy of the platform it runs on, proven by **243 passed, 0 failed** on the Bash suite and
+  **green on all six CI jobs** in run `39677118704` (commits `cc99bd4`, `df29e38`, `efba983`
+  and `e5c32d5`).
+- [x] **Parity as a test, not a practice:** the long flags, the parameters, the
+  `DISK_MONITOR_*` names and the configuration keys are compared as sets in both directions;
+  **257 passed, 0 failed** on the Bash suite, fourteen assertions more than the 243 above
+  (commit `a93f0be`).
+- [x] **A deferred transport is refused, not reserved:** `--notify smtp` exits `1` and the
+  refusal names `none`, `mail` and `http`, on both sides (commit `a93f0be`).
+- [x] **An HTTP error status is a failed hand-off, not a delivery:** the client is asked to
+  fail, so a `4xx` or `5xx` exits `2` and the audit line says `FAILED` instead of `ALERT SENT`;
+  **260 passed, 0 failed** on the Bash suite, three assertions more than the parity commit above.
+- [x] **The advisories of the four reviews are closed or accepted:** the ShellCheck finding of
+  the parity extractors, the mode whose leading zero the host drops, the remedy the reader
+  pastes, the empty-scrape guards and the weak assertions; **271 passed, 0 failed** on the Bash
+  suite, fourteen assertions more than the parity commit above.
+- [x] **The read-access remedy is paste-safe too:** the correction review found the second sink
+  of the quoting defect — the `chmod u+r` remedy of the doctor and of a run interpolated the
+  path raw, and the run copy ended with the period of the sentence. Both are quoted with the
+  helper the restrict remedy already used, the command ends the line on both sides, and a test
+  pastes each remedy from a path that holds a quote; **277 passed, 0 failed** on the Bash suite,
+  six assertions more than the advisory batch.
+- [x] **The mail transport still works:** a mail run exits `0`, reaches the agent with the
+  recipient, and never touches the HTTP client (commit `a93f0be`).
+- [x] **The transport work passed its native review:** receipt `review-7f70ee03fae2019c`,
+  approved without a correction, with ten non-blocking advisories queued as follow-up.
+- [ ] **The branch tip is green on all six CI jobs:** the last observed run predates the parity
+  commit, so this box waits for the push.
+- [ ] **The module documents describe the transport:** this change is written but not yet
+  reviewed or merged.
+- [ ] **Merged to `main`.**
+
+> The PowerShell suite and both lint gates are **CI-only on the development host**, where `pwsh`
+> and `shellcheck` are not installed. A PowerShell box is checked only when a run reports it,
+> never because the Bash side passed.
+
+---
+
 ## Non-Goals Recorded for v1
 
 These are decisions, not omissions. They are listed so a later reader does not mistake them
@@ -153,7 +206,8 @@ for work that was forgotten.
 
 - One partition per invocation.
 - No machine-readable output (`--json` / `--csv`).
-- No direct SMTP or webhook transport.
+- No SMTP transport. `smtp` is refused by name: the HTTP transport covers every webhook and
+  chat API, so a second path would add a provider-specific surface without adding a provider.
 - No containerisation and no Python implementation.
 - No ARM64 CI job — the repository's matrix is x86-only, and adding one touches a shipped
   module's pipeline, which is its own scope.

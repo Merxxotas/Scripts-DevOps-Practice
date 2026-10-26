@@ -17,8 +17,8 @@ implementations identical in behaviour and safe to run unattended.
   ANSI-coloured report strings and the audit message templates. Split those only by extracting
   the message into a variable, never by truncating the message.
 - **Parity is a review gate:** the Bash and the PowerShell implementation must expose the same
-  flags, the same defaults, the same validation, the same exit codes and the same messages. A
-  change to one side is a change to both, in the same commit.
+  flags, the same defaults, the same validation, the same exit codes and the same report fields,
+  with one message vocabulary. A change to one side is a change to both, in the same commit.
 - **Branching & PR workflow:**
   - Direct commits to `main` are prohibited.
   - Work is performed on dedicated branches: `feat/<n>-<slug>`, `fix/<slug>`, `docs/<slug>`,
@@ -38,7 +38,7 @@ implementations identical in behaviour and safe to run unattended.
   - Function-local variables: `snake_case`, declared with `local` **before** they are used.
   - Module-level configuration: `UPPER_SNAKE_CASE` (`PARTITION`, `THRESHOLD`, `LOG_FILE`).
   - Constants: `readonly` (`COLOR_RED`, `COLOR_RESET`).
-- **Quoting:** quote every expansion — `"$PARTITION"`, "$MAIL_COMMAND"`. An unquoted expansion
+- **Quoting:** quote every expansion — `"$PARTITION"`, `"$MAIL_COMMAND"`. An unquoted expansion
   is a defect, because every value in this module can come from the outside world.
 - **`printf`, not `echo`:** the report and the audit line are written with `printf` and an
   explicit format string, so a value containing `%` or a backslash cannot corrupt the output.
@@ -78,12 +78,14 @@ get_disk_usage() {
 
 ## 3. PowerShell Coding Standards (`disk_monitor.ps1`)
 
-- **Version gate:** `#Requires -Version 7.0` is the first line. `Get-WmiObject` was removed in
-  PowerShell 7 and `Send-MailMessage` is deprecated, so the version is a contract, not a
-  suggestion.
-- **Script shape:** `[CmdletBinding()]` plus a strongly typed `param()` block, with
-  `[ValidateRange]` and `[ValidateSet]` carrying the validation that the Bash side performs at
-  run time.
+- **Version gate:** `#Requires -Version 7.0` is the first line. The script branches on `$IsWindows`,
+  `$IsLinux` and `$IsMacOS`, which only PowerShell 6 and later define, so the gate makes the
+  supported host explicit instead of letting a run fail halfway through.
+- **Script shape:** `[CmdletBinding()]` plus a `param()` block. The block **binds**; it does not
+  judge. A `[ValidateRange]` or a `[ValidateSet]` here would refuse a value before the module can
+  report it, and a value that came from the environment or the configuration file would die in
+  the binder where the doctor can never see it. A value from any source is judged after the
+  resolution, by the same validation the Bash side runs.
 - **Strict mode:** `Set-StrictMode -Version Latest` and an explicit `$ErrorActionPreference`.
   A typo in a variable name must fail loudly.
 - **Approved verbs:** every function uses an approved verb and a **singular** noun —
@@ -126,8 +128,12 @@ function Write-ErrorLine {
   - `0` — the check ran; the alert was delivered, not needed, or deliberately suppressed.
   - `1` — configuration or safety violation.
   - `2` — partial failure: the usage could not be read, or the alert could not be handed to
-    the mail agent.
-  - Every termination path uses one of those three codes. There is no fourth code.
+    the mail agent or the HTTP client.
+  - Every termination path uses one of those three codes. There is no fourth code, and a new
+    transport does not add one. A missing endpoint or a malformed header is `1`; a request that
+    was attempted and failed is `2`.
+  - `--doctor` reuses `0` and `1` as a readiness answer — ready, or something missing — and
+    never returns `2`, because it measures nothing and sends nothing.
 - **The help text documents the exit codes.** A user who reads `-h` must not have to open this
   document to learn what a non-zero exit means.
 - **Structured logging, not ad-hoc printing:** every audit line goes through the single writer
@@ -142,14 +148,21 @@ function Write-ErrorLine {
 
 ## 5. Secrets & Credentials
 
-- **Never hardcode a secret.** The module holds no credential, reads no credential file and
-  logs no credential. The alert recipient is an address, not a secret.
-- **Read the configuration from the environment** and fail loudly when it is unset:
-  `DISK_MONITOR_TO`, `DISK_MONITOR_MAIL_COMMAND`, `DISK_MONITOR_USAGE_COMMAND`,
-  `DISK_MONITOR_USAGE_OVERRIDE`.
+- **Never hardcode a secret.** The module stores no credential of its own, reads no credential
+  file and logs no credential. The alert recipient is an address, not a secret. The one secret
+  it can carry is an HTTP header value the caller supplies.
+- **Read the configuration from the environment** and fail loudly when a required value is
+  unset. The fourteen variables are listed in [`SPECS.md`](SPECS.md) §5.2.
 - **The relay credential belongs to the mail agent.** It lives in the mail agent's own
   configuration, with restrictive permissions, outside this repository. It must never appear in
   a file, a command line, a log or a commit in this repository.
+- **A header value never reaches an output.** It is not printed, not echoed in an error and not
+  written to the audit log. The report gives the header **count** and the source of the list,
+  never the value. This is not optional: a header is the documented place for a bearer token.
+- **A malformed configuration line is named by its line number, never reproduced.** A line
+  pasted into the file by mistake may hold a token, and a warning is a durable record.
+- **A configuration file is treated as sensitive.** The repository ignores it, `--doctor` warns
+  when other users can read it, and nothing copies its contents into a log or a report.
 - **Never log the body of an alert.** The audit line records the partition, the percentage, the
   source, the threshold and the recipient — the minimum that proves the run happened.
 
@@ -177,7 +190,43 @@ function Write-ErrorLine {
 
 ---
 
-## 7. Examples of Production Standards
+## 7. Transport & Configuration Conventions
+
+These conventions come from the transport work specified in [`SPECS.md`](SPECS.md) §5 and §8.
+They are the rules another module adopts when it takes the pattern.
+
+- **Every option exists on both sides, with one meaning.** A flag added to one implementation is
+  a defect until the other has it, in the same commit, with the same validation and the same
+  exit code. The parity tests compare the two declarations as sets, in both directions, so a
+  one-sided option fails both suites.
+- **The binder binds; it does not judge.** No `[ValidateRange]` and no `[ValidateSet]` on a value
+  that can also come from the environment or a file. A value the binder refuses is a value the
+  doctor can never report, and the two implementations then reject the same input with different
+  messages.
+- **Validation lives in one place per implementation, and runs after the resolution.** Both
+  sides judge the *resolved* value, so the same bad threshold is refused with the same message
+  whichever source supplied it.
+- **Every resolved value records where it came from.** `default`, `flag`, `environment` or
+  `config` is part of the value's state, not something reconstructed for the report. `--doctor`
+  reads that record; it does not re-derive it.
+- **An external command is resolved by name on `PATH`, and overridable.** The measurement
+  command, the mail agent and the HTTP client are commands, not libraries: `command -v` on the
+  Bash side, `Get-Command -CommandType Application` on the PowerShell side. The override is part
+  of the contract — `--mail-command`, `--http-command`, and `DISK_MONITOR_USAGE_COMMAND` — which
+  is what lets the suites replace a command instead of the code.
+- **A transport is a value, not a branch per provider.** One HTTP transport reaches every HTTP
+  provider; a provider is a URL, a header and a body template. A provider-specific code path is
+  a defect, because it makes "any provider" cost one code path each.
+- **A deferred capability is refused by name.** `smtp` exits `1` and the message names the three
+  supported values. A reserved value that silently does nothing is a scheduling mistake waiting
+  to happen.
+- **The exit codes stay `0`, `1` and `2`.** A new transport adds no code. A configuration error
+  is `1`; a delivery that was attempted and failed is `2`; a completed check is `0` whatever the
+  transport decided.
+
+---
+
+## 8. Examples of Production Standards
 
 ### Good Bash style example
 
@@ -223,12 +272,14 @@ resolve_mail_command() {
 
 [CmdletBinding()]
 param(
+    # The threshold is a string: the environment and the configuration file can
+    # hold a value that is not a number, and the tool has to report that value.
+    # A range attribute would refuse it in the binder, where the doctor can
+    # never see it.
     [Parameter(Mandatory = $false)]
-    [ValidateRange(1, 100)]
-    [int]$Threshold = 80,
+    [string]$Threshold = "80",
 
     [Parameter(Mandatory = $false)]
-    [ValidateSet("none", "mail")]
     [string]$Notify = "mail",
 
     [Parameter(Mandatory = $false)]
@@ -253,7 +304,7 @@ function Write-ErrorLine {
 
 ---
 
-## 8. Related Documents
+## 9. Related Documents
 
 - The contract these rules serve: [`SPECS.md`](SPECS.md)
 - The milestones: [`ROADMAP.md`](ROADMAP.md)

@@ -34,6 +34,7 @@ $ErrFile = Join-Path $TestSandbox "stderr.txt"
 $UsageStub = Join-Path $StubDir "usage_stub.ps1"
 $MailStub = Join-Path $StubDir "mail_stub.ps1"
 $HttpStub = Join-Path $StubDir "http_stub.ps1"
+$HttpStatusStub = Join-Path $StubDir "http_status_stub.ps1"
 $script:OriginalPath = $env:PATH
 
 # The interpreter is resolved once, by its own path, so the suite can run a
@@ -157,6 +158,33 @@ if ($env:DISK_MONITOR_STUB_HTTP_FAIL -eq "1") {
 exit 0
 '@ | Set-Content -LiteralPath $HttpStub -Encoding utf8
 
+    # HTTP client stub that reproduces curl's handling of an HTTP error
+    # status. Real curl exits 0 for a 4xx unless it is told to fail, which is
+    # the whole point: the exit code is decided by the arguments the module
+    # passes, not by an opinion the stub holds on its own.
+    @'
+$lines = @()
+$lines += "ARGC:$($args.Count)"
+foreach ($item in $args) {
+    $lines += "ARG:$item"
+}
+$lines += "STDIN-BEGIN"
+$lines += ($input | Out-String)
+$lines += "STDIN-END"
+Add-Content -LiteralPath $env:DISK_MONITOR_STUB_HTTP_CAPTURE -Value $lines
+
+$status = 200
+if (-not [string]::IsNullOrEmpty($env:DISK_MONITOR_STUB_HTTP_STATUS)) {
+    $status = [int]$env:DISK_MONITOR_STUB_HTTP_STATUS
+}
+if ($args -contains "--fail" -and $status -ge 400) {
+    [Console]::Error.WriteLine("curl: (22) The requested URL returned error: $status")
+    exit 22
+}
+Write-Output "server body"
+exit 0
+'@ | Set-Content -LiteralPath $HttpStatusStub -Encoding utf8
+
     # A client shim on PATH, so the default resolution can be observed. The
     # shim is never invoked by the suite: only the resolution is observed.
     if ($IsWindows) {
@@ -184,6 +212,7 @@ exit 0
     $env:DISK_MONITOR_STUB_DF_FAIL = "0"
     $env:DISK_MONITOR_STUB_MAIL_FAIL = "0"
     $env:DISK_MONITOR_STUB_HTTP_FAIL = "0"
+    $env:DISK_MONITOR_STUB_HTTP_STATUS = "200"
     $env:DISK_MONITOR_USAGE_COMMAND = $UsageStub
     Remove-Item Env:DISK_MONITOR_USAGE_OVERRIDE -ErrorAction SilentlyContinue
     Remove-Item Env:DISK_MONITOR_TO -ErrorAction SilentlyContinue
@@ -210,6 +239,7 @@ function Exit-TestEnvironment {
     Remove-Item Env:DISK_MONITOR_STUB_DF_FAIL -ErrorAction SilentlyContinue
     Remove-Item Env:DISK_MONITOR_STUB_MAIL_FAIL -ErrorAction SilentlyContinue
     Remove-Item Env:DISK_MONITOR_STUB_HTTP_FAIL -ErrorAction SilentlyContinue
+    Remove-Item Env:DISK_MONITOR_STUB_HTTP_STATUS -ErrorAction SilentlyContinue
     Remove-Item Env:DISK_MONITOR_USAGE_COMMAND -ErrorAction SilentlyContinue
     Remove-Item Env:DISK_MONITOR_USAGE_OVERRIDE -ErrorAction SilentlyContinue
     Remove-Item Env:DISK_MONITOR_TO -ErrorAction SilentlyContinue
@@ -1803,6 +1833,7 @@ function Test-DoctorReportsAReadableConfigurationFile {
         Assert-Match -Haystack $script:LastStdout -Needle "can be read by other users" -TestName "Test 84b: The doctor reports the readable configuration file"
         if ($IsWindows) {
             Assert-Match -Haystack $script:LastStdout -Needle "icacls" -TestName "Test 84c: The remedy names the command that restricts the file"
+            Assert-Match -Haystack $script:LastStdout -Needle "/remove:g" -TestName "Test 84e: The Windows remedy removes the explicit Everyone grant"
         } else {
             Assert-Match -Haystack $script:LastStdout -Needle "chmod 600" -TestName "Test 84c: The remedy names the command that restricts the file"
         }
@@ -1819,6 +1850,23 @@ function Test-DoctorReportsAReadableConfigurationFile {
 
     Invoke-Monitor -Arguments @("-Doctor", "-Config", $restrictedFile, "-Notify", "http", "-Url", "https://ntfy.sh/disk-alerts")
     Assert-Absent -Haystack $script:LastStdout -Needle "can be read by other users" -TestName "Test 84d: A restricted configuration file is not reported"
+
+    if (-not $IsWindows) {
+        # The host prints a mode without its leading zeros, so a file whose
+        # owner has no permission is printed with two digits or one. The group
+        # and the others still read it, and the doctor has to say so even
+        # though it cannot read the file itself.
+        & chmod 044 $configFile
+        Invoke-Monitor -Arguments @("-Doctor", "-Config", $configFile, "-Notify", "http", "-Url", "https://ntfy.sh/disk-alerts")
+        Assert-Match -Haystack $script:LastStdout -Needle "cannot be read" -TestName "Test 84f: The doctor reports a configuration file it cannot read"
+        Assert-Match -Haystack $script:LastStdout -Needle "can be read by other users" -TestName "Test 84g: A readable file whose mode lost its leading zero is reported"
+        Assert-Equal -Expected 1 -Actual $script:LastRunExitCode -TestName "Test 84h: A configuration file the tool cannot read is a problem"
+
+        & chmod 400 $configFile
+        Invoke-Monitor -Arguments @("-Doctor", "-Config", $configFile, "-Notify", "http", "-Url", "https://ntfy.sh/disk-alerts")
+        Assert-Absent -Haystack $script:LastStdout -Needle "can be read by other users" -TestName "Test 84i: A file only its owner can read is not reported"
+        Assert-Absent -Haystack $script:LastStdout -Needle "cannot be read" -TestName "Test 84j: A file its owner can read is not reported as unreadable"
+    }
     Exit-TestEnvironment
 }
 
@@ -1840,6 +1888,7 @@ function Test-DoctorRejectsAnOverflowingThreshold {
     Set-Content -LiteralPath $configFile -Value "threshold = 18446744073709551617"
     Invoke-Monitor -Arguments @("-Doctor", "-Config", $configFile, "-Notify", "http", "-Url", "https://ntfy.sh/disk-alerts")
     Assert-Equal -Expected 1 -Actual $script:LastRunExitCode -TestName "Test 85d: A threshold of the configuration file that does not fit in an integer exits with code 1"
+    Assert-Match -Haystack $script:LastStdout -Needle "not an integer between 1 and 100" -TestName "Test 85f: The doctor names the invalid threshold of the configuration file"
     Invoke-Monitor -Arguments @("-Config", $configFile, "-Notify", "http", "-Url", "https://ntfy.sh/disk-alerts")
     Assert-Equal -Expected 1 -Actual $script:LastRunExitCode -TestName "Test 85e: The run rejects the same threshold of the configuration file"
     Exit-TestEnvironment
@@ -1871,6 +1920,183 @@ function Test-DoctorSanitizesThePrintedValue {
     Exit-TestEnvironment
 }
 
+# ------------------------------------------------------------------------------
+# Parity with the Bash implementation (S20)
+#
+# The module contract requires both implementations to offer the same flags, to
+# read the same environment variables and to accept the same configuration
+# keys. The other implementation is read as a source file, because this suite
+# runs under one interpreter and the interface of the other side is declared in
+# its argument parser.
+# ------------------------------------------------------------------------------
+
+# Returns the long flags of the Bash argument parser
+function Get-BashPublicFlag {
+    param([string]$Path)
+
+    $text = Get-Content -Raw -LiteralPath $Path
+    $block = [regex]::Match($text, "(?ms)^parse_arguments\(\) \{.*?^\}").Value
+    $flag = [regex]::Matches($block, "--([a-z][a-z-]*)\)") |
+        ForEach-Object { $_.Groups[1].Value }
+
+    return @($flag | Sort-Object -Unique)
+}
+
+# Returns the parameters of this implementation as long flags. -Verbose is
+# added because it is a common parameter of the binder and never appears in
+# the param block even though the caller sees it.
+function Get-PowerShellPublicFlag {
+    param([string]$Path)
+
+    $text = Get-Content -Raw -LiteralPath $Path
+    $block = [regex]::Match($text, "(?ms)^param\(.*?^\)").Value
+    $parameter = [regex]::Matches($block, "\[(?:string|string\[\]|switch)\]\`$([A-Za-z]+)") |
+        ForEach-Object { $_.Groups[1].Value }
+
+    $flag = foreach ($name in $parameter) {
+        ($name -creplace "([a-z0-9])([A-Z])", '$1-$2').ToLowerInvariant()
+    }
+
+    if ($text -match "(?m)^\[CmdletBinding\(\)\]") {
+        $flag = @($flag) + "verbose"
+    }
+
+    return @($flag | Sort-Object -Unique)
+}
+
+# Returns the environment variables an implementation reads
+function Get-ImplementationEnvironmentName {
+    param([string]$Path)
+
+    $text = Get-Content -Raw -LiteralPath $Path
+    $name = [regex]::Matches($text, "DISK_MONITOR_[A-Z_]+") |
+        ForEach-Object { $_.Value }
+
+    return @($name | Sort-Object -Unique)
+}
+
+# Returns the configuration keys the Bash implementation accepts
+function Get-BashConfigKey {
+    param([string]$Path)
+
+    $text = Get-Content -Raw -LiteralPath $Path
+    $block = [regex]::Match($text, '(?ms)case "\$key" in.*?esac').Value
+    $key = [regex]::Matches($block, '(?m)^ +([a-z_]+)\)') |
+        ForEach-Object { $_.Groups[1].Value }
+
+    return @($key | Sort-Object -Unique)
+}
+
+# Returns the configuration keys this implementation accepts
+function Get-PowerShellConfigKey {
+    param([string]$Path)
+
+    $text = Get-Content -Raw -LiteralPath $Path
+    $block = [regex]::Match($text, '(?ms)switch \(\$key\) \{.*?^ {8}\}').Value
+    $key = [regex]::Matches($block, '(?m)^ +"([a-z_]+)"') |
+        ForEach-Object { $_.Groups[1].Value }
+
+    return @($key | Sort-Object -Unique)
+}
+
+# Returns the notification backends a piece of help text names
+function Get-NotifyBackend {
+    param([string]$Text)
+
+    $value = [regex]::Matches($Text, "\b(none|mail|http)\b") |
+        ForEach-Object { $_.Groups[1].Value }
+
+    return @($value | Sort-Object -Unique)
+}
+
+# Test 88: The two implementations offer the same flags, read the same
+# environment variables and accept the same configuration keys
+function Test-PublicInterfaceMatchesTheBashSide {
+    Enter-TestEnvironment
+    $bashScript = Join-Path (Split-Path -Parent $ScriptDir) "disk_monitor.sh"
+
+    $bashFlags = (Get-BashPublicFlag -Path $bashScript) -join " "
+    $powershellFlags = (Get-PowerShellPublicFlag -Path $MonitorScript) -join " "
+    $bashEnvironment = (Get-ImplementationEnvironmentName -Path $bashScript) -join " "
+    $powershellEnvironment = (Get-ImplementationEnvironmentName -Path $MonitorScript) -join " "
+    $bashKeys = (Get-BashConfigKey -Path $bashScript) -join " "
+    $powershellKeys = (Get-PowerShellConfigKey -Path $MonitorScript) -join " "
+
+    # The extractions are asserted to hold the interface, so a parser that
+    # silently matched nothing cannot let the comparison below pass.
+    Assert-Match -Haystack $bashFlags -Needle "partition" -TestName "Test 88a: The Bash flag extraction holds the interface"
+    Assert-Match -Haystack $powershellFlags -Needle "partition" -TestName "Test 88b: The PowerShell flag extraction holds the interface"
+    Assert-Match -Haystack $bashFlags -Needle "help" -TestName "Test 88c: The Bash flag extraction holds the help flag"
+    Assert-Match -Haystack $powershellFlags -Needle "help" -TestName "Test 88d: The PowerShell flag extraction holds the help flag"
+    Assert-Match -Haystack $bashEnvironment -Needle "DISK_MONITOR_URL" -TestName "Test 88e: The Bash environment extraction holds the transport"
+    Assert-Match -Haystack $powershellEnvironment -Needle "DISK_MONITOR_URL" -TestName "Test 88f: The PowerShell environment extraction holds the transport"
+    Assert-Match -Haystack $bashKeys -Needle "url" -TestName "Test 88g: The Bash key extraction holds the transport"
+    Assert-Match -Haystack $powershellKeys -Needle "url" -TestName "Test 88h: The PowerShell key extraction holds the transport"
+    Assert-Equal -Expected $bashFlags -Actual $powershellFlags -TestName "Test 88i: Both implementations offer the same flags"
+    Assert-Equal -Expected $bashEnvironment -Actual $powershellEnvironment -TestName "Test 88j: Both implementations read the same environment variables"
+    Assert-Equal -Expected $bashKeys -Actual $powershellKeys -TestName "Test 88k: Both implementations accept the same configuration keys"
+    Exit-TestEnvironment
+}
+
+# Test 89: Every help surface of both implementations names the same
+# notification backends. A transport that works on one platform and is
+# undocumented on the other is a transport the user of that platform cannot
+# find, so the documentation is part of the interface.
+function Test-DocumentedTransportSetMatchesTheBashSide {
+    Enter-TestEnvironment
+    $bashScript = Join-Path (Split-Path -Parent $ScriptDir) "disk_monitor.sh"
+    $bashText = Get-Content -Raw -LiteralPath $bashScript
+    $powershellText = Get-Content -Raw -LiteralPath $MonitorScript
+
+    $bashHelp = [regex]::Match($bashText, "(?ms)^show_help\(\) \{.*?^\}").Value
+    $bashNotifyLine = @($bashHelp -split "`n" | Where-Object { $_ -like "*--notify*" }) -join "`n"
+    $bashBackends = (Get-NotifyBackend -Text $bashNotifyLine) -join " "
+
+    $commentHelp = [regex]::Match($powershellText, "(?ms)^\.PARAMETER Notify.*?^\.PARAMETER").Value
+    $commentBackends = (Get-NotifyBackend -Text $commentHelp) -join " "
+
+    $usageHelp = [regex]::Match($powershellText, "(?ms)^function Show-Help \{.*?^\}").Value
+    $usageNotifyLine = @($usageHelp -split "`n" | Where-Object { $_ -like "*-Notify*" }) -join "`n"
+    $usageBackends = (Get-NotifyBackend -Text $usageNotifyLine) -join " "
+
+    Assert-Match -Haystack $bashBackends -Needle "http" -TestName "Test 89a: The Bash help names the HTTP backend"
+    Assert-Equal -Expected $bashBackends -Actual $commentBackends -TestName "Test 89b: The comment-based help names the same backends as the Bash help"
+    Assert-Equal -Expected $bashBackends -Actual $usageBackends -TestName "Test 89c: The usage text names the same backends as the Bash help"
+    Exit-TestEnvironment
+}
+
+# Test 90: The SMTP transport is not offered. The local mail agent is the
+# supported default and is not what this test refuses; only the `smtp` value
+# is, and the refusal names the supported set as one phrase.
+function Test-SmtpTransportIsNotOffered {
+    Enter-TestEnvironment
+    Invoke-Monitor -Arguments @("-Notify", "smtp", "-To", "ops@example.com")
+    Assert-Equal -Expected 1 -Actual $script:LastRunExitCode -TestName "Test 90a: The smtp backend exits with code 1"
+    Assert-Match -Haystack $script:LastStderr -Needle "Notify backend must be 'none', 'mail' or 'http'." -TestName "Test 90b: The refusal names the supported set as one phrase"
+    Exit-TestEnvironment
+}
+
+# Test 91: An HTTP error status is a failed hand-off, not a delivery. curl
+# exits 0 for a 4xx unless it is asked to fail, so the module has to ask: an
+# alert a service rejected must not be recorded as sent.
+function Test-HttpErrorStatusIsAFailedHandoff {
+    Enter-TestEnvironment
+    $env:DISK_MONITOR_STUB_DF_USAGE = "95"
+    $env:DISK_MONITOR_STUB_HTTP_STATUS = "401"
+    $auditFile = Join-Path $TestSandbox "logs/audit.log"
+    Invoke-Monitor -Arguments @("-Threshold", "80", "-Notify", "http", "-Url", "https://ntfy.sh/disk-alerts", "-HttpCommand", $HttpStatusStub, "-LogFile", $auditFile)
+    Assert-Equal -Expected 2 -Actual $script:LastRunExitCode -TestName "Test 91a: A rejected request exits with code 2"
+
+    $audit = ""
+    if (Test-Path -LiteralPath $auditFile) {
+        $raw = Get-Content -Raw -LiteralPath $auditFile
+        if ($null -ne $raw) { $audit = $raw }
+    }
+    Assert-Absent -Haystack $audit -Needle "ALERT SENT" -TestName "Test 91b: The audit log does not claim the alert was sent"
+    Assert-Match -Haystack $audit -Needle "FAILED to hand the alert" -TestName "Test 91c: The audit log records the failed hand-off"
+    Exit-TestEnvironment
+}
+
 Test-HttpMalformedConfigLineIsNotEchoed
 Test-DoctorReportsTheConfiguration
 Test-DoctorChangesNothing
@@ -1890,6 +2116,98 @@ Test-DoctorReportsAReadableConfigurationFile
 Test-DoctorRejectsAnOverflowingThreshold
 Test-DoctorReportsAMeasurementCommandFromTheConfigFile
 Test-DoctorSanitizesThePrintedValue
+Test-PublicInterfaceMatchesTheBashSide
+Test-DocumentedTransportSetMatchesTheBashSide
+Test-SmtpTransportIsNotOffered
+# Test 92: The remedy of the doctor is a command the reader pastes. A path
+# that holds a space and a quote must not break it, and the command has to
+# restrict the file when it is run.
+function Test-DoctorRemedySurvivesAQuotedPath {
+    Enter-TestEnvironment
+    $configDir = Join-Path $TestSandbox "it's config"
+    $null = New-Item -ItemType Directory -Path $configDir -Force
+    $configFile = Join-Path $configDir "monitor.conf"
+    Set-Content -LiteralPath $configFile -Value "url = https://ntfy.sh/disk-alerts"
+
+    if ($IsWindows) {
+        $acl = Get-Acl -LiteralPath $configFile
+        $rule = New-Object System.Security.AccessControl.FileSystemAccessRule("Everyone", "Read", "Allow")
+        $null = $acl.AddAccessRule($rule)
+        Set-Acl -LiteralPath $configFile -AclObject $acl
+    } else {
+        & chmod 644 $configFile
+    }
+
+    Invoke-Monitor -Arguments @("-Doctor", "-Config", $configFile, "-Notify", "http", "-Url", "https://ntfy.sh/disk-alerts")
+    Assert-Match -Haystack $script:LastStdout -Needle "Restrict it:" -TestName "Test 92a: The doctor offers the remedy"
+
+    $remedy = ""
+    foreach ($line in ($script:LastStdout -split "`n")) {
+        if ($line -match "Restrict it: ") {
+            $remedy = ($line -split "Restrict it: ", 2)[1].Trim()
+            break
+        }
+    }
+
+    if ($IsWindows) {
+        Assert-Match -Haystack $remedy -Needle "/remove:g" -TestName "Test 92b: The Windows remedy removes the explicit Everyone grant"
+    } else {
+        # The remedy is a command for the shell of the host, and the shell of a
+        # Unix host is not PowerShell, so it is handed to bash as the reader
+        # would paste it.
+        & bash -c $remedy
+        $mode = & stat -c "%a" $configFile
+        Assert-Equal -Expected "600" -Actual $mode -TestName "Test 92b: The remedy restricts the file when it is pasted"
+    }
+
+    # The other remedy of the configuration file names the command that grants
+    # read access, and it embeds the same path. On the Unix host it reuses the
+    # quoting of the remedy above. The Windows host denies the read access
+    # through an access control entry a test cannot deny and restore safely,
+    # so that half is skipped.
+    if ($IsWindows) {
+        Write-Host "$([char]27)[0;33m[SKIP]$([char]27)[0m Test 92c: The read remedy of this host needs an access control entry a test cannot deny safely"
+    } else {
+        & chmod 044 $configFile
+        Invoke-Monitor -Arguments @("-Doctor", "-Config", $configFile, "-Notify", "http", "-Url", "https://ntfy.sh/disk-alerts")
+        Assert-Equal -Expected 1 -Actual $script:LastRunExitCode -TestName "Test 92c: A configuration file the tool cannot read is a problem"
+        Assert-Match -Haystack $script:LastStdout -Needle "chmod u+r" -TestName "Test 92d: The doctor offers the command that grants read access"
+
+        $readRemedy = ""
+        foreach ($line in ($script:LastStdout -split "`n")) {
+            if ($line -match "read permission: ") {
+                $readRemedy = ($line -split "read permission: ", 2)[1].Trim()
+                break
+            }
+        }
+        & bash -c $readRemedy
+        $mode = & stat -c "%a" $configFile
+        Assert-Equal -Expected "444" -Actual $mode -TestName "Test 92e: The doctor remedy grants read access when it is pasted"
+
+        # The run path prints the same remedy, and it is the only instruction
+        # the reader gets there, so it has to survive the same path and end
+        # where the command ends.
+        & chmod 044 $configFile
+        Invoke-Monitor -Arguments @("-Config", $configFile, "-Notify", "http", "-Url", "https://ntfy.sh/disk-alerts")
+        Assert-Equal -Expected 1 -Actual $script:LastRunExitCode -TestName "Test 92f: An unreadable configuration file stops the run"
+        Assert-Match -Haystack $script:LastStderr -Needle "chmod u+r" -TestName "Test 92g: The run names the command that grants read access"
+
+        $readRemedy = ""
+        foreach ($line in ($script:LastStderr -split "`n")) {
+            if ($line -match "read permission: ") {
+                $readRemedy = ($line -split "read permission: ", 2)[1].Trim()
+                break
+            }
+        }
+        & bash -c $readRemedy
+        $mode = & stat -c "%a" $configFile
+        Assert-Equal -Expected "444" -Actual $mode -TestName "Test 92h: The run remedy grants read access when it is pasted"
+    }
+    Exit-TestEnvironment
+}
+
+Test-HttpErrorStatusIsAFailedHandoff
+Test-DoctorRemedySurvivesAQuotedPath
 
 Write-Host "============================================================"
 Write-Host "Tests Summary: $([char]27)[0;32m$script:PassedCount Passed$([char]27)[0m, $([char]27)[0;31m$script:FailedCount Failed$([char]27)[0m"
