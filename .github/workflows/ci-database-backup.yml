@@ -1,0 +1,78 @@
+name: Database Backup CI/CD
+
+on:
+  push:
+    branches: [ main, 'feat/**', 'fix/**' ]
+    paths:
+      - '3-Automated-Database-Backup-with-Timestamp/**'
+      - '.github/workflows/ci-database-backup.yml'
+  pull_request:
+    branches: [ main ]
+    paths:
+      - '3-Automated-Database-Backup-with-Timestamp/**'
+      - '.github/workflows/ci-database-backup.yml'
+
+jobs:
+  lint-bash:
+    name: Lint Bash (ShellCheck)
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Run ShellCheck
+        run: |
+          shellcheck -x "3-Automated-Database-Backup-with-Timestamp/db_backup.sh"
+          shellcheck -x "3-Automated-Database-Backup-with-Timestamp/tests/test_db_backup.sh"
+
+  test-bash:
+    name: Test Bash on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, macos-14]
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Make scripts executable
+        run: |
+          chmod +x "3-Automated-Database-Backup-with-Timestamp/db_backup.sh"
+          chmod +x "3-Automated-Database-Backup-with-Timestamp/tests/test_db_backup.sh"
+
+      - name: Run Bash Test Suite
+        run: |
+          ./3-Automated-Database-Backup-with-Timestamp/tests/test_db_backup.sh
+
+  lint-powershell:
+    name: Lint PowerShell (PSScriptAnalyzer)
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install PSScriptAnalyzer
+        shell: pwsh
+        run: Install-Module PSScriptAnalyzer -Force -Scope CurrentUser
+
+      - name: Run PSScriptAnalyzer
+        shell: pwsh
+        run: |
+          Invoke-ScriptAnalyzer -Path "3-Automated-Database-Backup-with-Timestamp/db_backup.ps1" -Settings "3-Automated-Database-Backup-with-Timestamp/PSScriptAnalyzerSettings.psd1"
+
+  test-powershell:
+    name: Test PowerShell on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-2022, ubuntu-24.04]
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Run PowerShell Test Suite
+        shell: pwsh
+        run: |
+          & './3-Automated-Database-Backup-with-Timestamp/tests/test_db_backup.ps1'
