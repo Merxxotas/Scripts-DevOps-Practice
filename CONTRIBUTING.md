@@ -16,9 +16,8 @@ the module less useful than it was.
 
 ## The Short Version
 
-1. **Open an issue first** for anything beyond a trivial fix — so the design gets discussed before
-   the code exists.
-2. **Branch** with the naming convention in [§ Branching](#branching).
+1. **Open an issue first** for anything beyond a trivial fix — design before code.
+2. **Branch** per [§ Branching](#branching).
 3. **Write the failing test first**, then the fix, then refactor.
 4. **Update the docs in the same commit** as the behaviour change.
 5. **Make CI green** — all jobs, on all three operating systems.
@@ -35,23 +34,21 @@ replaced the older Spec-Driven Development flow on **2026-10-20**.
 ### What that means in practice
 
 Seven phases, in order, on every request: **Authorize → Explore → Resolve uncertainty → Classify →
-Track → Implement → Close.** The phase-by-phase detail and the repository-local rules live in
-[`odd/METHODOLOGY.md`](odd/METHODOLOGY.md).
+Track → Implement → Close.** Detail and repository-local rules live in [`odd/METHODOLOGY.md`](odd/METHODOLOGY.md).
 
 | Phase | What happens |
 | :--- | :--- |
 | **Authorize** | Confirm the request actually authorizes a change. Investigations and reviews are read-only. |
 | **Explore** | Read the existing code and requirements first, proportionately. |
-| **Classify** | Decide small vs large by the **resume test** — could someone finish from the request plus `git diff`? Never by file count. |
+| **Classify** | Decide small vs large by the **resume test** (could someone finish from the request plus `git diff`?). Never by file count. |
 | **Track** | Large work gets a feature document at `odd/tasks/<feature-name>.md` plus an Engram mirror. Small work gets no durable artifacts. |
 | **Implement** | Task by task, handed off by reference. Observe RED, reach GREEN, then refactor. |
-| **Close** | Report the verified outcome, every failed / skipped / pending check, and a `Risk:` line. |
+| **Close** | Report the verified outcome, every failed/skipped/pending check, and a `Risk:` line. |
 
-**The module artifacts survive the change.** ODD governs *how the work happens*; `SPECS.md` and
-`ROADMAP.md` govern *what the module is*. You still ship them — they are the module's public
-contract with a human reader. What changes is that the specification now crystallizes from the
-actual request as the work lands, instead of being a 200-line document written before anyone has
-looked at the code.
+**The module artifacts survive the change.** ODD governs *how the work happens*; `SPECS.md`/`ROADMAP.md`
+govern *what the module is*. You still ship them — they are the module's public contract with a human
+reader. The spec now crystallizes from the actual request as the work lands, instead of being a
+200-line document written before anyone has looked at the code.
 
 ### The `Risk:` line
 
@@ -71,29 +68,18 @@ verification tier and requires an independent verifier before the change is cons
 
 | Pattern | Use | Example |
 | :--- | :--- | :--- |
-| `feat/<n>-<slug>` | New module or new feature | `feat/2-log-cleanup-spec-and-docs` |
+| `feat/<n>-<slug>` | New module or feature | `feat/2-log-cleanup-spec-and-docs` |
 | `fix/<slug>` | Defect fix | `fix/windows-ci-compat` |
 | `docs/<slug>` | Documentation only | `docs/wiki-navigation` |
 | `ci/<slug>` | Pipeline only | `ci/pin-os-versions` |
 
-`<n>` is the module number when the work targets a single module. Use `kebab-case` for the slug.
-
-**Branch from `main`**, always:
-
-```bash
-git checkout main
-git pull --ff-only
-git checkout -b feat/2-log-cleanup-add-size-filter
-```
+`<n>` = module number when targeting a single module; `kebab-case` slug. **Branch from `main`**, always:
+`git checkout main && git pull --ff-only && git checkout -b feat/2-log-cleanup-add-size-filter`.
 
 ### Merge flow
 
-```
-feature branch  →  local fast-forward merge into main  →  push
-```
-
-This is the flow used to date. `main` has **no branch protection and no rulesets**, so
-"CI green before merge" is a manual obligation — check it yourself:
+`feature branch → local fast-forward merge into main → push`. `main` has **no branch protection
+or rulesets**, so "CI green before merge" is a manual obligation — check it yourself:
 
 ```bash
 gh run list --workflow ci-cleanup-logs.yml --branch main --limit 1
@@ -118,22 +104,16 @@ gh run list --workflow ci-eventops.yml --branch main --limit 1
 # good
 fix(log-cleanup): resolve shellcheck SC2059 warnings
 feat(eventops): add file watcher debouncing
-docs(wiki): add CI/CD pipelines reference page
-
 # bad
-Fixed stuff
-update
-feat: added new feature to eventops
+Fixed stuff / update / feat: added new feature to eventops
 ```
 
 **Rules**
 
-- Imperative mood: *"add debouncing"*, not *"added"*.
-- **One logical change per commit.** Each commit must build and pass CI on its own.
-- The body explains **why**; the diff already shows **what**.
-- **Never** add a `Co-Authored-By` trailer or any AI attribution.
-- Tests and docs ship **in the same commit** as the behaviour they describe.
-- Update [`CHANGELOG.md`](CHANGELOG.md) when a change is user-visible.
+- Imperative mood (*"add debouncing"*, not *"added"*). **One logical change per commit**, each
+  buildable and CI-green on its own. The body explains **why**; the diff shows **what**.
+- **Never** add a `Co-Authored-By` trailer or any AI attribution. Tests and docs ship **in the
+  same commit** as the behaviour. Update [`CHANGELOG.md`](CHANGELOG.md) when user-visible.
 
 ---
 
@@ -148,15 +128,14 @@ feat: added new feature to eventops
 
 ### Rules
 
-- **Write the failing test first.** Observe it fail for the right reason, then implement, then
-  refactor with the test green.
-- **One test per requested rule**, asserting *every* observable effect: output, exit code, persisted
-  state.
-- **For every existing command or option your change touches**, add a test proving the old
-  behaviour still holds. Add no other cases.
+- **Write the failing test first.** Observe it fail for the right reason, then implement, then refactor
+  with the test green.
+- **One test per requested rule**, asserting *every* observable effect: output, exit code, persisted state.
+- **For every existing command or option your change touches**, add a test proving the old behaviour
+  still holds. Add no other cases.
 - **Test the public interface** — CLI flags, exit codes, emitted files — not internal functions.
-- **Be deterministic.** Pin timestamps, isolate the filesystem in a temp directory, never depend on
-  the host's real services, disk layout or locale. Clean up after yourself.
+- **Be deterministic.** Pin timestamps, isolate the filesystem in a temp dir, never depend on the host's
+  real services, disk layout or locale. Clean up after yourself.
 - **A test that cannot run in CI does not belong in the suite.**
 
 ---
@@ -169,42 +148,28 @@ guide in [`wiki/09`](wiki/09-Code-Style-and-Standards.md).
 
 ### Language and naming
 
-- **English only** — code, comments, identifiers, docs, commit messages.
-- **B2 English** — clear, simple, direct; optimize for global readability.
-- Lines under **100 characters**. Python follows **PEP 8**; PowerShell uses **Approved Verb-Noun**
-  naming.
-- `snake_case` for variables and functions, `PascalCase` for types/classes, `UPPER_SNAKE_CASE` for
-  constants, `kebab-case` for CLI flags, `PascalCase` for PowerShell parameters.
+- **English only**, **B2 English** (clear, simple, direct). Lines under **100 characters**. Python follows
+  **PEP 8**; PowerShell uses **Approved Verb-Noun** naming.
+- `snake_case` variables/functions, `PascalCase` types/classes, `UPPER_SNAKE_CASE` constants,
+  `kebab-case` CLI flags, `PascalCase` PowerShell parameters.
 
-### Debugging and observability
+### Debugging, comments and shell
 
-- **No `print()` in production code** — use the language's structured logging (`logging` in Python,
-  `Write-Information`/`Write-Warning` in PowerShell, `log/slog` in Go, a `log()` helper in Bash).
-- Log levels: `DEBUG` (troubleshooting), `INFO` (normal behaviour), `WARNING` (unexpected but
-  survivable), `ERROR` (needs attention).
-- Catch **specific** exceptions, never a bare `except Exception:`.
-- Every destructive or long-running action writes an **audit line**.
-
-### Commenting and documentation
-
-- Comments explain **why**, not what. No commented-out code, no orphan `TODO`s.
-- Docstrings on every class and public function: inputs, outputs, raised errors.
-
-### Shell specifics
-
-- Bash scripts start with `set -euo pipefail` and `IFS=$'\n\t'`. Quote every expansion. Use `[[ ]]`
-  for tests. Prefer `$(...)` over backticks.
-- `--help` must exist and exit `0`.
+- **No `print()` in production code** — use structured logging (`logging`/`Write-Information`/`slog`/`log()`).
+  Levels: DEBUG/INFO/WARNING/ERROR. Catch **specific** exceptions, never bare `except`. Every destructive
+  or long-running action writes an **audit line**.
+- Comments explain **why**, not what. No commented-out code, no orphan `TODO`s. Docstrings on every class
+  and public function (inputs, outputs, raised errors).
+- Bash: `set -euo pipefail`, `IFS=$'\n\t'`, quote expansions, `[[ ]]`, `$(...)`. `--help` exits `0`.
 - **Exit codes are a public contract:** `0` success, `1` configuration/safety violation, `2` partial
   failure — documented in the README.
 
 ### Security
 
-- **Never hardcode secrets.** Read from the environment and fail loudly when unset.
-- Validate and sanitise every external input — paths, arguments, JSON payloads, webhook bodies.
-- **Guardrail destructive paths.** Refuse to operate on `/`, `C:\`, `/etc`, `/var`, system directories.
-- Prefer **dry-run** modes and non-destructive defaults.
-- Never log credentials, tokens or full secret-bearing payloads.
+- **Never hardcode secrets** — read from the environment, fail loudly when unset. Validate and sanitise
+  every external input (paths, arguments, JSON payloads, webhook bodies).
+- **Guardrail destructive paths** (`/`, `C:\`, `/etc`, `/var`, system dirs). Prefer dry-run and
+  non-destructive defaults. Never log credentials, tokens or secret-bearing payloads.
 
 ---
 
@@ -214,16 +179,8 @@ A module is not done until it ships:
 
 ```
 <N>-<Module-Name>/
-├── README.md       # usage, flags, scheduling, troubleshooting
-├── SPECS.md        # technical specification & architecture
-├── ROADMAP.md      # phased milestones
-├── CODESTYLE.md    # module conventions
-├── <implementation>
-├── tests/
-└── docs/
-    ├── ARCHITECTURE_COMPARISON.md
-    ├── SCENARIOS.md
-    └── labs/LAB1…LAB3.md
+├── README.md · SPECS.md · ROADMAP.md · CODESTYLE.md
+├── <implementation> · tests/ · docs/ (ARCHITECTURE_COMPARISON.md, SCENARIOS.md, labs/LAB1…LAB3.md)
 ```
 
 Plus, at the **repository root**:
@@ -242,25 +199,15 @@ expected output must match reality.
 Copy this into your PR description:
 
 ```markdown
-### What changed
-<!-- What does this PR do, and why? -->
-
-### Module
-<!-- e.g. 2 — Log Cleanup -->
+### What changed / Module
+<!-- What does this PR do, why, and which module (e.g. 2 — Log Cleanup)? -->
 
 ### Verification
-- [ ] Bash suite: `bash 2-.../tests/test_cleanup_logs.sh` → ___
-- [ ] PowerShell suite: `pwsh 2-.../tests/test_cleanup_logs.ps1` → ___
-- [ ] Python: `pytest` → ___
-- [ ] Go: `go test ./...` → ___
-- [ ] Linters: ShellCheck / PSScriptAnalyzer / ruff / go vet → ___
+- [ ] Bash suite / PowerShell suite / Python pytest / Go test ./... / linters → ___
 
 ### Documentation
-- [ ] README updated
-- [ ] SPECS.md / ROADMAP.md updated
-- [ ] CHANGELOG.md updated (if user-visible)
-- [ ] Tests added for the new behaviour
-- [ ] Regression test added for every existing command/option touched
+- [ ] README · SPECS.md/ROADMAP.md · CHANGELOG.md (if user-visible) updated
+- [ ] Tests added; regression test for every existing command/option touched
 
 ### Risk
 `Risk: <item N (reason)>` or `Risk: none`
@@ -276,34 +223,24 @@ that does not apply is fine — say why. A silently false box is not.
 
 ## Adding a New Module
 
-1. Pick the next free number. The folder must be `<n>-<Descriptive-Name>`.
-2. Build it against the module contract above, in the style of modules 2 and 11.
-3. Add the path-filtered workflow at the **repository root** — never nested inside the module.
-4. Register it in [`MODULES.md`](MODULES.md), `README.md`, `wiki/01-Monorepo-Architecture.md`, and
-   `wiki/_Sidebar.md`.
-5. Write three labs that a stranger can follow end to end.
+1. Pick the next free number: folder `<n>-<Descriptive-Name>`.
+2. Build against the module contract above, in the style of modules 2 and 11.
+3. Add the path-filtered workflow at the **repository root** (never nested in the module).
+4. Register in [`MODULES.md`](MODULES.md), `README.md`, `wiki/01-Monorepo-Architecture.md` and `wiki/_Sidebar.md`.
+5. Write three labs a stranger can follow end to end.
 
 ---
 
 ## Reporting Bugs and Asking Questions
 
-- **Bug** → open an issue using the [bug report template](.github/ISSUE_TEMPLATE/bug_report.md).
-- **Feature idea** → open an issue using the [feature request template](.github/ISSUE_TEMPLATE/feature_request.md).
-- **Security issue** → **do not** open a public issue. See [`SECURITY.md`](SECURITY.md).
-- **Question** → see [`SUPPORT.md`](SUPPORT.md).
+- **Bug** → [bug report template](.github/ISSUE_TEMPLATE/bug_report.md). **Feature** → [feature request template](.github/ISSUE_TEMPLATE/feature_request.md).
+- **Security** → **do not** open a public issue; see [`SECURITY.md`](SECURITY.md). **Question** → [`SUPPORT.md`](SUPPORT.md).
 
-A good bug report includes the module, the OS, the exact command, the observed output, the expected
-output, and the exit code.
+A good bug report includes the module, OS, exact command, observed vs expected output, and exit code.
 
 ---
 
-## Code of Conduct
+## Code of Conduct / License
 
-Participation is governed by [`CODE_OF_CONDUCT.md`](CODE_OF_CONDUCT.md).
-
----
-
-## License
-
-Contributions are accepted under the [MIT License](LICENSE). By contributing you agree that your
-work is licensed under it.
+Participation is governed by [`CODE_OF_CONDUCT.md`](CODE_OF_CONDUCT.md). Contributions are accepted
+under the [MIT License](LICENSE).

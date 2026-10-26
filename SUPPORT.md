@@ -21,9 +21,6 @@
 > [GitHub Wiki](https://github.com/Merxxotas/Scripts-DevOps-Practice/wiki). The two are currently
 > byte-identical.
 
-> **Prefer Discussions for questions.** Issues are for concrete, reproducible problems and feature
-> proposals. A "how do I…" question is a better fit for Discussions and gets a better answer.
-
 ---
 
 ## Before You Ask

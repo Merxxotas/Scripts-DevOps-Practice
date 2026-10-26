@@ -3,9 +3,8 @@
 > Inventory, status and build order for every numbered module in this monorepo.
 > **Last reviewed: 2026-10-21.**
 
-Each module is a self-contained DevOps automation utility with its own specification, implementation,
-tests, CI pipeline and documentation. See [`AGENTS.md`](AGENTS.md) for the module contract and the
-working methodology.
+Each module is a self-contained DevOps automation utility with its own spec, implementation, tests, CI
+pipeline and documentation. See [`AGENTS.md`](AGENTS.md) for the module contract and methodology.
 
 ---
 
@@ -41,16 +40,13 @@ working methodology.
 
 ### ✅ 1 — Disk Usage Monitoring with Email Alert *(Shipped)*
 
-A sensor, not an actuator: it measures the usage of one mounted filesystem and, when the usage
-crosses a threshold, hands an alert to one of three transports: `none`, `mail` or `http`. The
-`mail` transport invokes the mail agent the host already provides. The `http` transport is one
-request with a body to a URL, so ntfy, Telegram, Discord, Slack and a self-hosted receiver all
-share the same code path. Each setting resolves from a flag, then a `DISK_MONITOR_*` environment
-variable, then the configuration file, then the built-in default. `--doctor` reports the
-resolved configuration, where each value came from and what is missing, without measuring the
-disk or sending anything. Crossing the threshold is **not** a failure — the alert is the product,
-so the run still exits `0`. The transport, the configuration file and the doctor are the pattern
-the remaining seven seed modules inherit.
+A sensor, not an actuator: it measures one mounted filesystem's usage and, on threshold breach, hands
+an alert to one of three transports — `none`, `mail` or `http`. `mail` invokes the host's mail agent;
+`http` is one request with a body to a URL, so ntfy, Telegram, Discord, Slack and self-hosted
+receivers share one code path. Each setting resolves flag → `DISK_MONITOR_*` env → config file →
+default. `--doctor` reports the resolved config and what's missing, without measuring or sending.
+Crossing the threshold is **not** a failure — the alert is the product, so the run exits `0`. The
+transport, config file and doctor are the pattern the remaining seven seed modules inherit.
 
 - `disk_monitor.sh` (Bash) · `disk_monitor.ps1` (PowerShell 7) · `PSScriptAnalyzerSettings.psd1`
 - `README.md` · `SPECS.md` · `ROADMAP.md` · `CODESTYLE.md`
@@ -79,10 +75,9 @@ never been in git, so nothing about it had ever been verified.
 | The Bash harness created the mail-capture file itself, so "the mail agent was never invoked" could not be asserted by the file's absence | The assertion checks the capture's contents |
 | The PowerShell suite failed PSScriptAnalyzer — two unapproved verbs, two plural nouns, global counters | Approved verbs, singular nouns, and script-scoped state |
 
-**Known gaps**, recorded rather than hidden: one partition per invocation, no `--json` or `--csv`
-output and no direct SMTP transport are deliberate v1 non-goals; the audit write is best-effort,
-so on a full disk the audit line may be the thing that cannot be written; and the CI matrix is
-x86-only, so there is no ARM64 runner yet.
+**Known gaps**, recorded rather than hidden: one partition per invocation; no `--json`/`--csv` output and
+no direct SMTP transport are deliberate v1 non-goals; the audit write is best-effort (may fail on a
+full disk); the CI matrix is x86-only (no ARM64 runner yet).
 
 ### ✅ 2 — Log Cleanup *(Shipped)*
 
@@ -135,10 +130,9 @@ had never run, so nothing about it had ever been verified.
 | The JSON and CSV contracts disagreed between the implementations | All three now emit the same key names |
 | 286 lint errors in the Python package | `ruff check` and `ruff format --check` are clean |
 
-**Known gaps**, recorded rather than hidden: the disk I/O fields differ between the native
-implementations, the Bash script has no options for the thresholds or the process count, the memory
-percentage is wrong on macOS because the file cache is counted as used, and exit code 2 is reserved
-but unused.
+**Known gaps**, recorded rather than hidden: disk I/O fields differ between native implementations; the
+Bash script has no options for thresholds or process count; memory % is wrong on macOS (file cache
+counted as used); exit code 2 is reserved but unused.
 
 ### 🔵 Seed modules — 3, 4, 6, 7, 8, 9, 10
 
@@ -204,4 +198,3 @@ Module 1 shipped on **2026-10-21** and set the template; the sequence now starts
 
 ---
 
-*Related: [`AGENTS.md`](AGENTS.md) · [`CONTRIBUTING.md`](CONTRIBUTING.md) · [`CHANGELOG.md`](CHANGELOG.md)*

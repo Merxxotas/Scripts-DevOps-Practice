@@ -1,8 +1,8 @@
 # Security Policy
 
-Security matters for a repository whose entire purpose is running privileged automation on other
-people's machines. This document defines what counts as a vulnerability here, how to report one,
-and what we commit to in response.
+Security matters for a repository whose entire purpose is running privileged automation on other people's
+machines. This document defines what counts as a vulnerability here, how to report one, and what we commit
+to in response.
 
 > **Do not open a public issue for a security problem.** See [Reporting a Vulnerability](#reporting-a-vulnerability).
 
@@ -81,7 +81,7 @@ proof-of-concept against infrastructure you do not own.
 | Public advisory | On fix release, or 90 days after the report, whichever comes first |
 
 We will keep you updated, credit you in the advisory unless you prefer otherwise, and coordinate
-disclosure so you are not left exposed.
+disclosure so you are not left exposed. Coordinated disclosure: fix first, publish second.
 
 If a report is declined, we will explain why in detail.
 
@@ -141,13 +141,13 @@ contract. A report that only describes intended, documented behaviour is not a v
 These utilities run with real privileges. Before deploying one:
 
 1. **Read the guardrails first.** Know exactly which paths it refuses to touch.
-2. **Start in dry-run.** Both shipped modules support a non-destructive preview mode. Use it until
-   the output matches your expectation.
+2. **Start in dry-run.** Both shipped modules support a non-destructive preview mode; use it until the
+   output matches your expectation.
 3. **Run with the least privilege that works.** Prefer a dedicated service account over root.
 4. **Scope the target narrowly.** Point it at a specific directory, never at a parent of one.
-5. **Enable audit logging.** Both modules can persist an ISO-8601 audit trail of every action.
-6. **Test the exit codes.** `0` success, `1` configuration or safety violation, `2` partial failure.
-7. **Keep the secrets out of the script.** Pass credentials through the environment.
+5. **Enable audit logging** (ISO-8601 trail of every action) and **test the exit codes** (`0` success,
+   `1` configuration/safety violation, `2` partial failure).
+6. **Keep secrets out of the script.** Pass credentials through the environment.
 
 ---
 
@@ -183,15 +183,6 @@ EventOps is the module with a **network-facing surface** and therefore the highe
   webhook.
 - Debouncing limits duplicate triggers but is **not** an authorization mechanism.
 - Run the daemon as an unprivileged user with access only to the paths it must act on.
-
----
-
-## Disclosure and Credit
-
-We follow coordinated disclosure: fix first, publish second, credit the reporter by default.
-
-Contributors who fix a reported vulnerability themselves through a pull request are credited in the
-advisory and in [`CHANGELOG.md`](CHANGELOG.md).
 
 ---
 
