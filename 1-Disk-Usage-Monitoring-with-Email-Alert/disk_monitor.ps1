@@ -791,7 +791,9 @@ function Get-ResolvedPartition {
 
 # Names the platform the tool is running on. The distribution is read from
 # the file every Linux distribution ships, so the report names the system the
-# tool was found on and not only the kernel.
+# tool was found on and not only the kernel. When neither the kernel source
+# nor the distribution file answers, the helper falls back to the bare
+# string 'Linux'.
 function Get-PlatformName {
     if ($IsWindows) {
         return "Windows"
@@ -1015,12 +1017,12 @@ function Test-FileReadableByOther {
     # others.
     $item = Get-Item -LiteralPath $Path -ErrorAction SilentlyContinue
     if ($null -eq $item) {
-        return $false
+        return $null
     }
 
     $text = $item.Mode
     if ($text.Length -lt 9) {
-        return $false
+        return $null
     }
 
     $text = $text.Substring($text.Length - 9)

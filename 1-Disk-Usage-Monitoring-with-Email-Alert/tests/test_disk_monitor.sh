@@ -1791,12 +1791,66 @@ test_http_error_status_is_a_failed_handoff() {
     teardown
 }
 
+# Test 94: A threshold from the environment is validated as an integer between 1 and 100.
+test_threshold_from_environment_range() {
+    setup
+    export STUB_DF_USAGE=70
+    export DISK_MONITOR_THRESHOLD=0
+    run_monitor --notify none
+    assert_equals "1" "$LAST_EXIT_CODE" "Test 94a: An environment threshold of 0 exits with code 1"
+    export DISK_MONITOR_THRESHOLD=101
+    run_monitor --notify none
+    assert_equals "1" "$LAST_EXIT_CODE" "Test 94b: An environment threshold of 101 exits with code 1"
+    export DISK_MONITOR_THRESHOLD=abc
+    run_monitor --notify none
+    assert_equals "1" "$LAST_EXIT_CODE" "Test 94c: A non-numeric environment threshold exits with code 1"
+    unset DISK_MONITOR_THRESHOLD
+    teardown
+}
+
+# Test 95: A threshold from the configuration file is validated as an integer between 1 and 100.
+test_threshold_from_config_range() {
+    setup
+    local config_file="$TEST_SANDBOX/diskmonitor.conf"
+    export STUB_DF_USAGE=70
+    printf 'threshold = 0\n' > "$config_file"
+    run_monitor --config "$config_file" --notify none
+    assert_equals "1" "$LAST_EXIT_CODE" "Test 95a: A configured threshold of 0 exits with code 1"
+    printf 'threshold = 101\n' > "$config_file"
+    run_monitor --config "$config_file" --notify none
+    assert_equals "1" "$LAST_EXIT_CODE" "Test 95b: A configured threshold of 101 exits with code 1"
+    teardown
+}
+
+# Test 96: An unsupported notify backend from the configuration file is rejected.
+test_notify_from_config_unsupported() {
+    setup
+    local config_file="$TEST_SANDBOX/diskmonitor.conf"
+    export STUB_DF_USAGE=70
+    printf 'notify = carrier-pigeon\n' > "$config_file"
+    run_monitor --config "$config_file"
+    assert_equals "1" "$LAST_EXIT_CODE" "Test 96: An unsupported configured backend exits with code 1"
+    teardown
+}
+
+# Test 97: The doctor names the value of the threshold it reports.
+test_doctor_reports_threshold_value() {
+    setup
+    run_monitor --doctor --notify http --url https://ntfy.sh/disk-alerts -t 90
+    assert_contains "$LAST_STDOUT" "90" "Test 97: The doctor reports the threshold value"
+    teardown
+}
+
 # Run all tests
 printf "%bStarting Bash Disk Monitor Test Suite...%b\n" "$CYAN" "$RESET"
 test_help_menu
 test_unknown_flag
 test_threshold_validation
 test_notify_validation
+test_threshold_from_environment_range
+test_threshold_from_config_range
+test_notify_from_config_unsupported
+test_doctor_reports_threshold_value
 test_missing_partition
 test_missing_recipient
 test_missing_mail_agent

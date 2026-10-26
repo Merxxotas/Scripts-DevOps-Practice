@@ -675,7 +675,9 @@ detect_kernel_name() {
 # the file every Linux distribution ships, so the report names the system the
 # tool was found on and not only the kernel. The kernel name comes from the
 # uname command when it is there, and from the shell's own variable when it
-# is not, so a minimal host is still named.
+# is not, so a minimal host is still named. When neither the kernel source
+# nor the distribution file answers, the helper falls back to the bare
+# string 'Linux'.
 resolve_platform_name() {
     local kernel=""
     local identifier=""

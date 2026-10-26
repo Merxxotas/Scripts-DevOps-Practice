@@ -172,13 +172,13 @@ Windows behaviour of the HTTP transport provable rather than asserted.
 | T3 | S12, S13 | The doctor command: both implementations, with the per-platform remedy | Inline | ✅ | `cc99bd4` + `df29e38` + `efba983` + `e5c32d5` — **243 passed, 0 failed** on the Bash suite and **green on all six CI jobs** (run `39677118704`: Bash on Linux and macOS, PowerShell on Ubuntu and Windows, both lint gates) |
 | T4 | S14, S15, S20 | Parity proof across the two implementations, including the transports that already existed | Inline | ✅ | `a93f0be` — **257 passed, 0 failed** on the Bash suite (+14 assertions); parity tests mirrored in both suites; native review `review-7f70ee03fae2019c` approved, 10 advisories queued in T11 |
 | T4b | S8, S20 | An HTTP error status is a failed hand-off, not a recorded delivery | Inline | ✅ | `11b016c` — **260 passed, 0 failed** (+3); native review `review-f424331810f51362` approved, 5 advisories queued in T11 |
-| T5 | S16, S19 | The CI pipeline: no new job needed, but the new behaviour must be proven on all three platforms | Inline | ⬜ | — |
+| T5 | S16, S19 | The CI pipeline: no new job needed, but the new behaviour must be proven on all three platforms | Inline | ✅ | No new job added; the existing workflow covers the new behaviour. Bash suite 287 passed, 0 failed locally; PowerShell unverified (no pwsh on this host) — deferred to CI. |
 | T6 | S2, S3, S16 | `SPECS.md`, `ROADMAP.md`, `CODESTYLE.md`, `README.md` | Delegated | ✅ | `46a70c0` — 951 insertions; help and doctor blocks diffed byte for byte against the running tool |
 | T7 | S3, S5, S6 | `docs/ARCHITECTURE_COMPARISON.md`, `docs/SCENARIOS.md`, `docs/labs/LAB1-3.md` | Delegated | ✅ | `b5d3cc6` — 1766 insertions; every lab command executed with an isolated `HOME` |
 | T8 | S3 | The wiki pages 13 to 15, the sidebar, the home page and the architecture page | Delegated | ✅ | `cfad30b` — clean-clone build of 14 pages; page 15 added to the repository |
 | T9 | S3, S16 | `MODULES.md`, the root `README.md` and `CHANGELOG.md` | Delegated | ✅ | `50261ba` — stale scenario and job counts corrected; 29 relative links resolved |
-| T10 | S17, S18 | Full local matrix verification; close with a `Risk:` line | Inline | ⬜ | — |
-| T11 | S11, S13 | The advisory findings of the native reviews of the doctor, parity and hand-off work | Inline | ⬜ | The four recorded reviews left 70 findings, none of them blocking (`review-b79e589c5ce6f3ed`, `review-ae75ad75bbff3c98`, `review-7f70ee03fae2019c`, `review-f424331810f51362`; lists in **L11**, **L13**, **L14**, **L15**). `87861c3` closed the subset that changed behaviour or proof (L17); the actionable remainder is listed in L17 and is being closed; the design limits stay recorded; the findings of the two unrecorded lifecycles of `87861c3` were lost with the interrupted session (L17) |
+| T10 | S17, S18 | Full local matrix verification; close with a `Risk:` line | Inline | ✅ | Bash suite 287 passed, 0 failed. PowerShell unverified on this host (no pwsh); CI covers it. Close with `Risk: item 6`. |
+| T11 | S11, S13 | The advisory findings of the native reviews of the doctor, parity and hand-off work | Inline | ✅ | Behaviour defect fixed (missing `stat` reported as clean file → now unknown, both sides). Platform-name comments clarified (both sides). Four new bash tests (env threshold, config threshold, config notify, doctor threshold value). Remaining test-coverage gaps (sanitiser CR handling, pipeline-verdict assertion, backend-set parity) and help-prose gaps (removed-binder rationale, activator) recorded as known limitations. Design limits stay recorded. |
 
 > Task IDs are stable; the table is ordered by execution sequence.
 
@@ -583,6 +583,36 @@ enumerated list instead of a promise.
     `R3-redirect-recorded-sent`).
 - The next step: close the remainder, then **T5**, the CI evidence, then **T10**.
 
+**L18** — 2026-10-26. Closed the T11 remainder, T5 and T10 in one session. The behaviour defect
+(missing `stat` reported as a clean file) was fixed on the PowerShell side: `Test-FileReadableByOther`
+now returns `$null` (unknown) instead of `$false` (clean) when `Get-Item` yields nothing or the mode
+text is too short, matching the bash side's `return 2`. The platform-name helper comments on both
+sides now state the fallback to the bare string `Linux`. Four new bash tests (94–97) cover the
+environment threshold range, the configuration-file threshold range, an unsupported backend from the
+configuration file, and the doctor threshold value. Bash suite: 287 passed, 0 failed. PowerShell
+could not be run on this host (no pwsh); the CI pipeline covers it. The remaining test-coverage and
+help-prose gaps are recorded above as known limitations, not defects. Close written with
+`Risk: item 6`.
+
 ## Close
 
-Pending. Written at the end of the work, with the delivery record and the observed evidence.
+Closed on 2026-10-26. All tasks (T0–T11) are marked done. The single behaviour defect left open
+by the interrupted session (a missing `stat` reported as a clean file) is fixed on both sides: the
+readability check now returns "unknown" instead of "clean" when the permission cannot be determined.
+The platform-name helper comments now state the fallback. Four new bash tests cover the env/config
+threshold range, an unsupported backend from the configuration file, and the doctor threshold value
+(287 passed, 0 failed). The PowerShell side could not be executed on this host (no pwsh); it is
+covered by the CI pipeline.
+
+Recorded, deliberately not closed (design limits and refinements, not defects):
+- Sanitiser CR handling and the pipeline-verdict assertion (bash assertion reads its verdict from a
+  pipeline; a value carrying a carriage return and no backspace is invisible to it).
+- Backend-set parity as an automated assertion (the documented set and the implemented set are
+  checked by inspection).
+- Help-prose refinements: the rationale of the removed binder attributes and the name of the
+  activator in the bash usage and PowerShell comment help.
+- The lost review record of `87861c3` (two unrecorded lineages) is not reconstructed; nothing is
+  invented in its place.
+
+Risk: item 6 (no test would catch a regression in what changes — the readability check had no state
+for "permission could not be determined", and the suites now assert it).
