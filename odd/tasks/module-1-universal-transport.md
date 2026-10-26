@@ -178,7 +178,7 @@ Windows behaviour of the HTTP transport provable rather than asserted.
 | T8 | S3 | The wiki pages 13 to 15, the sidebar, the home page and the architecture page | Delegated | ✅ | `cfad30b` — clean-clone build of 14 pages; page 15 added to the repository |
 | T9 | S3, S16 | `MODULES.md`, the root `README.md` and `CHANGELOG.md` | Delegated | ✅ | `50261ba` — stale scenario and job counts corrected; 29 relative links resolved |
 | T10 | S17, S18 | Full local matrix verification; close with a `Risk:` line | Inline | ⬜ | — |
-| T11 | S11, S13 | The advisory findings of the native reviews of the doctor and parity work | Inline | ⬜ | 70 findings in all, none of them blocking; the lists are in **L11**, **L13**, **L14** and **L15**; receipts `review-b79e589c5ce6f3ed`, `review-ae75ad75bbff3c98`, `review-7f70ee03fae2019c` and `review-f424331810f51362` |
+| T11 | S11, S13 | The advisory findings of the native reviews of the doctor, parity and hand-off work | Inline | ⬜ | The four recorded reviews left 70 findings, none of them blocking (`review-b79e589c5ce6f3ed`, `review-ae75ad75bbff3c98`, `review-7f70ee03fae2019c`, `review-f424331810f51362`; lists in **L11**, **L13**, **L14**, **L15**). `87861c3` closed the subset that changed behaviour or proof (L17); the actionable remainder is listed in L17 and is being closed; the design limits stay recorded; the findings of the two unrecorded lifecycles of `87861c3` were lost with the interrupted session (L17) |
 
 > Task IDs are stable; the table is ordered by execution sequence.
 
@@ -528,6 +528,60 @@ with disjoint edit surfaces and the shared contract carried in each prompt.
   no pull requests to protect: the delivery is a fast-forward merge into `main`, recorded in T10.
 - The next step: **T11**, the advisory findings in the queue, then **T5**, the CI evidence, then
   **T10**.
+
+**L17** — 2026-10-26. A new session reconciled the branch: the interrupted session of 2026-10-22
+had committed the advisory-closing work `87861c3` and left it unpushed and unrecorded. The
+reconciliation read the diff and the tool's own store, and the remainder of T11 is now an
+enumerated list instead of a promise.
+
+- **What `87861c3` closed, verified from the diff.** The doctor classified a file whose owner has
+  no permission as private, because the host prints a mode without its leading zeros (the mode is
+  now read from the right, one to four digits). The remedy it printed broke on a path that holds a
+  quote: the restrict remedy and the read-access remedy of both the doctor and a run now quote the
+  path for the shell that pastes it (`printf '%q'` on Bash, doubled quotes on Windows), and the
+  Windows remedy removes the explicit `Everyone` grant that caused the warning. An existing
+  configuration file the account cannot read killed the run with a shell error; it is now a
+  configuration error of its own, exit `1`, with the same remedy in the doctor and in the run. The
+  parity extractors gained a non-empty guard for the environment and configuration extractions,
+  and two assertions stopped testing bare substrings. **Observed:** 277 passed, 0 failed on the
+  Bash suite (17 assertions more than the 260 of T4b); tests 92a–92i are new.
+- **The review record of `87861c3` was incomplete, and the gap is recorded instead of
+  reconstructed.** The terminal-consumption store holds six burned receipts; the document recorded
+  four. The two unrecorded lineages are `review-fc1c3b2be34254b2` and `review-ec453b2432b299c8`.
+  The first opened a correction, and the targeted validator that had to approve it returned a
+  payload truncated at byte 3112, which the transport rejected as incomplete
+  (`2026-10-22T19:07:09Z`); a second lifecycle then burned cleanly, and the tool answers
+  `already_reviewed` for the range `c695290..HEAD`. What those lifecycles found, if anything, was
+  lost with the session and is not in the store; nothing is invented in its place.
+- **The T11 remainder, verified against the current code and both suites** — each item was read
+  where it lives:
+  - A threshold from the environment is not covered by any case of either suite
+    (`R4-env-threshold-source-unproven`).
+  - The range boundaries of the threshold (0 and 101) and a backend the tool does not support are
+    covered from the flag only; no case covers them from the configuration file or the environment
+    (`R1-threshold-binder-range-removed`, `R1-notify-mode-binder-constraint-removed`,
+    `R4-notify-set-guard-removed`, `R3-3`, `R3-4`).
+  - The doctor's threshold message names the rule but the assertions never assert the value
+    (`R3-2`).
+  - Nothing asserts that the documented backend set equals the implemented one
+    (`R3-doc-parity`).
+  - The Bash assertion of the sanitised report matches its marker as a regular expression and
+    reads its verdict from a pipeline (`R2-006`, `R3-6`, `R4-bash-assert-false-pass`); and neither
+    assertion can see a value that carries a carriage return and no backspace
+    (`R1-sanitiser-assertion-narrowed`).
+  - A missing `stat` is still reported as a clean file: the readability check has no state for
+    "the permission could not be determined", on either side (the PowerShell side returns
+    `false` when `Get-Acl` yields nothing) — the one behaviour defect left open.
+  - The platform-name comments do not say what the helper returns when neither the kernel source
+    nor the distribution file answers (`R2-003`, `R2-004`, `R3-5`).
+  - The PowerShell comment help carries the rationale of the removed binder attributes, and its
+    transport prose names no activator (`R2-001`, `R2-002`, `R2-005`, `R2-5`); the Bash usage
+    prose has the same gap.
+  - Recorded, deliberately not closed — the design limits of the extractor
+    (`R2-2`, `R3-hardcoded-range`, `R3-extractor-scope`, `R2-3`), of the audit record
+    (`R4-3`), and of the client contract (`R4-1`, `R3-http-command-contract`, `R4-2`,
+    `R3-redirect-recorded-sent`).
+- The next step: close the remainder, then **T5**, the CI evidence, then **T10**.
 
 ## Close
 
