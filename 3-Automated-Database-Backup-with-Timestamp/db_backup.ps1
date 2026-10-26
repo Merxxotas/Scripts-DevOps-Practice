@@ -14,7 +14,6 @@
       2  partial failure (dump, compression or retention step failed)
 #>
 
-[CmdletBinding()]
 param(
     [ValidateSet("mysql", "postgresql", "postgres")]
     [string]$DbType = "mysql",

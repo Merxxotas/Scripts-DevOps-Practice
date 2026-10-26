@@ -84,18 +84,18 @@ backup file, no `--json`/`--csv` output. One database per invocation. Audit writ
 
 | ID | Specs | Task | Route | Status | Evidence |
 | :--- | :--- | :-- | :-- | :-- | :--- |
-| T0 | S1 | Create branch `feat/3-automated-database-backup` from `main` | Inline | ⬜ | — |
-| T1 | S2, S3, S4, S5 | Bash implementation: CLI parser, validation, guardrails, dump, compress, retain, audit, dry-run | Inline | ⬜ | — |
-| T2 | S2, S3, S4, S5 | PowerShell implementation with full parity | Inline | ⬜ | — |
-| T3 | S6 | Bash test suite (stubbed dump tool) | Inline | ⬜ | — |
-| T4 | S6 | PowerShell test suite (stubbed dump tool) | Inline | ⬜ | — |
-| T5 | S6 | Parity proof across the two implementations | Inline | ⬜ | — |
-| T6 | S7 | `SPECS.md`, `ROADMAP.md`, `CODESTYLE.md`, `README.md` | Delegated | ⬜ | — |
+| T0 | S1 | Create branch `feat/3-automated-database-backup` from `main` | Inline | ✅ | branch exists, ahead of main by 2 commits |
+| T1 | S2, S3, S4, S5 | Bash implementation: CLI parser, validation, guardrails, dump, compress, retain, audit, dry-run | Inline | ✅ | b4d12ee; bash tests 26/0 |
+| T2 | S2, S3, S4, S5 | PowerShell implementation with full parity | Inline | ✅ | b4d12ee; removed duplicate `[CmdletBinding()]` Verbose conflict; PS tests 31/0 |
+| T3 | S6 | Bash test suite (stubbed dump tool) | Inline | ✅ | b4d12ee; 26/0 |
+| T4 | S6 | PowerShell test suite (stubbed dump tool) | Inline | ✅ | test_db_backup.ps1; 31/0 (incl. parity) |
+| T5 | S6 | Parity proof across the two implementations | Inline | ✅ | Test-PublicInterfaceMatchesBashSide passes |
+| T6 | S7 | `SPECS.md`, `ROADMAP.md`, `CODESTYLE.md`, `README.md` | Delegated | ✅ | b4d12ee |
 | T7 | S7 | `docs/ARCHITECTURE_COMPARISON.md`, `docs/SCENARIOS.md`, `docs/labs/LAB1-3.md` | Delegated | ⬜ | — |
-| T8 | S7 | CI workflow `.github/workflows/ci-database-backup.yml` | Inline | ⬜ | — |
+| T8 | S7 | CI workflow `.github/workflows/ci-database-backup.yml` | Inline | ✅ | b4d12ee |
 | T9 | S7 | Wiki pages 16-18 + sidebar + home + architecture page | Delegated | ⬜ | — |
 | T10 | S7 | `MODULES.md`, root `README.md`, `CHANGELOG.md` registration | Inline | ⬜ | — |
-| T11 | S5, S6 | Full local matrix verification; close with a `Risk:` line | Inline | ⬜ | — |
+| T11 | S5, S6 | Full local matrix verification; close with a `Risk:` line | Inline | ⬜ | pending |
 
 ### Route declaration and trigger evidence
 
@@ -131,6 +131,15 @@ will be roughly 50 % of the volume, as in modules 1 and 2.
 `mysqldump`/`pg_dump` on PATH, mirroring module 1's stub pattern. Compression: gzip on Bash, zip on
 PowerShell (platform-native). Retention by mtime. Exit codes 0/1/2. Credential from env/flag, never
 hardcoded.
+
+**L3** — 2026-10-26. Wrote PowerShell test suite (tests/test_db_backup.ps1) mirroring the 15 bash
+tests (31 assertions, all green under pwsh 7.6.9): help, unknown flag, missing password, db-type and
+retention validation, guardrail, dry-run, backup created, dump failure, retention pruning, postgresql
+backend, password from env, no-compress, audit log, help backends, plus parity proof
+(Test-PublicInterfaceMatchesBashSide). Found and fixed a runtime defect in db_backup.ps1: the explicit
+`[switch]$Verbose` parameter collided with the common parameter added by `[CmdletBinding()]`
+("A parameter with the name 'Verbose' was defined multiple times"), so -Help itself failed. Removed
+`[CmdletBinding()]`; the script keeps its own -Verbose switch and references. Bash tests still 26/0.
 
 ## Close
 
