@@ -11,7 +11,6 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 BACKUP_SCRIPT="$SCRIPT_DIR/db_backup.sh"
-BACKUP_SCRIPT_PS="$SCRIPT_DIR/db_backup.ps1"
 TEST_SANDBOX="$(mktemp -d "/tmp/test_db_backup.XXXXXX")"
 STUB_DIR="$TEST_SANDBOX/stubs"
 CAPTURE_FILE="$TEST_SANDBOX/dump_capture.txt"
@@ -26,7 +25,6 @@ PASSED_TESTS=0
 FAILED_TESTS=0
 
 LAST_STDOUT=""
-LAST_STDERR=""
 LAST_EXIT_CODE=0
 
 setup() {
@@ -109,7 +107,6 @@ run_backup() {
     "$BACKUP_SCRIPT" "$@" >"$stdout_file" 2>"$stderr_file" || exit_code=$?
 
     LAST_STDOUT="$(cat "$stdout_file" 2>/dev/null || true)"
-    LAST_STDERR="$(cat "$stderr_file" 2>/dev/null || true)"
     LAST_EXIT_CODE="$exit_code"
 }
 
@@ -131,17 +128,6 @@ assert_contains() {
         ((PASSED_TESTS++)) || true
     else
         printf "%b[FAIL]%b %s (missing '%s')\n" "$RED" "$RESET" "$label" "$needle" >&2
-        ((FAILED_TESTS++)) || true
-    fi
-}
-
-assert_not_contains() {
-    local haystack="$1" needle="$2" label="$3"
-    if [[ "$haystack" != *"$needle"* ]]; then
-        printf "%b[PASS]%b %s\n" "$GREEN" "$RESET" "$label"
-        ((PASSED_TESTS++)) || true
-    else
-        printf "%b[FAIL]%b %s (unexpected '%s')\n" "$RED" "$RESET" "$label" "$needle" >&2
         ((FAILED_TESTS++)) || true
     fi
 }
