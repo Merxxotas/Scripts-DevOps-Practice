@@ -1,4 +1,4 @@
-#Requires -Version 5.1
+﻿#Requires -Version 5.1
 <#
 .SYNOPSIS
     Automated integration and unit test suite for log_rotate.ps1
@@ -28,16 +28,14 @@ function New-Sandbox {
 }
 
 function Invoke-Rotate {
-    param([string[]]$Args)
-    $outFile = Join-Path $TestSandbox "stdout.txt"
-    $errFile = Join-Path $TestSandbox "stderr.txt"
+    param([string[]]$ScriptArgs)
     $psi = New-Object System.Diagnostics.ProcessStartInfo
     $psi.FileName = "pwsh"
     # fall back to powershell if pwsh missing
     if (-not (Get-Command pwsh -ErrorAction SilentlyContinue)) {
         $psi.FileName = "powershell"
     }
-    $psi.Arguments = "-NoProfile -File `"$RotateScript`" " + ($Args -join " ")
+    $psi.Arguments = "-NoProfile -File `"$RotateScript`" " + ($ScriptArgs -join " ")
     $psi.RedirectStandardOutput = $true
     $psi.RedirectStandardError = $true
     $psi.UseShellExecute = $false

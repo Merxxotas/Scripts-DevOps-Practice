@@ -438,5 +438,3 @@ main() {
 }
 
 main "$@"
-EOF
-echo written

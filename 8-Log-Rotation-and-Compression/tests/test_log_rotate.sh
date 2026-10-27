@@ -151,7 +151,7 @@ test_rotation_basic() {
     assert_file_exists "$TEST_SANDBOX/f.log.1.gz" "Test 8b: backup created"
     # original truncated
     local sz
-    sz=$(wc -c < "$TEST_SANDBOX/f.log")
+    sz=$(wc -c < "$TEST_SANDBOX/f.log" | tr -d '[:space:]')
     assert_equals "0" "$sz" "Test 8c: original truncated to 0"
 }
 

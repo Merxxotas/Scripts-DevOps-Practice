@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
     Log Rotation and Compression.
 
@@ -58,7 +58,7 @@ function Write-AuditLog {
             }
             Add-Content -LiteralPath $AuditLog -Value $LogEntry -ErrorAction SilentlyContinue
         } catch {
-            # Non-blocking logging failure
+            $null = $_
         }
     }
 }
@@ -89,7 +89,7 @@ function Get-FileSize {
     }
 }
 
-function Test-SafetyGuardrails {
+function Test-SafetyGuardrail {
     param([string]$Path)
 
     try {
@@ -187,7 +187,7 @@ function Invoke-LogRotate {
         exit 1
     }
 
-    if (-not (Test-SafetyGuardrails -Path $LogFile)) {
+    if (-not (Test-SafetyGuardrail -Path $LogFile)) {
         exit 1
     }
 
@@ -195,7 +195,7 @@ function Invoke-LogRotate {
     $MaxSizeBytes = [long]$MaxSizeMB * 1048576
 
     $Resolved = $LogFile
-    try { $Resolved = (Resolve-Path -LiteralPath $LogFile).ProviderPath } catch { }
+    try { $Resolved = (Resolve-Path -LiteralPath $LogFile).ProviderPath } catch { $null = $_ }
 
     Write-Host "$($Colors.Blue)$($Colors.Bold)============================================================$($Colors.Reset)"
     Write-Host "$($Colors.Blue)$($Colors.Bold)            DevOps Log Rotation Utility                    $($Colors.Reset)"
