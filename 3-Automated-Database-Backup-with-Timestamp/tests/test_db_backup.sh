@@ -253,8 +253,14 @@ test_retention_prunes_old() {
     : > "$CAPTURE_FILE"
     local bk="$TEST_SANDBOX/bk"
     mkdir -p "$bk"
-    # create an old backup file
-    touch -d "10 days ago" "$bk/mysql_mydatabase_20200101_000000.sql.gz"
+    # create an old backup file (portable mtime: 10 days ago)
+    : > "$bk/mysql_mydatabase_20200101_000000.sql.gz"
+    python3 - "$bk/mysql_mydatabase_20200101_000000.sql.gz" <<'PYEOF'
+import os, sys, time
+p = sys.argv[1]
+t = time.time() - 10 * 86400
+os.utime(p, (t, t))
+PYEOF
     run_backup --db-password secret --backup-dir "$bk" --retention-days 7
     assert_equals "0" "$LAST_EXIT_CODE" "Test 10a: backup exits 0"
     if [[ ! -f "$bk/mysql_mydatabase_20200101_000000.sql.gz" ]]; then
