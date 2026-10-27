@@ -330,6 +330,10 @@ function Test-BackupCreated {
     Write-Host "STUB CONTENT:"
     Get-Content -LiteralPath $ms
     Write-Host "---END---"
+    Write-Host "STUB BYTES:"
+    $bytes = [System.IO.File]::ReadAllBytes($ms)
+    Write-Host ([BitConverter]::ToString($bytes[0..20]))
+    Write-Host "PERMS: $((Get-Item -LiteralPath $ms).Mode)"
     & $ms; Write-Host "STUB EXIT: $LASTEXITCODE"
     Invoke-Backup -Arguments @("-DbPassword","secret","-BackupDir",$bk)
     Assert-Equal -Expected 0 -Actual $script:LastRunExitCode -TestName "Test 8a: backup exits 0"
