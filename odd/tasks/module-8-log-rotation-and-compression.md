@@ -58,3 +58,4 @@ L1: User request (verbatim): "Module 8 (Log Rotation and Compression) — seed o
 
 L2: 2026-10-27 — Created feature branch feat/8-log-rotation-and-compression from main (982220d). Feature document created.
 L3: 2026-10-27 — Implemented all tasks. Bash suite: 33 tests, 0 failures. Risk: item 3 (new module added; contracts/docs/wiki registered).
+L4: 2026-10-27 — CI fixes: shellcheck trailing lines, PS arg binding ($Args shadowing), PS lint warnings, macOS wc padding. Final run 40539743982 all jobs green.
