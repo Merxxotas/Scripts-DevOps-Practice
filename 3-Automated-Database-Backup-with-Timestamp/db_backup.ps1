@@ -293,8 +293,8 @@ if ($CompressEnabled) {
         Compress-Archive -Path $backupFile -DestinationPath $compressedFile -Force
         Remove-Item -Path $backupFile -Force
     } catch {
-        Write-ErrorLine "Compression failed for $backupFile."
-        Write-AuditLine "ERROR" "Compression failed for $backupFile."
+        Write-ErrorLine "Compression failed for $backupFile. $($_.Exception.Message)"
+        Write-AuditLine "ERROR" "Compression failed for $backupFile. $($_.Exception.Message)"
         exit 2
     }
     Write-SuccessLine "Compressed: $compressedFile"
