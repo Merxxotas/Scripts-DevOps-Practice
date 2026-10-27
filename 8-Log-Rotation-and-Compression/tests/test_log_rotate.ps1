@@ -95,33 +95,33 @@ function Assert-FileNotExists {
 New-Sandbox
 
 # Test 1: help
-Invoke-Rotate -Args @("-Help")
+Invoke-Rotate -ScriptArgs @("-Help")
 Assert-Equal 0 $script:LastExitCode "Test 1a: -Help exits 0"
 Assert-Contains $script:LastStdout "Usage" "Test 1b: help shows usage"
 
 # Test 2: missing file
 $f = Join-Path $TestSandbox "nope.log"
-Invoke-Rotate -Args @("-LogFile", "`"$f`"")
+Invoke-Rotate -ScriptArgs @("-LogFile", "`"$f`"")
 Assert-Equal 1 $script:LastExitCode "Test 2: missing file exits 1"
 
 # Test 3: no-op
 $f = Join-Path $TestSandbox "small.log"
 "small" | Set-Content -LiteralPath $f -NoNewline
-Invoke-Rotate -Args @("-LogFile", "`"$f`"", "-MaxSizeMB", "10")
+Invoke-Rotate -ScriptArgs @("-LogFile", "`"$f`"", "-MaxSizeMB", "10")
 Assert-Equal 0 $script:LastExitCode "Test 3a: no-op exits 0"
 Assert-Contains $script:LastStdout "No rotation needed" "Test 3b: no-op message"
 
 # Test 4: rotation basic
 $f = Join-Path $TestSandbox "f.log"
 ("line`n" * 100) | Set-Content -LiteralPath $f -NoNewline
-Invoke-Rotate -Args @("-LogFile", "`"$f`"", "-MaxSizeMB", "0")
+Invoke-Rotate -ScriptArgs @("-LogFile", "`"$f`"", "-MaxSizeMB", "0")
 Assert-Equal 0 $script:LastExitCode "Test 4a: rotation exits 0"
 Assert-FileExists "$f.1.zip" "Test 4b: backup created"
 
 # Test 5: dry-run
 $f = Join-Path $TestSandbox "g.log"
 ("line`n" * 100) | Set-Content -LiteralPath $f -NoNewline
-Invoke-Rotate -Args @("-LogFile", "`"$f`"", "-MaxSizeMB", "0", "-DryRun")
+Invoke-Rotate -ScriptArgs @("-LogFile", "`"$f`"", "-MaxSizeMB", "0", "-DryRun")
 Assert-Equal 0 $script:LastExitCode "Test 5a: dry-run exits 0"
 Assert-Contains $script:LastStdout "DRY RUN" "Test 5b: dry-run label"
 Assert-FileNotExists "$f.1.zip" "Test 5c: no backup created"
@@ -129,34 +129,34 @@ Assert-FileNotExists "$f.1.zip" "Test 5c: no backup created"
 # Test 6: force
 $f = Join-Path $TestSandbox "h.log"
 "tiny" | Set-Content -LiteralPath $f -NoNewline
-Invoke-Rotate -Args @("-LogFile", "`"$f`"", "-Force")
+Invoke-Rotate -ScriptArgs @("-LogFile", "`"$f`"", "-Force")
 Assert-Equal 0 $script:LastExitCode "Test 6a: force exits 0"
 Assert-FileExists "$f.1.zip" "Test 6b: backup created"
 
 # Test 7: no-compress
 $f = Join-Path $TestSandbox "i.log"
 ("line`n" * 100) | Set-Content -LiteralPath $f -NoNewline
-Invoke-Rotate -Args @("-LogFile", "`"$f`"", "-MaxSizeMB", "0", "-NoCompress")
+Invoke-Rotate -ScriptArgs @("-LogFile", "`"$f`"", "-MaxSizeMB", "0", "-NoCompress")
 Assert-Equal 0 $script:LastExitCode "Test 7a: no-compress exits 0"
 Assert-FileExists "$f.1" "Test 7b: raw backup created"
 
 # Test 8: bad max-size (negative via invalid? ValidateRange 0.. prevents negative)
 $f = Join-Path $TestSandbox "j.log"
 "line" | Set-Content -LiteralPath $f -NoNewline
-Invoke-Rotate -Args @("-LogFile", "`"$f`"", "-MaxSizeMB", "-5")
+Invoke-Rotate -ScriptArgs @("-LogFile", "`"$f`"", "-MaxSizeMB", "-5")
 Assert-Equal 1 $script:LastExitCode "Test 8: negative max-size exits 1"
 
 # Test 9: bad backup-count 0
 $f = Join-Path $TestSandbox "k.log"
 "line" | Set-Content -LiteralPath $f -NoNewline
-Invoke-Rotate -Args @("-LogFile", "`"$f`"", "-BackupCount", "0")
+Invoke-Rotate -ScriptArgs @("-LogFile", "`"$f`"", "-BackupCount", "0")
 Assert-Equal 1 $script:LastExitCode "Test 9: zero backup-count exits 1"
 
 # Test 10: audit log
 $f = Join-Path $TestSandbox "l.log"
 "line" | Set-Content -LiteralPath $f -NoNewline
 $audit = Join-Path $TestSandbox "audit.log"
-Invoke-Rotate -Args @("-LogFile", "`"$f`"", "-Force", "-AuditLog", "`"$audit`"")
+Invoke-Rotate -ScriptArgs @("-LogFile", "`"$f`"", "-Force", "-AuditLog", "`"$audit`"")
 Assert-Equal 0 $script:LastExitCode "Test 10a: audit run exits 0"
 Assert-FileExists $audit "Test 10b: audit file created"
 

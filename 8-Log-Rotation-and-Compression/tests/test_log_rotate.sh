@@ -22,7 +22,6 @@ PASSED_TESTS=0
 FAILED_TESTS=0
 
 LAST_STDOUT=""
-LAST_STDERR=""
 LAST_EXIT_CODE=0
 
 setup() {
@@ -43,7 +42,6 @@ run_rotate() {
     "$ROTATE_SCRIPT" "$@" >"$stdout_file" 2>"$stderr_file" || exit_code=$?
 
     LAST_STDOUT="$(cat "$stdout_file" 2>/dev/null || true)"
-    LAST_STDERR="$(cat "$stderr_file" 2>/dev/null || true)"
     LAST_EXIT_CODE="$exit_code"
 }
 
