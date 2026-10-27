@@ -239,6 +239,61 @@ x86-only, so there is no ARM64 runner yet.
 
 ---
 
+## 2026-10-27 — Automated Database Backup module
+
+**Module 3 — Automated Database Backup with Timestamp** goes from a seed script pair to a fully
+shipped module: a cross-platform backup utility that runs a dump, compresses the result, stores
+it in a backup directory, and prunes backups older than a retention window. Supports MySQL and
+PostgreSQL. Full Bash + PowerShell parity.
+
+### Added — the module
+
+- **`3-Automated-Database-Backup-with-Timestamp/`** — the whole module, tracked for the first
+  time. A Bash implementation and a PowerShell implementation of one contract.
+- **`db_backup.sh`** and **`db_backup.ps1`** — the two implementations, with CLI flags `-t/--db-type`,
+  `-n/--db-name`, `-u/--db-user`, `--db-password`, `-d/--backup-dir`, `-r/--retention-days`,
+  `-c/--compress`, `--no-compress`, `--dry-run`, `-l/--log-file`, `-v/--verbose`, `-h/--help`.
+- **Exit-code contract** — `0` success, `1` configuration/safety violation, `2` partial failure.
+- **Credential safety** — password from `--db-password` or `DB_BACKUP_PASSWORD`, passed via
+  `MYSQL_PWD` / `PGPASSWORD`, never echoed or logged.
+- **Safety guardrails** — path blacklist for system directories, creatable/writable backup dir,
+  dry-run mode, standardized exit codes.
+- **Compression** — gzip on Bash, zip on PowerShell; raw `.sql` removed after success.
+- **Retention pruning** — deletes backups older than N days by mtime; best-effort per file.
+- **ISO-8601 audit log** — `--log-file` appends one line per run.
+- **`tests/test_db_backup.sh`** (26 tests) and **`tests/test_db_backup.ps1`** (31 tests, incl.
+  parity proof). Stubs `mysqldump`/`pg_dump` on `PATH`; no real database required.
+- **`SPECS.md`**, **`ROADMAP.md`**, **`CODESTYLE.md`**, **`README.md`**.
+- **`docs/ARCHITECTURE_COMPARISON.md`**, **`docs/SCENARIOS.md`**, **`docs/labs/LAB1-3.md`**.
+
+### Added — CI
+
+- **`.github/workflows/ci-database-backup.yml`** — path-filtered, multi-OS matrix.
+
+### Added — knowledge base
+
+- **`wiki/16-Database-Backup-Overview.md`**, **`wiki/17-Database-Backup-Bash-vs-PowerShell.md`**,
+  **`wiki/18-Database-Backup-Scenarios-and-Labs.md`**, with the sidebar, the home page and
+  `wiki/01-Monorepo-Architecture.md` updated.
+
+### Changed
+
+- **`MODULES.md`**, **`README.md`**, **`AGENTS.md`** — module 3 marked shipped; seed group now six
+  modules.
+
+### Verification
+
+- **Bash suite, local** — 26 tests, 0 failures.
+- **PowerShell suite** — CI-only (no `pwsh` on the development machine).
+
+### Known gaps
+
+Recorded rather than hidden: no incremental/differential backups, no cloud streaming, no MSSQL,
+no encryption of the backup file, no `--json`/`--csv` output. One database per invocation. Audit
+write is best-effort.
+
+---
+
 ## 2026-10-20 — CPU and Memory Usage Monitor module
 
 **Module 5 — CPU and Memory Usage Monitor** goes from a capstone that existed only on disk to a

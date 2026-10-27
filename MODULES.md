@@ -24,7 +24,7 @@ pipeline and documentation. See [`AGENTS.md`](AGENTS.md) for the module contract
 | :-- | :--- | :--- | :--- | :-- | :-- |
 | 1 | Disk Usage Monitoring with Email Alert | Bash / PowerShell | ✅ **Shipped** | ✅ | Full |
 | 2 | Log Cleanup (files older than X days) | Bash / PowerShell | ✅ **Shipped** | ✅ | Full |
-| 3 | Automated Database Backup with Timestamp | Bash / PowerShell | 🔵 Seed | — | — |
+| 3 | Automated Database Backup with Timestamp | Bash / PowerShell | ✅ **Shipped** | ✅ | Full |
 | 4 | Service Monitor and Auto-Restart | Bash / PowerShell | 🔵 Seed | — | — |
 | 5 | CPU and Memory Usage Monitor | Bash / PowerShell / Python / Docker | ✅ **Shipped** | ✅ | Full |
 | 6 | Website Availability (HTTP Health Check) | Bash / PowerShell | 🔵 Seed | — | — |
@@ -88,6 +88,19 @@ accounting and audit logging. Full Bash + PowerShell parity.
 - CI: `.github/workflows/ci-cleanup-logs.yml` — ShellCheck, Bash on ubuntu + macOS, PowerShell on Windows + Ubuntu
 - Wiki: [05](wiki/05-Log-Cleanup-Overview.md) · [06](wiki/06-Log-Cleanup-Bash-vs-PowerShell.md) · [07](wiki/07-Log-Cleanup-Scenarios-and-Labs.md)
 
+### ✅ 3 — Automated Database Backup *(Shipped)*
+
+Timestamped database dumps with compression and retention for MySQL and PostgreSQL. Full
+Bash + PowerShell parity.
+
+- `db_backup.sh` · `db_backup.ps1` · `tests/` · `docs/` (+ 3 labs) · `SPECS.md` · `ROADMAP.md` · `CODESTYLE.md`
+- CI: `.github/workflows/ci-database-backup.yml` — ShellCheck, Bash on ubuntu + macOS, PowerShell on Windows + Ubuntu
+- Wiki: [16](wiki/16-Database-Backup-Overview.md) · [17](wiki/17-Database-Backup-Bash-vs-PowerShell.md) · [18](wiki/18-Database-Backup-Scenarios-and-Labs.md)
+
+**Known gaps**, recorded rather than hidden: no incremental/differential backups, no cloud streaming,
+no MSSQL, no encryption of the backup file, no `--json`/`--csv` output. One database per
+invocation. Audit write is best-effort.
+
 ### ✅ 11 — Scheduling and Automation / EventOps *(Shipped)*
 
 Cross-platform event-driven automation daemon. Replaces polling with reacting: a webhook server and
@@ -134,7 +147,7 @@ had never run, so nothing about it had ever been verified.
 Bash script has no options for thresholds or process count; memory % is wrong on macOS (file cache
 counted as used); exit code 2 is reserved but unused.
 
-### 🔵 Seed modules — 3, 4, 6, 7, 8, 9, 10
+### 🔵 Seed modules — 4, 6, 7, 8, 9, 10
 
 Each holds a single Bash + PowerShell pair of roughly 40–70 lines, written in one sitting on
 **2026-03-09**. They are functional sketches, not production utilities: no CLI parser, no safety
@@ -177,7 +190,7 @@ Module 1 shipped on **2026-10-21** and set the template; the sequence now starts
 | :-- | :--- | :-- |
 | — | **5 — CPU and Memory Usage Monitor** | **Shipped.** Completed. |
 | — | **1 — Disk Usage Monitoring** | **Shipped.** Completed, and the template for the remaining seeds. |
-| 1 | **3 — Automated Database Backup** | Complements module 2 — backup creation feeding retention pruning. Natural narrative pairing. |
+| — | **3 — Automated Database Backup** | **Shipped.** Complements module 2 — backup creation feeding retention pruning. |
 | 2 | **8 — Log Rotation and Compression** | Shares the log-lifecycle domain with modules 2 and 3. |
 | 3 | **4 — Service Monitor and Auto-Restart** | Introduces process/service supervision; pairs with 7. |
 | 4 | **7 — Find and Kill High-CPU Processes** | Resource-control counterpart to 4 and 5. |
