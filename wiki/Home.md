@@ -54,7 +54,15 @@ This wiki provides comprehensive architecture guides, deep-dive comparisons, ste
 - **[[15-Disk-Monitor-Scenarios-and-Labs|15. Disk Monitor Scenarios & Interactive Labs]]**: Scheduled
   checks over mail and HTTP, the configuration file, the doctor, the VPS relay, and 4 hands-on labs.
 
-### 6. Quality & Engineering Standards
+### 6. Module 3: Automated Database Backup
+- **[[16-Database-Backup-Overview|16. Database Backup — Overview & Specs]]**: Cross-platform dump,
+  compression and retention for MySQL and PostgreSQL, with credential safety and a dry-run mode.
+- **[[17-Database-Backup-Bash-vs-PowerShell|17. Database Backup — Bash vs PowerShell]]**: One contract
+  in two runtimes, the parity proof, and the legitimate platform differences.
+- **[[18-Database-Backup-Scenarios-and-Labs|18. Database Backup Scenarios & Interactive Labs]]**:
+  successful backups, failures, retention, and 3 hands-on labs.
+
+### 7. Quality & Engineering Standards
 - **[[08-CI-CD-Pipelines|08. CI/CD Pipelines & Testing Philosophy]]**: Path-based GitHub Actions monorepo isolation and multi-OS validation.
 - **[[09-Code-Style-and-Standards|09. Code Style & Engineering Standards]]**: B2 English conventions, commenting strategy, and branching workflow.
 
