@@ -37,15 +37,11 @@ DRY_RUN=false
 LOG_FILE=""
 VERBOSE=false
 
-CONFIG_FILE_MISSING=false
-CONFIG_FILE_UNREADABLE=false
-CONFIG_FILE=""
 
 COLOR_RED="$RED"
 COLOR_GREEN="$GREEN"
 COLOR_YELLOW="$YELLOW"
 COLOR_BLUE="$BLUE"
-COLOR_CYAN="$CYAN"
 COLOR_RESET="$NC"
 
 # ---------- helpers ----------
@@ -61,10 +57,6 @@ log_message() {
     if [[ "$VERBOSE" == true || "$level" == "ERROR" || "$level" == "WARNING" ]]; then
         printf '%s\n' "$message" >&2
     fi
-}
-
-quote_for_shell() {
-    printf '%q' "$1"
 }
 
 print_error() {
@@ -199,22 +191,6 @@ dump_command_for() {
     case "$db_type" in
         mysql) printf 'mysqldump' ;;
         postgresql) printf 'pg_dump' ;;
-    esac
-}
-
-dump_args_for() {
-    local db_type="$1"
-    local db_name="$2"
-    local db_user="$3"
-    local password="$4"
-    local target="$5"
-    case "$db_type" in
-        mysql)
-            printf '%s\n' "-u${db_user}" "$db_name"
-            ;;
-        postgresql)
-            printf '%s\n' "-U" "$db_user" "-d" "$db_name" "-f" "$target"
-            ;;
     esac
 }
 

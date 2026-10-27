@@ -12,7 +12,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 BACKUP_SCRIPT="$SCRIPT_DIR/db_backup.sh"
 BACKUP_SCRIPT_PS="$SCRIPT_DIR/db_backup.ps1"
-TEST_SANDBOX="$(mktemp -d "${TMPDIR:-/tmp}/test_db_backup.XXXXXX")"
+TEST_SANDBOX="$(mktemp -d "/tmp/test_db_backup.XXXXXX")"
 STUB_DIR="$TEST_SANDBOX/stubs"
 CAPTURE_FILE="$TEST_SANDBOX/dump_capture.txt"
 ORIGINAL_PATH="$PATH"
