@@ -333,6 +333,7 @@ function Test-BackupCreated {
         $script:PassedCount++
     } else {
         Write-Host "$([char]27)[0;31m[FAIL]$([char]27)[0m Test 8b: no compressed backup found" -ForegroundColor Red
+        Write-Host "STDERR: $($script:LastStderr)"
         $script:FailedCount++
     }
     Exit-TestEnvironment
