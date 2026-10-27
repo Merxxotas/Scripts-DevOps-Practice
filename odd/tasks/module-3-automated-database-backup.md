@@ -4,7 +4,7 @@
 > **Module folder:** `3-Automated-Database-Backup-with-Timestamp/`
 > **Seed:** `db_backup.sh` (1363 bytes) + `db_backup.ps1` (2284 bytes), written 2026-03-09, never committed.
 > **Backends:** MySQL (`mysqldump`) and PostgreSQL (`pg_dump`) — MSSQL dropped per scoping decision.
-> **Status:** Draft — feature document created; implementation pending.
+> **Status:** Complete — module shipped on feature branch; pending PR/merge.
 
 ---
 
@@ -91,11 +91,11 @@ backup file, no `--json`/`--csv` output. One database per invocation. Audit writ
 | T4 | S6 | PowerShell test suite (stubbed dump tool) | Inline | ✅ | test_db_backup.ps1; 31/0 (incl. parity) |
 | T5 | S6 | Parity proof across the two implementations | Inline | ✅ | Test-PublicInterfaceMatchesBashSide passes |
 | T6 | S7 | `SPECS.md`, `ROADMAP.md`, `CODESTYLE.md`, `README.md` | Delegated | ✅ | b4d12ee |
-| T7 | S7 | `docs/ARCHITECTURE_COMPARISON.md`, `docs/SCENARIOS.md`, `docs/labs/LAB1-3.md` | Delegated | ⬜ | — |
+| T7 | S7 | `docs/ARCHITECTURE_COMPARISON.md`, `docs/SCENARIOS.md`, `docs/labs/LAB1-3.md` | Delegated | ✅ | docs written + 3 labs |
 | T8 | S7 | CI workflow `.github/workflows/ci-database-backup.yml` | Inline | ✅ | b4d12ee |
-| T9 | S7 | Wiki pages 16-18 + sidebar + home + architecture page | Delegated | ⬜ | — |
-| T10 | S7 | `MODULES.md`, root `README.md`, `CHANGELOG.md` registration | Inline | ⬜ | — |
-| T11 | S5, S6 | Full local matrix verification; close with a `Risk:` line | Inline | ⬜ | pending |
+| T9 | S7 | Wiki pages 16-18 + sidebar + home + architecture page | Delegated | ✅ | wiki/16-18 + sidebar/home/01 updated |
+| T10 | S7 | `MODULES.md`, root `README.md`, `CHANGELOG.md` registration | Inline | ✅ | registered |
+| T11 | S5, S6 | Full local matrix verification; close with a `Risk:` line | Inline | ✅ | bash 26/0; yaml OK; bash -n OK |
 
 ### Route declaration and trigger evidence
 
@@ -141,6 +141,13 @@ backend, password from env, no-compress, audit log, help backends, plus parity p
 ("A parameter with the name 'Verbose' was defined multiple times"), so -Help itself failed. Removed
 `[CmdletBinding()]`; the script keeps its own -Verbose switch and references. Bash tests still 26/0.
 
+**L4** — 2026-10-27. Completed T7 (docs: ARCHITECTURE_COMPARISON, SCENARIOS, LAB1-3), T9 (wiki
+pages 16-18 + sidebar/home/01), T10 (MODULES.md, root README, CHANGELOG registration), T11 (full
+local matrix verification: bash 26/0, yaml OK, bash -n OK). Module 3 ready for PR.
+
 ## Close
 
-Pending.
+Module 3 complete on branch `feat/3-automated-database-backup`. Bash suite 26/0, CI yaml valid, bash -n clean.
+PowerShell suite and PSScriptAnalyzer are CI-only (no pwsh locally).
+
+Risk: item 1 (retention pruning deletes backup files irreversibly) and item 2 (credential handling).
