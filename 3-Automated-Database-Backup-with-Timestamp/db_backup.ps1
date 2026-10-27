@@ -262,14 +262,14 @@ try {
     switch ($DbType) {
         "mysql" {
             $env:MYSQL_PWD = $DbPassword
-            & $dumpTool "-u$DbUser" $DbName | Out-File -FilePath $backupFile -Encoding utf8
-            if ($LASTEXITCODE -ne 0) { $dumpStatus = $LASTEXITCODE }
+            & $dumpTool "-u$DbUser" $DbName > $backupFile
+            $dumpStatus = $LASTEXITCODE
             $env:MYSQL_PWD = $null
         }
         "postgresql" {
             $env:PGPASSWORD = $DbPassword
             & $dumpTool -U $DbUser -d $DbName -f $backupFile
-            if ($LASTEXITCODE -ne 0) { $dumpStatus = $LASTEXITCODE }
+            $dumpStatus = $LASTEXITCODE
             $env:PGPASSWORD = $null
         }
     }
