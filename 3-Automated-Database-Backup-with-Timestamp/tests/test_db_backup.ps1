@@ -325,6 +325,12 @@ function Test-DryRun {
 function Test-BackupCreated {
     Enter-TestEnvironment
     $bk = Join-Path $TestSandbox "bk"
+    $ms = Join-Path $StubDir "mysqldump"
+    Write-Host "STUB EXISTS: $(Test-Path -LiteralPath $ms)"
+    Write-Host "STUB CONTENT:"
+    Get-Content -LiteralPath $ms
+    Write-Host "---END---"
+    & $ms; Write-Host "STUB EXIT: $LASTEXITCODE"
     Invoke-Backup -Arguments @("-DbPassword","secret","-BackupDir",$bk)
     Assert-Equal -Expected 0 -Actual $script:LastRunExitCode -TestName "Test 8a: backup exits 0"
     $found = @(Get-ChildItem -Path $bk -Filter "*.zip" -ErrorAction SilentlyContinue) | Select-Object -First 1
