@@ -56,7 +56,17 @@ jobs:
         shell: pwsh
         run: |
           Set-PSRepository -Name PSGallery -InstallationPolicy Trusted
-          Install-Module -Name PSScriptAnalyzer -Force -Scope CurrentUser
+          $attempts = 0
+          while ($attempts -lt 3) {
+            $attempts++
+            try {
+              Install-Module -Name PSScriptAnalyzer -Force -Scope CurrentUser -ErrorAction Stop
+              break
+            } catch {
+              if ($attempts -ge 3) { throw }
+              Start-Sleep -Seconds 10
+            }
+          }
           (Get-Module -ListAvailable PSScriptAnalyzer).Version
 
       - name: Run PSScriptAnalyzer
