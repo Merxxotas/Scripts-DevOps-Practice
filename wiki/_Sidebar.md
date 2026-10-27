@@ -25,6 +25,13 @@
 
 ---
 
+### 🔄 Module 8: Log Rotation and Compression
+- **[[19-Log-Rotation-Overview|📖 Log Rotation Overview]]**
+- **[[20-Log-Rotation-Bash-vs-PowerShell|📊 Bash vs PowerShell]]**
+- **[[21-Log-Rotation-Scenarios-and-Labs|🧪 Scenarios & Labs]]**
+
+---
+
 ### 🛡️ Quality & Standards
 - **[[08-CI-CD-Pipelines|🔄 CI/CD Pipelines]]**
 - **[[09-Code-Style-and-Standards|📐 Code Style Standards]]**

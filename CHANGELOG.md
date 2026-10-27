@@ -294,6 +294,59 @@ write is best-effort.
 
 ---
 
+## 2026-10-27 — Log Rotation and Compression module
+
+**Module 8 — Log Rotation and Compression** goes from a seed script pair to a fully shipped
+module: a cross-platform utility that rotates a single log file when it exceeds a size
+threshold, compresses the current log into the first backup slot, truncates the active log, and
+prunes backups beyond the retention count. Full Bash + PowerShell parity.
+
+### Added — the module
+
+- **`8-Log-Rotation-and-Compression/`** — the whole module, tracked for the first time. A Bash
+  implementation and a PowerShell implementation of one contract.
+- **`log_rotate.sh`** and **`log_rotate.ps1`** — the two implementations, with CLI flags
+  `-f/--log-file`, `-m/--max-size-mb`, `-c/--backup-count`, `-z/--compress`, `--no-compress`,
+  `--force`, `--dry-run`, `--audit-log`, `-v/--verbose`, `-h/--help`.
+- **Exit-code contract** — `0` success, `1` configuration/safety violation, `2` partial failure.
+- **Safety guardrails** — path blacklist for system directories, requires an existing regular log
+  file, validates numeric arguments, dry-run mode.
+- **Compression** — gzip on Bash, zip on PowerShell; raw file kept with `--no-compress`.
+- **Retention pruning** — shifts backups and removes any index beyond the count; best-effort per file.
+- **ISO-8601 audit log** — `--audit-log` appends one line per run.
+- **`tests/test_log_rotate.sh`** (33 tests) and **`tests/test_log_rotate.ps1`**. Runs under a temp
+  directory; no real system paths touched.
+- **`SPECS.md`**, **`ROADMAP.md`**, **`CODESTYLE.md`**, **`README.md`**.
+- **`docs/ARCHITECTURE_COMPARISON.md`**, **`docs/SCENARIOS.md`**, **`docs/labs/LAB1-3.md`**.
+
+### Added — CI
+
+- **`.github/workflows/ci-log-rotation.yml`** — path-filtered, multi-OS matrix.
+
+### Added — knowledge base
+
+- **`wiki/19-Log-Rotation-Overview.md`**, **`wiki/20-Log-Rotation-Bash-vs-PowerShell.md`**,
+  **`wiki/21-Log-Rotation-Scenarios-and-Labs.md`**, with the sidebar, the home page and
+  `wiki/01-Monorepo-Architecture.md` updated.
+
+### Changed
+
+- **`MODULES.md`**, **`README.md`**, **`AGENTS.md`** — module 8 marked shipped; seed group now
+  five modules.
+
+### Verification
+
+- **Bash suite, local** — 33 tests, 0 failures.
+- **PowerShell suite** — CI-only (no `pwsh` on the development machine).
+
+### Known gaps
+
+Recorded rather than hidden: no time-based or date-stamped rotation, no `copytruncate`/`create`
+modes, no post-rotation hook, no compression of already-rotated backups, no `--json`/`--csv`
+output. One log file per invocation. Audit write is best-effort.
+
+---
+
 ## 2026-10-20 — CPU and Memory Usage Monitor module
 
 **Module 5 — CPU and Memory Usage Monitor** goes from a capstone that existed only on disk to a

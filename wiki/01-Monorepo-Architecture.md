@@ -50,8 +50,8 @@ Scripts-DevOps-Practice/
 
 ## 📦 Shipped Module Inventory
 
-**Five modules are shipped** — committed, CI-covered, tested and documented:
-modules **1**, **2**, **3**, **5** and **11**. The remaining six are seeds on the
+**Six modules are shipped** — committed, CI-covered, tested and documented:
+modules **1**, **2**, **3**, **5**, **8** and **11**. The remaining five are seeds on the
 working disk: a raw script pair each, with no contract yet.
 
 | Folder / Module | Primary Technologies | Purpose & Architecture |

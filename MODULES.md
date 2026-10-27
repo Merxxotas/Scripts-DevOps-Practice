@@ -29,7 +29,7 @@ pipeline and documentation. See [`AGENTS.md`](AGENTS.md) for the module contract
 | 5 | CPU and Memory Usage Monitor | Bash / PowerShell / Python / Docker | ✅ **Shipped** | ✅ | Full |
 | 6 | Website Availability (HTTP Health Check) | Bash / PowerShell | 🔵 Seed | — | — |
 | 7 | Find and Kill High-CPU Processes | Bash / PowerShell | 🔵 Seed | — | — |
-| 8 | Log Rotation and Compression | Bash / PowerShell | 🔵 Seed | — | — |
+| 8 | Log Rotation and Compression | Bash / PowerShell | ✅ **Shipped** | ✅ | Full |
 | 9 | Automated Git Deployment | Bash / PowerShell | 🔵 Seed | — | — |
 | 10 | Kubernetes Pod Monitor and Restart | Bash / PowerShell | 🔵 Seed | — | — |
 | 11 | Scheduling and Automation (EventOps) | Python / Go | ✅ **Shipped** | ✅ | Full |
@@ -101,6 +101,19 @@ Bash + PowerShell parity.
 no MSSQL, no encryption of the backup file, no `--json`/`--csv` output. One database per
 invocation. Audit write is best-effort.
 
+### ✅ 8 — Log Rotation and Compression *(Shipped)*
+
+Size-based log rotation with compression and retention for a single log file. Full
+Bash + PowerShell parity.
+
+- `log_rotate.sh` · `log_rotate.ps1` · `tests/` · `docs/` (+ 3 labs) · `SPECS.md` · `ROADMAP.md` · `CODESTYLE.md`
+- CI: `.github/workflows/ci-log-rotation.yml` — ShellCheck, Bash on ubuntu + macOS, PowerShell on Windows + Ubuntu
+- Wiki: [19](wiki/19-Log-Rotation-Overview.md) · [20](wiki/20-Log-Rotation-Bash-vs-PowerShell.md) · [21](wiki/21-Log-Rotation-Scenarios-and-Labs.md)
+
+**Known gaps**, recorded rather than hidden: no time-based or date-stamped rotation, no
+`copytruncate`/`create` modes, no post-rotation hook, no compression of already-rotated backups,
+no `--json`/`--csv` output. One log file per invocation. Audit write is best-effort.
+
 ### ✅ 11 — Scheduling and Automation / EventOps *(Shipped)*
 
 Cross-platform event-driven automation daemon. Replaces polling with reacting: a webhook server and
@@ -147,7 +160,7 @@ had never run, so nothing about it had ever been verified.
 Bash script has no options for thresholds or process count; memory % is wrong on macOS (file cache
 counted as used); exit code 2 is reserved but unused.
 
-### 🔵 Seed modules — 4, 6, 7, 8, 9, 10
+### 🔵 Seed modules — 4, 6, 7, 9, 10
 
 Each holds a single Bash + PowerShell pair of roughly 40–70 lines, written in one sitting on
 **2026-03-09**. They are functional sketches, not production utilities: no CLI parser, no safety
