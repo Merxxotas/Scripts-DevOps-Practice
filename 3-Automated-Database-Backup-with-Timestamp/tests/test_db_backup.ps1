@@ -124,7 +124,7 @@ fi
 exit 0
 '@
         $msPath = Join-Path $StubDir "mysqldump"
-        Set-Content -LiteralPath $msPath -Value $mysqldumpContent -Encoding utf8 -NoNewline
+        Set-Content -LiteralPath $msPath -Value $mysqldumpContent -Encoding ascii -NoNewline
         & chmod +x $msPath
 
         $pgdumpContent = @'
@@ -153,7 +153,7 @@ fi
 exit 0
 '@
         $pgPath = Join-Path $StubDir "pg_dump"
-        Set-Content -LiteralPath $pgPath -Value $pgdumpContent -Encoding utf8 -NoNewline
+        Set-Content -LiteralPath $pgPath -Value $pgdumpContent -Encoding ascii -NoNewline
         & chmod +x $pgPath
     }
 
@@ -333,7 +333,6 @@ function Test-BackupCreated {
         $script:PassedCount++
     } else {
         Write-Host "$([char]27)[0;31m[FAIL]$([char]27)[0m Test 8b: no compressed backup found" -ForegroundColor Red
-        Write-Host "STDERR: $($script:LastStderr)"
         $script:FailedCount++
     }
     Exit-TestEnvironment
