@@ -123,6 +123,7 @@ else
 fi
 exit 0
 '@
+        $mysqldumpContent = $mysqldumpContent -replace "`r`n", "`n"
         $msPath = Join-Path $StubDir "mysqldump"
         Set-Content -LiteralPath $msPath -Value $mysqldumpContent -Encoding ascii -NoNewline
         & chmod +x $msPath
@@ -152,6 +153,7 @@ else
 fi
 exit 0
 '@
+        $pgdumpContent = $pgdumpContent -replace "`r`n", "`n"
         $pgPath = Join-Path $StubDir "pg_dump"
         Set-Content -LiteralPath $pgPath -Value $pgdumpContent -Encoding ascii -NoNewline
         & chmod +x $pgPath
@@ -325,16 +327,6 @@ function Test-DryRun {
 function Test-BackupCreated {
     Enter-TestEnvironment
     $bk = Join-Path $TestSandbox "bk"
-    $ms = Join-Path $StubDir "mysqldump"
-    Write-Host "STUB EXISTS: $(Test-Path -LiteralPath $ms)"
-    Write-Host "STUB CONTENT:"
-    Get-Content -LiteralPath $ms
-    Write-Host "---END---"
-    Write-Host "STUB BYTES:"
-    $bytes = [System.IO.File]::ReadAllBytes($ms)
-    Write-Host ([BitConverter]::ToString($bytes[0..20]))
-    Write-Host "PERMS: $((Get-Item -LiteralPath $ms).Mode)"
-    & $ms; Write-Host "STUB EXIT: $LASTEXITCODE"
     Invoke-Backup -Arguments @("-DbPassword","secret","-BackupDir",$bk)
     Assert-Equal -Expected 0 -Actual $script:LastRunExitCode -TestName "Test 8a: backup exits 0"
     $found = @(Get-ChildItem -Path $bk -Filter "*.zip" -ErrorAction SilentlyContinue) | Select-Object -First 1
@@ -343,7 +335,6 @@ function Test-BackupCreated {
         $script:PassedCount++
     } else {
         Write-Host "$([char]27)[0;31m[FAIL]$([char]27)[0m Test 8b: no compressed backup found" -ForegroundColor Red
-        Write-Host "STDERR: $($script:LastStderr)"
         $script:FailedCount++
     }
     Exit-TestEnvironment

@@ -275,7 +275,6 @@ try {
     }
 } catch {
     $dumpStatus = 1
-    Write-ErrorLine "EXCEPTION: $($_.Exception.Message)"
 }
 
 if ($dumpStatus -ne 0) {
