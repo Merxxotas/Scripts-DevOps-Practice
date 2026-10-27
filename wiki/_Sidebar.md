@@ -18,6 +18,13 @@
 
 ---
 
+### 🗄️ Module 3: Database Backup
+- **[[16-Database-Backup-Overview|📖 Database Backup Overview]]**
+- **[[17-Database-Backup-Bash-vs-PowerShell|📊 Bash vs PowerShell]]**
+- **[[18-Database-Backup-Scenarios-and-Labs|🧪 Scenarios & Labs]]**
+
+---
+
 ### 🛡️ Quality & Standards
 - **[[08-CI-CD-Pipelines|🔄 CI/CD Pipelines]]**
 - **[[09-Code-Style-and-Standards|📐 Code Style Standards]]**

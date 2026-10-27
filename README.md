@@ -22,7 +22,7 @@ This repository is a **multi-language monorepo**. While it includes foundational
 | `10-Kubernetes-Pod-Monitor-and-Restart` | Bash / PowerShell | K8s pod health monitoring & kubectl management |
 | `11-Scheduling-And-Automation` | **Python & Go** | **EventOps:** Cross-platform event-driven automation daemon (Webhooks + File Watcher) |
 
-> **11 modules · 4 shipped (1, 2, 5, 11) · 7 seeds on the working disk.** The live status of
+> **11 modules · 5 shipped (1, 2, 3, 5, 11) · 6 seeds on the working disk.** The live status of
 > every module is in [`MODULES.md`](MODULES.md).
 
 ---
@@ -52,7 +52,7 @@ Because this is a monorepo, **CI/CD pipelines are strictly segregated by project
 | :--- | :--- |
 | **[`AGENTS.md`](AGENTS.md)** | **Start here.** What this repository is, the working methodology (ODD), the module contract, branching and commit conventions, the CI model, code standards, and known gotchas. |
 | **[`odd/METHODOLOGY.md`](odd/METHODOLOGY.md)** | The expanded ODD protocol: the seven phases, the feature document format, task sizing, the test-first policy and the delegation triggers. |
-| **[`MODULES.md`](MODULES.md)** | Status of all 11 modules — 4 shipped, 7 seeds — the seed-to-shipped checklist, and the recommended build order. |
+| **[`MODULES.md`](MODULES.md)** | Status of all 11 modules — 5 shipped, 6 seeds — the seed-to-shipped checklist, and the recommended build order. |
 | **[`CONTRIBUTING.md`](CONTRIBUTING.md)** | How to contribute: workflow, branch naming, commit format, testing rules, PR checklist. |
 | **[`SECURITY.md`](SECURITY.md)** | Reporting a vulnerability privately, response targets, and what does and does not count as a vulnerability here. |
 | **[`CODE_OF_CONDUCT.md`](CODE_OF_CONDUCT.md)** | Community standards. |
