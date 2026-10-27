@@ -62,6 +62,14 @@ This wiki provides comprehensive architecture guides, deep-dive comparisons, ste
 - **[[18-Database-Backup-Scenarios-and-Labs|18. Database Backup Scenarios & Interactive Labs]]**:
   successful backups, failures, retention, and 3 hands-on labs.
 
+### 7. Module 8: Log Rotation and Compression
+- **[[19-Log-Rotation-Overview|19. Log Rotation — Overview & Specs]]**: Size-based rotation,
+  compression and retention for a single log file, with dry-run and guardrails.
+- **[[20-Log-Rotation-Bash-vs-PowerShell|20. Log Rotation — Bash vs PowerShell]]**: One contract
+  in two runtimes and the parity proof.
+- **[[21-Log-Rotation-Scenarios-and-Labs|21. Log Rotation Scenarios & Interactive Labs]]**:
+  rotation, retention, exit codes and 3 hands-on labs.
+
 ### 7. Quality & Engineering Standards
 - **[[08-CI-CD-Pipelines|08. CI/CD Pipelines & Testing Philosophy]]**: Path-based GitHub Actions monorepo isolation and multi-OS validation.
 - **[[09-Code-Style-and-Standards|09. Code Style & Engineering Standards]]**: B2 English conventions, commenting strategy, and branching workflow.
