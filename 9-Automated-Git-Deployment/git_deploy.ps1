@@ -75,10 +75,15 @@ function Show-Help {
 function Test-ProtectedPath {
     param([string]$Path)
     $protected = @("C:\", "C:\Windows", "C:\Program Files", "/", "/etc", "/var", "/tmp", "/home", "/usr", "/bin")
+    $parent = ""
+    try { $parent = [System.IO.Path]::GetDirectoryName($Path) } catch { $parent = "" }
+    if ([string]::IsNullOrEmpty($parent)) { $parent = $Path }
+    $norm = $parent.TrimEnd('\', '/')
+    if ($norm -eq "") { $norm = "/" }
     foreach ($p in $protected) {
-        if ($Path -eq $p) { return $true }
-        if ($Path.StartsWith("$p\")) { return $true }
-        if ($Path.StartsWith("$p/")) { return $true }
+        $pp = $p.TrimEnd('\', '/')
+        if ($pp -eq "") { $pp = "/" }
+        if ($norm -eq $pp) { return $true }
     }
     return $false
 }

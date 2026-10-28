@@ -64,7 +64,7 @@ Invoke-Deploy -ScriptArgs @("-AppDir", "C:\")
 Assert-Equal 1 $script:LastExitCode "Test 3: protected app dir exits 1"
 
 # Test 4: invalid branch
-Invoke-Deploy -ScriptArgs @("-AppDir", $AppDir, "-Branch", "bad branch")
+Invoke-Deploy -ScriptArgs @("-AppDir", $AppDir, "-Branch", "bad@branch")
 Assert-Equal 1 $script:LastExitCode "Test 4: invalid branch exits 1"
 
 # Test 5: dry-run
