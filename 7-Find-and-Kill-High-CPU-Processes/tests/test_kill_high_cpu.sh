@@ -148,7 +148,7 @@ run_killer -t 50 --auto-kill
 assert_equals 0 "$LAST_EXIT_CODE" "Test 6a: guardrails run exits 0"
 # killed_pids should contain 999 only
 if [[ -f "$TEST_SANDBOX/killed_pids" ]]; then
-    kc=$(wc -l < "$TEST_SANDBOX/killed_pids")
+    kc=$(wc -l < "$TEST_SANDBOX/killed_pids" | tr -d ' ')
     assert_equals "1" "$kc" "Test 6b: only one process killed (guardrails)"
     if grep -qx "999" "$TEST_SANDBOX/killed_pids"; then
         printf "%b[PASS]%b Test 6c: correct pid killed\n" "$GREEN" "$RESET"; ((PASSED_TESTS++)) || true
