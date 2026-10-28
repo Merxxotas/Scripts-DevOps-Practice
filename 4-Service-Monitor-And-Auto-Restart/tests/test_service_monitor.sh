@@ -17,7 +17,6 @@ mkdir -p "$FAKE_BIN"
 
 readonly RED='\033[0;31m'
 readonly GREEN='\033[0;32m'
-readonly CYAN='\033[0;36m'
 readonly RESET='\033[0m'
 
 PASSED_TESTS=0
