@@ -294,6 +294,57 @@ write is best-effort.
 
 ---
 
+## 2026-10-28 — Service Monitor and Auto-Restart module
+
+**Module 4 — Service Monitor and Auto-Restart** goes from a seed script pair to a fully shipped
+module: a cross-platform utility that checks whether a named service is running and, when it is
+down, attempts to restart it up to a configurable number of times with a configurable delay.
+Full Bash + PowerShell parity.
+
+### Added — the module
+
+- **`4-Service-Monitor-And-Auto-Restart/`** — the whole module, tracked for the first time. A Bash
+  implementation and a PowerShell implementation of one contract.
+- **`service_monitor.sh`** and **`service_monitor.ps1`** — the two implementations, with CLI flags
+  `-s/--service`, `-r/--max-retries`, `--retry-delay`, `--dry-run`, `--audit-log`,
+  `-v/--verbose`, `-h/--help`.
+- **Exit-code contract** — `0` success, `1` configuration/safety violation, `2` partial failure.
+- **Safety guardrails** — service-name validation, existence check, validates numeric arguments,
+  dry-run mode.
+- **Notifications** — syslog on Bash, Windows Event Log on PowerShell (best-effort).
+- **ISO-8601 audit log** — `--audit-log` appends one line per run.
+- **`tests/test_service_monitor.sh`** (20 tests) and **`tests/test_service_monitor.ps1`**. Bash suite
+  stubs `systemctl` via a fake binary on `PATH`; no real system services touched.
+- **`SPECS.md`**, **`ROADMAP.md`**, **`CODESTYLE.md`**, **`README.md`**.
+- **`docs/ARCHITECTURE_COMPARISON.md`**, **`docs/SCENARIOS.md`**, **`docs/labs/LAB1-3.md`**.
+
+### Added — CI
+
+- **`.github/workflows/ci-service-monitor.yml`** — path-filtered, multi-OS matrix.
+
+### Added — knowledge base
+
+- **`wiki/22-Service-Monitor-Overview.md`**, **`wiki/23-Service-Monitor-Bash-vs-PowerShell.md`**,
+  **`wiki/24-Service-Monitor-Scenarios-and-Labs.md`**, with the sidebar updated.
+
+### Changed
+
+- **`MODULES.md`**, **`README.md`**, **`AGENTS.md`** — module 4 marked shipped; seed group now
+  four modules.
+
+### Verification
+
+- **Bash suite, local** — 20 tests, 0 failures.
+- **PowerShell suite** — CI-only (no `pwsh` on the development machine).
+
+### Known gaps
+
+Recorded rather than hidden: no continuous watch loop, no HTTP/TCP health probe, no
+dependency-graph restart, no `--json`/`--csv` output, no service enable/disable. One service per
+invocation. Audit write is best-effort.
+
+---
+
 ## 2026-10-27 — Log Rotation and Compression module
 
 **Module 8 — Log Rotation and Compression** goes from a seed script pair to a fully shipped
