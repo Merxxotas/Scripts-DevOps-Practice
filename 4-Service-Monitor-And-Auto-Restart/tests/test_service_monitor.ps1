@@ -113,11 +113,7 @@ $drSvc = if ($stoppedService) { $stoppedService } else { $existingService }
 if ($drSvc) {
     Invoke-Monitor -ScriptArgs @("-ServiceName", $drSvc, "-DryRun")
     Assert-Equal 0 $script:LastExitCode "Test 5a: dry-run exits 0"
-    if ($stoppedService) {
-        Assert-Contains $script:LastStdout "DRY RUN" "Test 5b: dry-run label"
-    } else {
-        Write-Host "[SKIP] Test 5b: no stopped service available" -ForegroundColor Yellow
-    }
+    Assert-Contains $script:LastStdout "DRY RUN" "Test 5b: dry-run label"
 }
 
 # Test 6: bad max-retries (0) - ValidateRange blocks 0? range starts 1, so 0 invalid -> error exit 1

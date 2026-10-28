@@ -122,6 +122,11 @@ if ($null -eq $Service) {
 }
 
 if ($Service.Status -eq 'Running') {
+    if ($DryRun) {
+        Write-Host "$($Colors.Yellow)[DRY RUN]$($Colors.Reset) Service '$ServiceName' is running; no restart planned."
+        Write-AuditLog -Level "INFO" -Message "[DRY RUN] No restart needed for '$ServiceName'."
+        exit 0
+    }
     Write-Host "$($Colors.Green)✓ Service '$ServiceName' is running.$($Colors.Reset)" -ForegroundColor Green
     Write-AuditLog -Level "INFO" -Message "Service '$ServiceName' is running."
     exit 0

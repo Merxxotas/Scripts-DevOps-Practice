@@ -191,6 +191,12 @@ main() {
 
     # Status check
     if service_active "$SERVICE_NAME"; then
+        if [[ "$DRY_RUN" == true ]]; then
+            printf "%b[DRY RUN]%b Service '%s' is running; no restart planned.\n" \
+                "$COLOR_YELLOW" "$COLOR_RESET" "$SERVICE_NAME"
+            log_message "INFO" "[DRY RUN] No restart needed for '$SERVICE_NAME'."
+            exit 0
+        fi
         printf "%b✓ Service '%s' is running.%b\n" "$COLOR_GREEN" "$SERVICE_NAME" "$COLOR_RESET"
         log_message "INFO" "Service '$SERVICE_NAME' is running."
         exit 0
