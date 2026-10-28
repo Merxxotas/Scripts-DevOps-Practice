@@ -19,15 +19,23 @@ $script:LastExitCode = 0
 
 function Invoke-Monitor {
     param([string[]]$ScriptArgs)
-    $stdoutFile = Join-Path $TestSandbox "stdout.txt"
-    $stderrFile = Join-Path $TestSandbox "stderr.txt"
-    if (Test-Path $stdoutFile) { Remove-Item $stdoutFile -Force }
-    if (Test-Path $stderrFile) { Remove-Item $stderrFile -Force }
-
-    $proc = Start-Process -FilePath "pwsh" -ArgumentList (@("-File", $MonitorScript) + $ScriptArgs) -RedirectStandardOutput $stdoutFile -RedirectStandardError $stderrFile -Wait -PassThru -NoNewWindow
+    $psi = New-Object System.Diagnostics.ProcessStartInfo
+    $psi.FileName = "pwsh"
+    if (-not (Get-Command pwsh -ErrorAction SilentlyContinue)) {
+        $psi.FileName = "powershell"
+    }
+    $psi.Arguments = "-NoProfile -File `"$MonitorScript`" " + ($ScriptArgs -join " ")
+    $psi.RedirectStandardOutput = $true
+    $psi.RedirectStandardError = $true
+    $psi.UseShellExecute = $false
+    $proc = [System.Diagnostics.Process]::Start($psi)
+    $script:LastStdout = $proc.StandardOutput.ReadToEnd()
+    $script:LastStderr = $proc.StandardError.ReadToEnd()
+    $proc.WaitForExit()
     $script:LastExitCode = $proc.ExitCode
-    $script:LastStdout = if (Test-Path $stdoutFile) { Get-Content $stdoutFile -Raw } else { "" }
-    $script:LastStderr = if (Test-Path $stderrFile) { Get-Content $stderrFile -Raw } else { "" }
+    if ($script:LastStderr) {
+        Write-Host "STDERR: $($script:LastStderr)" -ForegroundColor DarkYellow
+    }
 }
 
 function Assert-Equal {
@@ -66,7 +74,7 @@ function Assert-FileExists {
 # Discover a service that exists on this host for existence-dependent tests.
 $existingService = $null
 try {
-    $existingService = (Get-Service | Select-Object -First 1).Name
+    $existingService = (Get-Service | Where-Object { $_.Name -match '^[a-zA-Z0-9_.-]+$' } | Select-Object -First 1).Name
 } catch {
     $existingService = $null
 }

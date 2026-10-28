@@ -25,9 +25,7 @@ AUDIT_LOG=""
 VERBOSE=false
 
 # Metrics / state
-RESTARTED=false
 RETRIES_USED=0
-FAILED=false
 
 # ------------------------------------------------------------------------------
 # Helpers
@@ -220,7 +218,6 @@ main() {
             if service_active "$SERVICE_NAME"; then
                 printf "%b✓ Service '%s' restarted successfully.%b\n" "$COLOR_GREEN" "$SERVICE_NAME" "$COLOR_RESET"
                 notify_restart "$SERVICE_NAME"
-                RESTARTED=true
                 RETRIES_USED="$attempt"
                 log_message "INFO" "Service '$SERVICE_NAME' restarted after $attempt attempt(s)."
                 # Summary
@@ -246,7 +243,6 @@ main() {
         fi
     done
 
-    FAILED=true
     printf "%b✗ Failed to restart service '%s' after %s attempt(s).%b\n" "$COLOR_RED" "$SERVICE_NAME" "$MAX_RETRIES" "$COLOR_RESET" >&2
     log_message "ERROR" "Failed to restart '$SERVICE_NAME' after $MAX_RETRIES attempt(s)."
     # Summary
