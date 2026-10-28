@@ -32,6 +32,13 @@
 
 ---
 
+### 🔪 Module 7: Find and Kill High-CPU Processes
+- **[[25-Kill-High-CPU-Overview|📖 Kill High-CPU Overview]]**
+- **[[26-Kill-High-CPU-Bash-vs-PowerShell|📊 Bash vs PowerShell]]**
+- **[[27-Kill-High-CPU-Scenarios-and-Labs|🧪 Scenarios & Labs]]**
+
+---
+
 ### 🔄 Module 8: Log Rotation and Compression
 - **[[19-Log-Rotation-Overview|📖 Log Rotation Overview]]**
 - **[[20-Log-Rotation-Bash-vs-PowerShell|📊 Bash vs PowerShell]]**

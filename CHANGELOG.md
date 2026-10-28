@@ -294,6 +294,54 @@ write is best-effort.
 
 ---
 
+## 2026-10-28 — Find and Kill High-CPU Processes module
+
+**Module 7 — Find and Kill High-CPU Processes** goes from a seed script pair to a fully shipped
+module: a cross-platform utility that lists processes whose CPU usage exceeds a threshold and,
+on confirmation (or automatically), terminates them. Full Bash + PowerShell parity.
+
+### Added — the module
+
+- **`7-Find-and-Kill-High-CPU-Processes/`** — the whole module, tracked for the first time.
+- **`kill_high_cpu.sh`** and **`kill_high_cpu.ps1`** — implementations with flags `-t/--threshold`,
+  `--auto-kill`/`-AutoKill`, `--force`/`-Force`, `--dry-run`/`-DryRun`, `--audit-log`/`-AuditLog`,
+  `-v/--verbose`/`-Verbose`, `-h/--help`/`-Help`.
+- **Exit-code contract** — `0` success, `1` configuration/safety violation, `2` partial failure.
+- **Safety guardrails** — never targets PID 0/1, self, parent, or kernel threads; validates threshold.
+- **Interactive by default** with `--auto-kill` opt-in; force mode for SIGKILL.
+- **ISO-8601 audit log** — `--audit-log` appends one line per run.
+- **`tests/test_kill_high_cpu.sh`** (22 tests) and **`tests/test_kill_high_cpu.ps1`**. Bash suite
+  stubs `ps` and `kill` via fake binaries on `PATH`; no real process is signaled.
+- **`SPECS.md`**, **`ROADMAP.md`**, **`CODESTYLE.md`**, **`README.md`**.
+- **`docs/ARCHITECTURE_COMPARISON.md`**, **`docs/SCENARIOS.md`**, **`docs/labs/LAB1-3.md`**.
+
+### Added — CI
+
+- **`.github/workflows/ci-kill-high-cpu.yml`** — path-filtered, multi-OS matrix.
+
+### Added — knowledge base
+
+- **`wiki/25-Kill-High-CPU-Overview.md`**, **`wiki/26-Kill-High-CPU-Bash-vs-PowerShell.md`**,
+  **`wiki/27-Kill-High-CPU-Scenarios-and-Labs.md`**, with the sidebar updated.
+
+### Changed
+
+- **`MODULES.md`**, **`README.md`**, **`AGENTS.md`** — module 7 marked shipped; seed group now
+  three modules.
+
+### Verification
+
+- **Bash suite, local** — 22 tests, 0 failures.
+- **PowerShell suite** — CI-only (no `pwsh` on the development machine).
+
+### Known gaps
+
+Recorded rather than hidden: no continuous watch loop, no `--top` limit, no `--json`/`--csv`
+output, no process-tree killing, no cgroups/container awareness. One threshold per invocation.
+CPU metric differs between platforms (instantaneous vs cumulative). Audit write is best-effort.
+
+---
+
 ## 2026-10-28 — Service Monitor and Auto-Restart module
 
 **Module 4 — Service Monitor and Auto-Restart** goes from a seed script pair to a fully shipped
