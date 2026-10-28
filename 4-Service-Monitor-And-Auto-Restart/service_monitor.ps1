@@ -35,7 +35,6 @@ $Colors = @{
     Reset  = "`e[0m"
 }
 
-$Script:Restarted = $false
 $Script:RetriesUsed = 0
 
 function Write-AuditLog {
@@ -140,7 +139,7 @@ Write-Host "$($Colors.Yellow)Attempting to restart...$($Colors.Reset)" -Foregrou
 
 for ($attempt = 1; $attempt -le $MaxRetries; $attempt++) {
     if ($Verbose) {
-        Write-Host "  attempt $attempt/$MaxRetries: restarting $ServiceName"
+        Write-Host "  attempt $attempt/$($MaxRetries): restarting $ServiceName"
     }
     try {
         Start-Service -Name $ServiceName -ErrorAction Stop
@@ -153,7 +152,6 @@ for ($attempt = 1; $attempt -le $MaxRetries; $attempt++) {
             } catch {
                 $null = $_
             }
-            $Script:Restarted = $true
             $Script:RetriesUsed = $attempt
             Write-AuditLog -Level "INFO" -Message "Service '$ServiceName' restarted after $attempt attempt(s)."
             Write-Host ""
