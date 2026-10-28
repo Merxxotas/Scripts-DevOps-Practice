@@ -22,7 +22,7 @@ This repository is a **multi-language monorepo**. While it includes foundational
 | `10-Kubernetes-Pod-Monitor-and-Restart` | Bash / PowerShell | K8s pod health monitoring & kubectl management |
 | `11-Scheduling-And-Automation` | **Python & Go** | **EventOps:** Cross-platform event-driven automation daemon (Webhooks + File Watcher) |
 
-> **11 modules · 8 shipped (1, 2, 3, 4, 5, 7, 8, 11) · 3 seeds on the working disk.** The live status of
+> **11 modules · 9 shipped (1, 2, 3, 4, 5, 7, 8, 9, 11) · 2 seeds on the working disk.** The live status of
 > every module is in [`MODULES.md`](MODULES.md).
 
 ---

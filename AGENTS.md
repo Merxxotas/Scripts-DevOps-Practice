@@ -25,8 +25,8 @@ workflow; `paths:` filters guarantee changing module 2 never triggers module 11'
 intent: Bash (Unix admin), PowerShell (Windows/.NET), Python (orchestration), Go (compiled daemons). →
 [`wiki/01`](wiki/01-Monorepo-Architecture.md)
 
-**Module status — check before assuming anything exists.** Shipped: **1** (Disk Usage), **2** (Log Cleanup), **3** (Database Backup), **4** (Service Monitor and Auto-Restart), **5** (CPU/Memory Monitor), **7** (Find and Kill High-CPU Processes), **8** (Log Rotation and Compression), **11** (EventOps).
-Seed, on disk only: **6, 9, 10**. →
+**Module status — check before assuming anything exists.** Shipped: **1** (Disk Usage), **2** (Log Cleanup), **3** (Database Backup), **4** (Service Monitor and Auto-Restart), **5** (CPU/Memory Monitor), **7** (Find and Kill High-CPU Processes), **8** (Log Rotation and Compression), **9** (Automated Git Deployment), **11** (EventOps).
+Seed, on disk only: **6, 10**. →
 [`MODULES.md`](MODULES.md)
 
 ---
@@ -178,7 +178,7 @@ Verified on **2026-10-21**. These are real, current, and will bite you.
 
 | # | Gotcha |
 | :-- | :--- |
-| 1 | **Modules 6, 9, 10 are not in git** (disk only; no `SPECS.md`/`ROADMAP.md`/`CODESTYLE.md`/tests/CI) — violates §3. |
+| 1 | **Modules 6, 10 are not in git** (disk only; no `SPECS.md`/`ROADMAP.md`/`CODESTYLE.md`/tests/CI) — violates §3. |
 | 2 | **Module 1 is the next ship** — seed modules are raw script pairs with no CLI parser, guardrails, tests, docs or CI. Checklist in [`MODULES.md`](MODULES.md). |
 | 3 | **Path filters create a blind spot** — changes under `wiki/`, `MODULES.md`, `AGENTS.md` and other root docs match no workflow → no CI run. |
 | 4 | **The wiki lives in two places** — `main:wiki/` and the GitHub Wiki (`Scripts-DevOps-Practice.wiki.git`). Verified identical 2026-10-20, nothing enforces it. Push edits to both. |

@@ -294,6 +294,55 @@ write is best-effort.
 
 ---
 
+## 2026-10-28 — Automated Git Deployment module
+
+**Module 9 — Automated Git Deployment** goes from a seed script pair to a fully shipped module:
+a cross-platform utility that deploys the latest version of an application from a Git repository
+with pre-deployment backup, fetch, pull and post-deployment tasks. Full Bash + PowerShell parity.
+
+### Added — the module
+
+- **`9-Automated-Git-Deployment/`** — the whole module, tracked for the first time.
+- **`git_deploy.sh`** and **`git_deploy.ps1`** — implementations with flags `-a/--app-dir`,
+  `-r/--repo-url`, `-b/--branch`, `--backup-dir`, `--skip-backup`, `--skip-post-deploy`,
+  `--service`, `--dry-run`, `--audit-log`, `-v/--verbose`, `-h/--help`.
+- **Exit-code contract** — `0` success, `1` configuration/safety violation, `2` partial failure.
+- **Safety guardrails** — app/backup dir validation, protected roots, branch name validation.
+- **Pre-deploy backup** — tar.gz (Bash) / zip (PowerShell), timestamped.
+- **Up-to-date detection**, **pull**, **post-deploy** (npm install, service restart) with skip flags.
+- **ISO-8601 audit log** — `--audit-log` appends one line per run.
+- **`tests/test_git_deploy.sh`** (23 tests) and **`tests/test_git_deploy.ps1`**. Bash suite stubs
+  `git`, `tar`, `npm`, `systemctl`; no real repo touched.
+- **`SPECS.md`**, **`ROADMAP.md`**, **`CODESTYLE.md`**, **`README.md`**.
+- **`docs/ARCHITECTURE_COMPARISON.md`**, **`docs/SCENARIOS.md`**, **`docs/labs/LAB1-3.md`**.
+
+### Added — CI
+
+- **`.github/workflows/ci-git-deployment.yml`** — path-filtered, multi-OS matrix.
+
+### Added — knowledge base
+
+- **`wiki/28-Git-Deployment-Overview.md`**, **`wiki/29-Git-Deployment-Bash-vs-PowerShell.md`**,
+  **`wiki/30-Git-Deployment-Scenarios-and-Labs.md`**, with the sidebar updated.
+
+### Changed
+
+- **`MODULES.md`**, **`README.md`**, **`AGENTS.md`** — module 9 marked shipped; seed group now
+  two modules.
+
+### Verification
+
+- **Bash suite, local** — 23 tests, 0 failures.
+- **PowerShell suite** — CI-only (no `pwsh` on the development machine).
+
+### Known gaps
+
+Recorded rather than hidden: no rollback, no multi-environment config, no webhook, no
+`--json`/`--csv` output, no container orchestration. One app per invocation. Post-deploy
+failures recorded but do not abort. Audit write is best-effort.
+
+---
+
 ## 2026-10-28 — Find and Kill High-CPU Processes module
 
 **Module 7 — Find and Kill High-CPU Processes** goes from a seed script pair to a fully shipped
