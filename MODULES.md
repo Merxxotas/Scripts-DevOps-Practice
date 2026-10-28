@@ -28,7 +28,7 @@ pipeline and documentation. See [`AGENTS.md`](AGENTS.md) for the module contract
 | 4 | Service Monitor and Auto-Restart | Bash / PowerShell | ✅ **Shipped** | ✅ | Full |
 | 5 | CPU and Memory Usage Monitor | Bash / PowerShell / Python / Docker | ✅ **Shipped** | ✅ | Full |
 | 6 | Website Availability (HTTP Health Check) | Bash / PowerShell | 🔵 Seed | — | — |
-| 7 | Find and Kill High-CPU Processes | Bash / PowerShell | 🔵 Seed | — | — |
+| 7 | Find and Kill High-CPU Processes | Bash / PowerShell | ✅ **Shipped** | ✅ | Full |
 | 8 | Log Rotation and Compression | Bash / PowerShell | ✅ **Shipped** | ✅ | Full |
 | 9 | Automated Git Deployment | Bash / PowerShell | 🔵 Seed | — | — |
 | 10 | Kubernetes Pod Monitor and Restart | Bash / PowerShell | 🔵 Seed | — | — |
@@ -110,6 +110,16 @@ Service uptime monitoring with automatic restart for a named service. Full Bash 
 - Wiki: [22](wiki/22-Service-Monitor-Overview.md) · [23](wiki/23-Service-Monitor-Bash-vs-PowerShell.md) · [24](wiki/24-Service-Monitor-Scenarios-and-Labs.md)
 
 **Known gaps**, recorded rather than hidden: no continuous watch loop, no HTTP/TCP health probe, no dependency-graph restart, no `--json`/`--csv` output, no service enable/disable. One service per invocation. Audit write is best-effort. Restart success is verified via the platform service manager; tests stub `systemctl` on Bash and exercise parsing/guardrails/dry-run on PowerShell.
+
+### ✅ 7 — Find and Kill High-CPU Processes *(Shipped)*
+
+Detection and termination of runaway CPU processes. Full Bash + PowerShell parity.
+
+- `kill_high_cpu.sh` · `kill_high_cpu.ps1` · `tests/` · `docs/` (+ 3 labs) · `SPECS.md` · `ROADMAP.md` · `CODESTYLE.md`
+- CI: `.github/workflows/ci-kill-high-cpu.yml` — ShellCheck, Bash on ubuntu + macOS, PowerShell on Windows + Ubuntu
+- Wiki: [25](wiki/25-Kill-High-CPU-Overview.md) · [26](wiki/26-Kill-High-CPU-Bash-vs-PowerShell.md) · [27](wiki/27-Kill-High-CPU-Scenarios-and-Labs.md)
+
+**Known gaps**, recorded rather than hidden: no continuous watch loop, no `--top` limit, no `--json`/`--csv` output, no process-tree killing, no cgroups/container awareness. One threshold per invocation. Interactive mode is the default; auto-kill requires an explicit flag. CPU metric differs between platforms (instantaneous vs cumulative). Audit write is best-effort.
 
 ### ✅ 8 — Log Rotation and Compression *(Shipped)*
 
@@ -216,7 +226,7 @@ Module 1 shipped on **2026-10-21** and set the template; the sequence now starts
 | — | **3 — Automated Database Backup** | **Shipped.** Complements module 2 — backup creation feeding retention pruning. |
 | 2 | **8 — Log Rotation and Compression** | Shares the log-lifecycle domain with modules 2 and 3. |
 | — | **4 — Service Monitor and Auto-Restart** | **Shipped.** Completed. |
-| 4 | **7 — Find and Kill High-CPU Processes** | Resource-control counterpart to 4 and 5. |
+| — | **7 — Find and Kill High-CPU Processes** | **Shipped.** Completed. |
 | 5 | **9 — Automated Git Deployment** | Already referenced by the EventOps specification as a webhook action target. |
 | 6 | **6 — Website Availability** | Self-contained HTTP monitoring. |
 | 7 | **10 — Kubernetes Pod Monitor** | Highest operational complexity; benefits from the hardened patterns established above. |
