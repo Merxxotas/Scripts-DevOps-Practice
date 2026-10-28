@@ -137,21 +137,26 @@ Write-Host ""
 $candidates = Get-Candidates
 $candidateCount = $candidates.Count
 
-if ($candidateCount -eq 0) {
-    Write-Host "$($Colors.Green)No processes exceeding $CpuThreshold% CPU.$($Colors.Reset)" -ForegroundColor Green
-    Write-AuditLog -Level "INFO" -Message "No high-CPU processes found (threshold=$CpuThreshold)."
-    exit 0
-}
-
 Write-Host "$($Colors.Yellow)Found $candidateCount candidate(s).$($Colors.Reset)" -ForegroundColor Yellow
 Write-Host ""
 
 # Dry-run
 if ($DryRun) {
+    if ($candidateCount -eq 0) {
+        Write-Host "$($Colors.Yellow)[DRY RUN]$($Colors.Reset) No candidates to kill."
+        Write-AuditLog -Level "INFO" -Message "[DRY RUN] No candidates (threshold=$CpuThreshold)."
+        exit 0
+    }
     foreach ($c in $candidates) {
         Write-Host "$($Colors.Yellow)[DRY RUN]$($Colors.Reset) Would kill PID $($c.Id) ($($c.ProcessName)) at $($c.CpuPercent)% CPU"
     }
     Write-AuditLog -Level "INFO" -Message "[DRY RUN] $candidateCount candidate(s) (threshold=$CpuThreshold)."
+    exit 0
+}
+
+if ($candidateCount -eq 0) {
+    Write-Host "$($Colors.Green)No processes exceeding $CpuThreshold% CPU.$($Colors.Reset)" -ForegroundColor Green
+    Write-AuditLog -Level "INFO" -Message "No high-CPU processes found (threshold=$CpuThreshold)."
     exit 0
 }
 

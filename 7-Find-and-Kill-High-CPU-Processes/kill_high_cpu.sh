@@ -160,7 +160,7 @@ parse_arguments() {
 
 # Candidate discovery: prints "PID PCPU COMM" lines
 discover_candidates() {
-    ${PS_CMD} -eo pid=,ppid=,pcpu=,comm= 2>/dev/null | while IFS=$' \t' read -r pid ppid pcpu comm; do
+    ${PS_CMD} -eo pid=,ppid=,pcpu=,comm= 2>/dev/null | while IFS=$' \t' read -r pid _ pcpu comm; do
         [[ -z "$pid" ]] && continue
         # guardrails
         if is_guarded_pid "$pid" "$comm"; then
@@ -183,6 +183,9 @@ main() {
     printf "%b============================================================%b\n" "$COLOR_BLUE" "$COLOR_RESET"
     printf "Threshold        : %b%s%%%b\n" "$COLOR_CYAN" "$THRESHOLD" "$COLOR_RESET"
     printf "Auto-Kill        : %b%s%b\n" "$COLOR_CYAN" "$AUTO_KILL" "$COLOR_RESET"
+    if [[ "$VERBOSE" == true ]]; then
+        printf "%b[VERBOSE]%b threshold=%s auto_kill=%s force=%s dry_run=%s\n" "$COLOR_CYAN" "$COLOR_RESET" "$THRESHOLD" "$AUTO_KILL" "$FORCE" "$DRY_RUN"
+    fi
     printf "Force (SIGKILL)  : %b%s%b\n" "$COLOR_CYAN" "$FORCE" "$COLOR_RESET"
     if [[ -n "$AUDIT_LOG" ]]; then
         printf "Audit Log        : %b%s%b\n" "$COLOR_CYAN" "$AUDIT_LOG" "$COLOR_RESET"
@@ -200,17 +203,16 @@ main() {
         CANDIDATE_COUNT=$((CANDIDATE_COUNT + 1))
     done < "$tmpfile"
 
-    if [[ "$CANDIDATE_COUNT" -eq 0 ]]; then
-        printf "%bNo processes exceeding %s%% CPU.%b\n" "$COLOR_GREEN" "$THRESHOLD" "$COLOR_RESET"
-        log_message "INFO" "No high-CPU processes found (threshold=$THRESHOLD)."
-        rm -f "$tmpfile"
-        exit 0
-    fi
-
     printf "%bFound %d candidate(s).%b\n\n" "$COLOR_YELLOW" "$CANDIDATE_COUNT" "$COLOR_RESET"
 
     # Dry-run
     if [[ "$DRY_RUN" == true ]]; then
+        if [[ "$CANDIDATE_COUNT" -eq 0 ]]; then
+            printf "%b[DRY RUN]%b No candidates to kill.\n" "$COLOR_YELLOW" "$COLOR_RESET"
+            log_message "INFO" "[DRY RUN] No candidates (threshold=$THRESHOLD)."
+            rm -f "$tmpfile"
+            exit 0
+        fi
         while IFS= read -r line; do
             [[ -z "$line" ]] && continue
             IFS=' ' read -r pid pcpu comm <<< "$line"
@@ -218,6 +220,13 @@ main() {
                 "$COLOR_YELLOW" "$COLOR_RESET" "$pid" "$comm" "$pcpu"
         done < "$tmpfile"
         log_message "INFO" "[DRY RUN] $CANDIDATE_COUNT candidate(s) (threshold=$THRESHOLD)."
+        rm -f "$tmpfile"
+        exit 0
+    fi
+
+    if [[ "$CANDIDATE_COUNT" -eq 0 ]]; then
+        printf "%bNo processes exceeding %s%% CPU.%b\n" "$COLOR_GREEN" "$THRESHOLD" "$COLOR_RESET"
+        log_message "INFO" "No high-CPU processes found (threshold=$THRESHOLD)."
         rm -f "$tmpfile"
         exit 0
     fi
@@ -245,8 +254,6 @@ main() {
         fi
 
         if [[ "$do_kill" == true ]]; then
-            local signal="TERM"
-            [[ "$FORCE" == true ]] && signal="KILL"
             if [[ "$FORCE" == true ]]; then
                 if ${KILL_CMD} -9 "$pid" 2>/dev/null; then
                     printf "%b✓ Process %s killed (SIGKILL).%b\n" "$COLOR_GREEN" "$pid" "$COLOR_RESET"
