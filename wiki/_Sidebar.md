@@ -25,6 +25,13 @@
 
 ---
 
+### 🩺 Module 4: Service Monitor and Auto-Restart
+- **[[22-Service-Monitor-Overview|📖 Service Monitor Overview]]**
+- **[[23-Service-Monitor-Bash-vs-PowerShell|📊 Bash vs PowerShell]]**
+- **[[24-Service-Monitor-Scenarios-and-Labs|🧪 Scenarios & Labs]]**
+
+---
+
 ### 🔄 Module 8: Log Rotation and Compression
 - **[[19-Log-Rotation-Overview|📖 Log Rotation Overview]]**
 - **[[20-Log-Rotation-Bash-vs-PowerShell|📊 Bash vs PowerShell]]**

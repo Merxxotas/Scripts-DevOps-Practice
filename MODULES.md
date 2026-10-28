@@ -25,7 +25,7 @@ pipeline and documentation. See [`AGENTS.md`](AGENTS.md) for the module contract
 | 1 | Disk Usage Monitoring with Email Alert | Bash / PowerShell | ✅ **Shipped** | ✅ | Full |
 | 2 | Log Cleanup (files older than X days) | Bash / PowerShell | ✅ **Shipped** | ✅ | Full |
 | 3 | Automated Database Backup with Timestamp | Bash / PowerShell | ✅ **Shipped** | ✅ | Full |
-| 4 | Service Monitor and Auto-Restart | Bash / PowerShell | 🔵 Seed | — | — |
+| 4 | Service Monitor and Auto-Restart | Bash / PowerShell | ✅ **Shipped** | ✅ | Full |
 | 5 | CPU and Memory Usage Monitor | Bash / PowerShell / Python / Docker | ✅ **Shipped** | ✅ | Full |
 | 6 | Website Availability (HTTP Health Check) | Bash / PowerShell | 🔵 Seed | — | — |
 | 7 | Find and Kill High-CPU Processes | Bash / PowerShell | 🔵 Seed | — | — |
@@ -100,6 +100,16 @@ Bash + PowerShell parity.
 **Known gaps**, recorded rather than hidden: no incremental/differential backups, no cloud streaming,
 no MSSQL, no encryption of the backup file, no `--json`/`--csv` output. One database per
 invocation. Audit write is best-effort.
+
+### ✅ 4 — Service Monitor and Auto-Restart *(Shipped)*
+
+Service uptime monitoring with automatic restart for a named service. Full Bash + PowerShell parity.
+
+- `service_monitor.sh` · `service_monitor.ps1` · `tests/` · `docs/` (+ 3 labs) · `SPECS.md` · `ROADMAP.md` · `CODESTYLE.md`
+- CI: `.github/workflows/ci-service-monitor.yml` — ShellCheck, Bash on ubuntu + macOS, PowerShell on Windows + Ubuntu
+- Wiki: [22](wiki/22-Service-Monitor-Overview.md) · [23](wiki/23-Service-Monitor-Bash-vs-PowerShell.md) · [24](wiki/24-Service-Monitor-Scenarios-and-Labs.md)
+
+**Known gaps**, recorded rather than hidden: no continuous watch loop, no HTTP/TCP health probe, no dependency-graph restart, no `--json`/`--csv` output, no service enable/disable. One service per invocation. Audit write is best-effort. Restart success is verified via the platform service manager; tests stub `systemctl` on Bash and exercise parsing/guardrails/dry-run on PowerShell.
 
 ### ✅ 8 — Log Rotation and Compression *(Shipped)*
 
@@ -205,7 +215,7 @@ Module 1 shipped on **2026-10-21** and set the template; the sequence now starts
 | — | **1 — Disk Usage Monitoring** | **Shipped.** Completed, and the template for the remaining seeds. |
 | — | **3 — Automated Database Backup** | **Shipped.** Complements module 2 — backup creation feeding retention pruning. |
 | 2 | **8 — Log Rotation and Compression** | Shares the log-lifecycle domain with modules 2 and 3. |
-| 3 | **4 — Service Monitor and Auto-Restart** | Introduces process/service supervision; pairs with 7. |
+| — | **4 — Service Monitor and Auto-Restart** | **Shipped.** Completed. |
 | 4 | **7 — Find and Kill High-CPU Processes** | Resource-control counterpart to 4 and 5. |
 | 5 | **9 — Automated Git Deployment** | Already referenced by the EventOps specification as a webhook action target. |
 | 6 | **6 — Website Availability** | Self-contained HTTP monitoring. |
