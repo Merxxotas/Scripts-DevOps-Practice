@@ -30,7 +30,7 @@ pipeline and documentation. See [`AGENTS.md`](AGENTS.md) for the module contract
 | 6 | Website Availability (HTTP Health Check) | Bash / PowerShell | 🔵 Seed | — | — |
 | 7 | Find and Kill High-CPU Processes | Bash / PowerShell | ✅ **Shipped** | ✅ | Full |
 | 8 | Log Rotation and Compression | Bash / PowerShell | ✅ **Shipped** | ✅ | Full |
-| 9 | Automated Git Deployment | Bash / PowerShell | 🔵 Seed | — | — |
+| 9 | Automated Git Deployment | Bash / PowerShell | ✅ **Shipped** | ✅ | Full |
 | 10 | Kubernetes Pod Monitor and Restart | Bash / PowerShell | 🔵 Seed | — | — |
 | 11 | Scheduling and Automation (EventOps) | Python / Go | ✅ **Shipped** | ✅ | Full |
 
@@ -134,6 +134,16 @@ Bash + PowerShell parity.
 `copytruncate`/`create` modes, no post-rotation hook, no compression of already-rotated backups,
 no `--json`/`--csv` output. One log file per invocation. Audit write is best-effort.
 
+### ✅ 9 — Automated Git Deployment *(Shipped)*
+
+Git-based application deployment with backup, fetch, pull and post-deploy tasks. Full Bash + PowerShell parity.
+
+- `git_deploy.sh` · `git_deploy.ps1` · `tests/` · `docs/` (+ 3 labs) · `SPECS.md` · `ROADMAP.md` · `CODESTYLE.md`
+- CI: `.github/workflows/ci-git-deployment.yml` — ShellCheck, Bash on ubuntu + macOS, PowerShell on Windows + Ubuntu
+- Wiki: [28](wiki/28-Git-Deployment-Overview.md) · [29](wiki/29-Git-Deployment-Bash-vs-PowerShell.md) · [30](wiki/30-Git-Deployment-Scenarios-and-Labs.md)
+
+**Known gaps**, recorded rather than hidden: no rollback, no multi-environment config, no webhook, no `--json`/`--csv` output, no container orchestration. One app per invocation. Post-deploy (npm/service) failures are recorded but do not abort. Audit write is best-effort.
+
 ### ✅ 11 — Scheduling and Automation / EventOps *(Shipped)*
 
 Cross-platform event-driven automation daemon. Replaces polling with reacting: a webhook server and
@@ -227,7 +237,7 @@ Module 1 shipped on **2026-10-21** and set the template; the sequence now starts
 | 2 | **8 — Log Rotation and Compression** | Shares the log-lifecycle domain with modules 2 and 3. |
 | — | **4 — Service Monitor and Auto-Restart** | **Shipped.** Completed. |
 | — | **7 — Find and Kill High-CPU Processes** | **Shipped.** Completed. |
-| 5 | **9 — Automated Git Deployment** | Already referenced by the EventOps specification as a webhook action target. |
+| — | **9 — Automated Git Deployment** | **Shipped.** Completed. |
 | 6 | **6 — Website Availability** | Self-contained HTTP monitoring. |
 | 7 | **10 — Kubernetes Pod Monitor** | Highest operational complexity; benefits from the hardened patterns established above. |
 

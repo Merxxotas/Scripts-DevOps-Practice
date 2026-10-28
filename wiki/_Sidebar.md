@@ -39,6 +39,13 @@
 
 ---
 
+### 🚀 Module 9: Automated Git Deployment
+- **[[28-Git-Deployment-Overview|📖 Git Deployment Overview]]**
+- **[[29-Git-Deployment-Bash-vs-PowerShell|📊 Bash vs PowerShell]]**
+- **[[30-Git-Deployment-Scenarios-and-Labs|🧪 Scenarios & Labs]]**
+
+---
+
 ### 🔄 Module 8: Log Rotation and Compression
 - **[[19-Log-Rotation-Overview|📖 Log Rotation Overview]]**
 - **[[20-Log-Rotation-Bash-vs-PowerShell|📊 Bash vs PowerShell]]**
