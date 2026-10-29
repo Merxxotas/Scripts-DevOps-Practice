@@ -68,6 +68,8 @@ flags, exit codes and guardrails. Depends on the `kubectl` CLI and cluster acces
 | `--force` | `-Force` | off | Hard delete (`--grace-period=0 --force`) |
 | `--dry-run` | `-DryRun` | off | List pods + which would be deleted, no deletion |
 | `--audit-log` | `-AuditLog` | (none) | ISO-8601 audit log path |
+| `--json` | `-Json` | off | Output result as JSON |
+| `--csv` | `-Csv` | off | Output result as CSV |
 | `-v, --verbose` | `-Verbose` | off | Diagnostic output |
 | `-h, --help` | `-Help` | off | Show help, exit 0 |
 
@@ -105,5 +107,4 @@ best-effort and do not change the exit code.
 ## 7. Scope Exclusions (v1)
 
 No continuous watch loop, no multi-namespace, no pod creation, no deployment/replicaset
-management, no `--json`/`--csv` output, no resource limits. One namespace + selector per
-invocation. Audit write is best-effort.
+management, no resource limits. One namespace + selector per invocation. Audit write is best-effort.

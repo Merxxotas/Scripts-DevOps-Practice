@@ -15,6 +15,8 @@ param(
     [switch]$DryRun,
     [string]$AuditLog = "",
     [switch]$Verbose,
+    [switch]$Json,
+    [switch]$Csv,
     [switch]$Help
 )
 
@@ -40,7 +42,7 @@ function Write-Err {
 
 function Write-VerboseLog {
     param([string]$Message)
-    if ($Verbose) { Write-Host "$CDim$Message$CReset" }
+    if ($humanMode -and $Verbose) { Write-Host "$CDim$Message$CReset" }
 }
 
 function Show-Usage {
@@ -57,6 +59,8 @@ Options:
   -Force                    Hard delete (--grace-period=0 --force)
   -DryRun                   List pods + which would be deleted, no deletion
   -AuditLog <PATH>          Append an ISO-8601 audit line per run
+  -Json                     Output result as JSON
+  -Csv                      Output result as CSV
   -Verbose                  Diagnostic output
   -Help                     Show this help and exit
 
@@ -71,6 +75,15 @@ if ($Help) {
     Show-Usage
     exit 0
 }
+
+$outputMode = "human"
+if ($Json -and $Csv) {
+    Write-Err "Cannot use -Json and -Csv together"
+    exit 1
+}
+if ($Json) { $outputMode = "json" }
+elseif ($Csv) { $outputMode = "csv" }
+$humanMode = ($outputMode -eq "human")
 
 # ---------------------------------------------------------------------------
 # Validation
@@ -95,14 +108,16 @@ if (-not (Get-Command kubectl -ErrorAction SilentlyContinue) -and -not $env:K8S_
 # ---------------------------------------------------------------------------
 # Header
 # ---------------------------------------------------------------------------
-Write-Host "$CBold$CBlue=== Kubernetes Pod Monitor ===$CReset"
-Write-Host ("  {0}Namespace:{1} {2}{3}{4}" -f $CDim, $CReset, $CCyan, $Namespace, $CReset)
-Write-Host ("  {0}Selector:{1}  {2}{3}{4}" -f $CDim, $CReset, $CYellow, $LabelSelector, $CReset)
-Write-Host ("  {0}Threshold:{1} {2}{3}{4}" -f $CDim, $CReset, $CYellow, $RestartThreshold, $CReset)
-if ($Force) {
-    Write-Host ("  {0}Delete:{1}   {2}hard (--force){3}" -f $CDim, $CReset, $CRed, $CReset)
-} else {
-    Write-Host ("  {0}Delete:{1}   {2}graceful{3}" -f $CDim, $CReset, $CGreen, $CReset)
+if ($humanMode) {
+    Write-Host "$CBold$CBlue=== Kubernetes Pod Monitor ===$CReset"
+    Write-Host ("  {0}Namespace:{1} {2}{3}{4}" -f $CDim, $CReset, $CCyan, $Namespace, $CReset)
+    Write-Host ("  {0}Selector:{1}  {2}{3}{4}" -f $CDim, $CReset, $CYellow, $LabelSelector, $CReset)
+    Write-Host ("  {0}Threshold:{1} {2}{3}{4}" -f $CDim, $CReset, $CYellow, $RestartThreshold, $CReset)
+    if ($Force) {
+        Write-Host ("  {0}Delete:{1}   {2}hard (--force){3}" -f $CDim, $CReset, $CRed, $CReset)
+    } else {
+        Write-Host ("  {0}Delete:{1}   {2}graceful{3}" -f $CDim, $CReset, $CGreen, $CReset)
+    }
 }
 
 # ---------------------------------------------------------------------------
@@ -149,27 +164,69 @@ $podCount = $names.Count
 
 Write-Host ""
 if ($podCount -eq 0) {
-    Write-Host "$($CYellow)No pods found matching criteria.$($CReset)"
+    if ($humanMode) { Write-Host "$($CYellow)No pods found matching criteria.$($CReset)" }
+    if ($outputMode -eq "json") {
+        Write-Host "{"
+        Write-Host "  `"namespace`": `"$Namespace`","
+        Write-Host "  `"label`": `"$LabelSelector`","
+        Write-Host "  `"threshold`": $RestartThreshold,"
+        Write-Host "  `"pods`": [],"
+        Write-Host "  `"total`": 0,"
+        Write-Host "  `"deleted`": 0,"
+        Write-Host "  `"failed`": 0,"
+        Write-Host "  `"outcome`": `"no-pods`""
+        Write-Host "}"
+    } elseif ($outputMode -eq "csv") {
+        Write-Host "namespace,label,threshold,name,phase,restarts,action"
+    }
     if ($AuditLog) {
         $ts = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
         "$ts namespace=$Namespace label=$LabelSelector threshold=$RestartThreshold pods=0 deleted=0 outcome=no-pods" | Out-File -FilePath $AuditLog -Append -Encoding utf8 -ErrorAction SilentlyContinue
     }
     exit 0
 }
-Write-Host "$($CDim)Found $podCount pod(s).$($CReset)"
+if ($humanMode) { Write-Host "$($CDim)Found $podCount pod(s).$($CReset)" }
 
 # ---------------------------------------------------------------------------
 # Dry-run
 # ---------------------------------------------------------------------------
 if ($DryRun) {
-    Write-Host ""
-    Write-Host "$($CBold)Dry run - no deletions.$($CReset)"
-    for ($i = 0; $i -lt $podCount; $i++) {
-        Write-Host ("  {0}  phase={1}  restarts={2}" -f $names[$i], $phases[$i], $restarts[$i])
-        if ($restarts[$i] -gt $RestartThreshold) {
-            Write-Host "    $($CRed)-> would delete$($CReset)"
-        } else {
-            Write-Host "    $($CGreen)-> keep$($CReset)"
+    if ($humanMode) {
+        Write-Host ""
+        Write-Host "$($CBold)Dry run - no deletions.$($CReset)"
+        for ($i = 0; $i -lt $podCount; $i++) {
+            Write-Host ("  {0}  phase={1}  restarts={2}" -f $names[$i], $phases[$i], $restarts[$i])
+            if ($restarts[$i] -gt $RestartThreshold) {
+                Write-Host "    $($CRed)-> would delete$($CReset)"
+            } else {
+                Write-Host "    $($CGreen)-> keep$($CReset)"
+            }
+        }
+    } elseif ($outputMode -eq "json") {
+        $actions = @()
+        for ($i = 0; $i -lt $podCount; $i++) {
+            if ($restarts[$i] -gt $RestartThreshold) { $actions += "would-delete" } else { $actions += "keep" }
+        }
+        Write-Host "{"
+        Write-Host "  `"namespace`": `"$Namespace`","
+        Write-Host "  `"label`": `"$LabelSelector`","
+        Write-Host "  `"threshold`": $RestartThreshold,"
+        Write-Host "  `"pods`": ["
+        for ($i = 0; $i -lt $podCount; $i++) {
+            $comma = if ($i -lt $podCount - 1) { "," } else { "" }
+            Write-Host "    { `"name`": `"$($names[$i])`", `"phase`": `"$($phases[$i])`", `"restarts`": $($restarts[$i]), `"action`": `"$($actions[$i])`" }$comma"
+        }
+        Write-Host "  ],"
+        Write-Host "  `"total`": $podCount,"
+        Write-Host "  `"deleted`": 0,"
+        Write-Host "  `"failed`": 0,"
+        Write-Host "  `"outcome`": `"dry-run`""
+        Write-Host "}"
+    } elseif ($outputMode -eq "csv") {
+        Write-Host "namespace,label,threshold,name,phase,restarts,action"
+        for ($i = 0; $i -lt $podCount; $i++) {
+            $action = if ($restarts[$i] -gt $RestartThreshold) { "would-delete" } else { "keep" }
+            Write-Host "`"$Namespace`",`"$LabelSelector`",$RestartThreshold,`"$($names[$i])`",`"$($phases[$i])`",$($restarts[$i]),`"$action`""
         }
     }
     if ($AuditLog) {
@@ -184,13 +241,18 @@ if ($DryRun) {
 # ---------------------------------------------------------------------------
 $deleted = 0
 $failed = 0
+$actions = @()
 
-Write-Host ""
-Write-Host "$($CBold)Result$($CReset)"
+if ($humanMode) {
+    Write-Host ""
+    Write-Host "$($CBold)Result$($CReset)"
+}
 for ($i = 0; $i -lt $podCount; $i++) {
-    Write-Host "  $CCyan$($names[$i])$CReset"
-    Write-Host ("    {0}Phase:{1}    {2}" -f $CDim, $CReset, $phases[$i])
-    Write-Host ("    {0}Restarts:{1} {2}" -f $CDim, $CReset, $restarts[$i])
+    if ($humanMode) {
+        Write-Host "  $CCyan$($names[$i])$CReset"
+        Write-Host ("    {0}Phase:{1}    {2}" -f $CDim, $CReset, $phases[$i])
+        Write-Host ("    {0}Restarts:{1} {2}" -f $CDim, $CReset, $restarts[$i])
+    }
     if ($restarts[$i] -gt $RestartThreshold) {
         Write-VerboseLog "Deleting $($names[$i])..."
         $deleteOk = $true
@@ -203,28 +265,57 @@ for ($i = 0; $i -lt $podCount; $i++) {
             if ($LASTEXITCODE -ne 0) { $deleteOk = $false }
         }
         if ($deleteOk) {
-            Write-Host "    $($CRed)-> deleted$($CReset)"
+            if ($humanMode) { Write-Host "    $($CRed)-> deleted$($CReset)" }
             $deleted++
+            $actions += "deleted"
         } else {
-            Write-Host "    $($CRed)-> delete FAILED$($CReset)"
+            if ($humanMode) { Write-Host "    $($CRed)-> delete FAILED$($CReset)" }
             $failed++
+            $actions += "failed"
         }
     } else {
-        Write-Host "    $($CGreen)-> kept (below threshold)$($CReset)"
+        if ($humanMode) { Write-Host "    $($CGreen)-> kept (below threshold)$($CReset)" }
+        $actions += "kept"
     }
 }
 
-Write-Host ""
-Write-Host ("{0}Pods: {1}  Deleted: {2}  Failed: {3}{4}" -f $CDim, $podCount, $deleted, $failed, $CReset)
+if ($humanMode) {
+    Write-Host ""
+    Write-Host ("{0}Pods: {1}  Deleted: {2}  Failed: {3}{4}" -f $CDim, $podCount, $deleted, $failed, $CReset)
+}
 
 $outcome = "success"
 $exitCode = 0
 if ($failed -gt 0) {
     $outcome = "partial-failure"
     $exitCode = 2
-    Write-Host "$($CRed)Partial failure.$($CReset)"
+    if ($humanMode) { Write-Host "$($CRed)Partial failure.$($CReset)" }
 } else {
-    Write-Host "$($CGreen)Monitoring check completed.$($CReset)"
+    if ($humanMode) { Write-Host "$($CGreen)Monitoring check completed.$($CReset)" }
+}
+
+# Structured output
+if ($outputMode -eq "json") {
+    Write-Host "{"
+    Write-Host "  `"namespace`": `"$Namespace`","
+    Write-Host "  `"label`": `"$LabelSelector`","
+    Write-Host "  `"threshold`": $RestartThreshold,"
+    Write-Host "  `"pods`": ["
+    for ($i = 0; $i -lt $podCount; $i++) {
+        $comma = if ($i -lt $podCount - 1) { "," } else { "" }
+        Write-Host "    { `"name`": `"$($names[$i])`", `"phase`": `"$($phases[$i])`", `"restarts`": $($restarts[$i]), `"action`": `"$($actions[$i])`" }$comma"
+    }
+    Write-Host "  ],"
+    Write-Host "  `"total`": $podCount,"
+    Write-Host "  `"deleted`": $deleted,"
+    Write-Host "  `"failed`": $failed,"
+    Write-Host "  `"outcome`": `"$outcome`""
+    Write-Host "}"
+} elseif ($outputMode -eq "csv") {
+    Write-Host "namespace,label,threshold,name,phase,restarts,action"
+    for ($i = 0; $i -lt $podCount; $i++) {
+        Write-Host "`"$Namespace`",`"$LabelSelector`",$RestartThreshold,`"$($names[$i])`",`"$($phases[$i])`",$($restarts[$i]),`"$($actions[$i])`""
+    }
 }
 
 if ($AuditLog) {
