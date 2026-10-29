@@ -1,0 +1,86 @@
+name: Kubernetes Pod Monitor CI/CD
+
+on:
+  push:
+    branches: [ main, 'feat/**', 'fix/**' ]
+    paths:
+      - '10-Kubernetes-Pod-Monitor-and-Restart/**'
+      - '.github/workflows/ci-kubernetes-pod-monitor.yml'
+  pull_request:
+    branches: [ main ]
+    paths:
+      - '10-Kubernetes-Pod-Monitor-and-Restart/**'
+      - '.github/workflows/ci-kubernetes-pod-monitor.yml'
+
+jobs:
+  lint-bash:
+    name: Lint Bash (ShellCheck)
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      - name: Run ShellCheck
+        run: |
+          shellcheck -x "10-Kubernetes-Pod-Monitor-and-Restart/k8s_monitor.sh"
+          shellcheck -x "10-Kubernetes-Pod-Monitor-and-Restart/tests/test_k8s_monitor.sh"
+
+  test-bash:
+    name: Test Bash on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, macos-14]
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      - name: Make scripts executable
+        run: |
+          chmod +x "10-Kubernetes-Pod-Monitor-and-Restart/k8s_monitor.sh"
+          chmod +x "10-Kubernetes-Pod-Monitor-and-Restart/tests/test_k8s_monitor.sh"
+      - name: Run Bash Test Suite
+        run: |
+          ./10-Kubernetes-Pod-Monitor-and-Restart/tests/test_k8s_monitor.sh
+
+  lint-powershell:
+    name: Lint PowerShell (PSScriptAnalyzer)
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      - name: Install PSScriptAnalyzer
+        shell: pwsh
+        run: |
+          Set-PSRepository -Name PSGallery -InstallationPolicy Trusted
+          $attempts = 0
+          while ($attempts -lt 3) {
+            $attempts++
+            try {
+              Install-Module -Name PSScriptAnalyzer -Force -Scope CurrentUser -ErrorAction Stop
+              break
+            } catch {
+              if ($attempts -ge 3) { throw }
+              Start-Sleep -Seconds 10
+            }
+          }
+          (Get-Module -ListAvailable PSScriptAnalyzer).Version
+      - name: Run PSScriptAnalyzer
+        shell: pwsh
+        run: |
+          Invoke-ScriptAnalyzer -Path "10-Kubernetes-Pod-Monitor-and-Restart/k8s_monitor.ps1" -Settings "10-Kubernetes-Pod-Monitor-and-Restart/PSScriptAnalyzerSettings.psd1"
+          Invoke-ScriptAnalyzer -Path "10-Kubernetes-Pod-Monitor-and-Restart/tests/test_k8s_monitor.ps1" -Settings "10-Kubernetes-Pod-Monitor-and-Restart/PSScriptAnalyzerSettings.psd1"
+
+  test-powershell:
+    name: Test PowerShell on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-2022, ubuntu-24.04]
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      - name: Run PowerShell Test Suite
+        shell: pwsh
+        run: |
+          & './10-Kubernetes-Pod-Monitor-and-Restart/tests/test_k8s_monitor.ps1'

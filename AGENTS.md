@@ -178,14 +178,13 @@ Verified on **2026-10-21**. These are real, current, and will bite you.
 
 | # | Gotcha |
 | :-- | :--- |
-| 1 | **Module 10 is not in git** (disk only; no `SPECS.md`/`ROADMAP.md`/`CODESTYLE.md`/tests/CI) — violates §3. |
-| 2 | **Module 10 is the next ship** — seed module is a raw script pair with no CLI parser, guardrails, tests, docs or CI. Checklist in [`MODULES.md`](MODULES.md). |
-| 3 | **Path filters create a blind spot** — changes under `wiki/`, `MODULES.md`, `AGENTS.md` and other root docs match no workflow → no CI run. |
-| 4 | **The wiki lives in two places** — `main:wiki/` and the GitHub Wiki (`Scripts-DevOps-Practice.wiki.git`). Verified identical 2026-10-20, nothing enforces it. Push edits to both. |
-| 5 | **`main` is unprotected** — no branch protection, rulesets or required checks. |
-| 6 | **`.gitattributes` normalizes line endings** — `.ps1` stored LF, checked out CRLF. Compare with `git show HEAD:<path>`, not the working file. |
-| 7 | **Go version drift** — CI pins Go `1.22`; newer toolchains work, but keep the pin current. |
-| 8 | **Private vulnerability reporting not enabled** — needs one click in GitHub UI (*Settings → Code security*). Until on, [`SECURITY.md`](SECURITY.md) directs reporters to the maintainer's email. |
+| 1 | **All modules shipped** — no seed modules remain on disk. |
+| 2 | **Path filters create a blind spot** — changes under `wiki/`, `MODULES.md`, `AGENTS.md` and other root docs match no workflow → no CI run. |
+| 3 | **The wiki lives in two places** — `main:wiki/` and the GitHub Wiki (`Scripts-DevOps-Practice.wiki.git`). Verified identical 2026-10-20, nothing enforces it. Push edits to both. |
+| 4 | **`main` is unprotected** — no branch protection, rulesets or required checks. |
+| 5 | **`.gitattributes` normalizes line endings** — `.ps1` stored LF, checked out CRLF. Compare with `git show HEAD:<path>`, not the working file. |
+| 6 | **Go version drift** — CI pins Go `1.22`; newer toolchains work, but keep the pin current. |
+| 7 | **Private vulnerability reporting not enabled** — needs one click in GitHub UI (*Settings → Code security*). Until on, [`SECURITY.md`](SECURITY.md) directs reporters to the maintainer's email. |
 
 ---
 
