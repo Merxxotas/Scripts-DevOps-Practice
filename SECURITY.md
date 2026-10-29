@@ -10,17 +10,22 @@ to in response.
 
 ## Supported Versions
 
-Security fixes are applied to the **default branch (`main`)** and to the two shipped modules.
+Security fixes are applied to the **default branch (`main`)**. All eleven modules are shipped and
+CI-covered.
 
-| Module | Path | Supported | Status |
-| :--- | :--- | :-- | :--- |
-| Log Cleanup | `2-Log-Cleanup-Script-(Delete-Files-Older-Than-X-Days)/` | ✅ | Shipped, CI-covered |
-| EventOps | `11-Scheduling-And-Automation/` | ✅ | Shipped, CI-covered |
-| CPU and Memory Usage Monitor | `5-CPU-and-Memory-Usage-Monitor/` | ⚠️ | Local only — not yet released |
-| Seed modules | `1-`, `3-`, `4-`, `6-`, `7-`, `8-`, `9-`, `10-` | ❌ | Not released; no support commitment |
-
-Modules marked **not released** are still worth reporting — a seed script with a real flaw may be
-inherited by someone who copies it. We triage those as best-effort.
+| Module | Path | Status |
+| :--- | :--- | :--- |
+| Disk Usage Monitoring with Email Alert | `1-Disk-Usage-Monitoring-with-Email-Alert/` | Shipped, CI-covered |
+| Log Cleanup | `2-Log-Cleanup-Script-(Delete-Files-Older-Than-X-Days)/` | Shipped, CI-covered |
+| Automated Database Backup | `3-Automated-Database-Backup-with-Timestamp/` | Shipped, CI-covered |
+| Service Monitor and Auto-Restart | `4-Service-Monitor-And-Auto-Restart/` | Shipped, CI-covered |
+| CPU and Memory Usage Monitor | `5-CPU-and-Memory-Usage-Monitor/` | Shipped, CI-covered |
+| Website Availability (HTTP Health Check) | `6-Website-Availability-(HTTP-Health-Check)/` | Shipped, CI-covered |
+| Find and Kill High-CPU Processes | `7-Find-and-Kill-High-CPU-Processes/` | Shipped, CI-covered |
+| Log Rotation and Compression | `8-Log-Rotation-and-Compression/` | Shipped, CI-covered |
+| Automated Git Deployment | `9-Automated-Git-Deployment/` | Shipped, CI-covered |
+| Kubernetes Pod Monitor and Restart | `10-Kubernetes-Pod-Monitor-and-Restart/` | Shipped, CI-covered |
+| Scheduling and Automation (EventOps) | `11-Scheduling-And-Automation/` | Shipped, CI-covered |
 
 There are **no tagged releases yet**, so "supported version" means "the current tip of `main`".
 
@@ -141,7 +146,7 @@ contract. A report that only describes intended, documented behaviour is not a v
 These utilities run with real privileges. Before deploying one:
 
 1. **Read the guardrails first.** Know exactly which paths it refuses to touch.
-2. **Start in dry-run.** Both shipped modules support a non-destructive preview mode; use it until the
+2. **Start in dry-run.** All shipped modules support a non-destructive preview mode; use it until the
    output matches your expectation.
 3. **Run with the least privilege that works.** Prefer a dedicated service account over root.
 4. **Scope the target narrowly.** Point it at a specific directory, never at a parent of one.
