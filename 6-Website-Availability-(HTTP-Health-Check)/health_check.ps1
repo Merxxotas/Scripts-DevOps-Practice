@@ -134,8 +134,7 @@ if ($DryRun) {
         $jsonLines += "  `"ssl_expiry`": $sslVal,"
         $jsonLines += "  `"outcome`": `"dry-run`""
         $jsonLines += "}"
-        $json = $jsonLines -join "`n"
-        Write-Host $json
+        foreach ($jl in $jsonLines) { Write-Host $jl }
     } elseif ($outputMode -eq "csv") {
         Write-Host "url,expected_code,status_code,healthy,response_time_seconds,size_bytes,ssl_expiry,outcome"
         Write-Host "`"$Url`",$ExpectedCode,,,,,,""dry-run"""
@@ -275,8 +274,7 @@ if ($humanMode) {
     $jsonLines += "  `"ssl_expiry`": $sslVal,"
     $jsonLines += "  `"outcome`": `"$outcome`""
     $jsonLines += "}"
-    $json = $jsonLines -join "`n"
-    Write-Host $json
+    foreach ($jl in $jsonLines) { Write-Host $jl }
 } elseif ($outputMode -eq "csv") {
     $sslCsv = ""
     if ($SslCheck -and $Url -match '^https') {
