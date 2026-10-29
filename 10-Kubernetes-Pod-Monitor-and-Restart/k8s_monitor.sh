@@ -34,13 +34,16 @@ FORCE=false
 DRY_RUN=false
 AUDIT_LOG=""
 VERBOSE=false
+OUTPUT_MODE="human"
+JSON_OUTPUT=false
+CSV_OUTPUT=false
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
-log() { printf '%b\n' "$*"; }
+log() { if [[ "$OUTPUT_MODE" == "human" ]]; then printf '%b\n' "$*"; fi; }
 err() { printf '%b\n' "${C_RED}$*${C_RESET}" >&2; }
-vlog() { if $VERBOSE; then printf '%b\n' "${C_DIM}$*${C_RESET}"; fi; }
+vlog() { if [[ "$OUTPUT_MODE" == "human" ]] && $VERBOSE; then printf '%b\n' "${C_DIM}$*${C_RESET}"; fi; }
 
 usage() {
     cat <<'EOF'
@@ -56,6 +59,8 @@ Options:
       --force                 Hard delete (--grace-period=0 --force)
       --dry-run               List pods + which would be deleted, no deletion
       --audit-log <PATH>      Append an ISO-8601 audit line per run
+      --json                  Output result as JSON
+      --csv                   Output result as CSV
   -v, --verbose               Diagnostic output
   -h, --help                  Show this help and exit
 
@@ -83,6 +88,10 @@ parse_args() {
                 THRESHOLD="$2"; shift 2 ;;
             --force)
                 FORCE=true; shift ;;
+            --json)
+                JSON_OUTPUT=true; shift ;;
+            --csv)
+                CSV_OUTPUT=true; shift ;;
             --dry-run)
                 DRY_RUN=true; shift ;;
             --audit-log)
@@ -102,6 +111,17 @@ parse_args() {
 # Validation
 # ---------------------------------------------------------------------------
 validate() {
+    if $JSON_OUTPUT && $CSV_OUTPUT; then
+        err "Cannot use --json and --csv together"
+        exit 1
+    fi
+    if $JSON_OUTPUT; then
+        OUTPUT_MODE="json"
+    elif $CSV_OUTPUT; then
+        OUTPUT_MODE="csv"
+    else
+        OUTPUT_MODE="human"
+    fi
     if [[ -z "$NAMESPACE" ]] || [[ ! "$NAMESPACE" =~ ^[a-zA-Z0-9][a-zA-Z0-9-]*$ ]]; then
         err "Invalid namespace: must be a non-empty DNS label"
         exit 1
@@ -172,7 +192,7 @@ main() {
     vlog "raw: $raw"
 
     # Parse into arrays
-    local -a names=() phases=() restarts=()
+    local -a names=() phases=() restarts=() actions=()
     local line name phase rlist rcount
     while IFS= read -r line; do
         [[ -z "$line" ]] && continue
@@ -187,6 +207,11 @@ main() {
     log ""
     if [[ "$pod_count" -eq 0 ]]; then
         log "${C_YELLOW}No pods found matching criteria.${C_RESET}"
+        if [[ "$OUTPUT_MODE" == "json" ]]; then
+            printf '{\n  "namespace": "%s",\n  "label": "%s",\n  "threshold": %s,\n  "pods": [],\n  "total": 0,\n  "deleted": 0,\n  "failed": 0,\n  "outcome": "no-pods"\n}\n' "$NAMESPACE" "$LABEL" "$THRESHOLD"
+        elif [[ "$OUTPUT_MODE" == "csv" ]]; then
+            printf 'namespace,label,threshold,name,phase,restarts,action\n'
+        fi
         write_audit "0" "0" "no-pods"
         exit 0
     fi
@@ -200,16 +225,33 @@ main() {
             log "  ${C_CYAN}${names[$i]}${C_RESET}  phase=${phases[$i]}  restarts=${restarts[$i]}"
             if (( restarts[i] > THRESHOLD )); then
                 log "    ${C_RED}-> would delete${C_RESET}"
+                actions+=("would-delete")
             else
                 log "    ${C_GREEN}-> keep${C_RESET}"
+                actions+=("keep")
             fi
         done
+        if [[ "$OUTPUT_MODE" == "json" ]]; then
+            # Build pods array
+            local pods_json=""
+            for ((i=0; i<pod_count; i++)); do
+                if [[ -n "$pods_json" ]]; then pods_json="${pods_json}, "; fi
+                pods_json="${pods_json}{\"name\": \"${names[$i]}\", \"phase\": \"${phases[$i]}\", \"restarts\": ${restarts[$i]}, \"action\": \"${actions[$i]}\"}"
+            done
+            printf '{\n  "namespace": "%s",\n  "label": "%s",\n  "threshold": %s,\n  "pods": [%s],\n  "total": %s,\n  "deleted": 0,\n  "failed": 0,\n  "outcome": "dry-run"\n}\n' "$NAMESPACE" "$LABEL" "$THRESHOLD" "$pods_json" "$pod_count"
+        elif [[ "$OUTPUT_MODE" == "csv" ]]; then
+            printf 'namespace,label,threshold,name,phase,restarts,action\n'
+            for ((i=0; i<pod_count; i++)); do
+                printf '"%s","%s",%s,"%s","%s",%s,"%s"\n' "$NAMESPACE" "$LABEL" "$THRESHOLD" "${names[$i]}" "${phases[$i]}" "${restarts[$i]}" "${actions[$i]}"
+            done
+        fi
         write_audit "$pod_count" "0" "dry-run"
         exit 0
     fi
 
     # Act
     local deleted=0 failed=0 i
+    local -a actions=()
     log ""
     log "${C_BOLD}Result${C_RESET}"
     for ((i=0; i<pod_count; i++)); do
@@ -231,12 +273,15 @@ main() {
             if $del_ok; then
                 log "    ${C_RED}-> deleted${C_RESET}"
                 deleted=$((deleted + 1))
+                actions+=("deleted")
             else
                 log "    ${C_RED}-> delete FAILED${C_RESET}"
                 failed=$((failed + 1))
+                actions+=("failed")
             fi
         else
             log "    ${C_GREEN}-> kept (below threshold)${C_RESET}"
+            actions+=("kept")
         fi
     done
 
@@ -250,6 +295,20 @@ main() {
     else
         outcome="success"; exit_code=0
         log "${C_GREEN}Monitoring check completed.${C_RESET}"
+    fi
+
+    if [[ "$OUTPUT_MODE" == "json" ]]; then
+        local pods_json=""
+        for ((i=0; i<pod_count; i++)); do
+            if [[ -n "$pods_json" ]]; then pods_json="${pods_json},"; fi
+            pods_json="${pods_json}{\"name\": \"${names[$i]}\", \"phase\": \"${phases[$i]}\", \"restarts\": ${restarts[$i]}, \"action\": \"${actions[$i]}\"}"
+        done
+        printf '{\n  "namespace": "%s",\n  "label": "%s",\n  "threshold": %s,\n  "pods": [%s],\n  "total": %s,\n  "deleted": %s,\n  "failed": %s,\n  "outcome": "%s"\n}\n' "$NAMESPACE" "$LABEL" "$THRESHOLD" "$pods_json" "$pod_count" "$deleted" "$failed" "$outcome"
+    elif [[ "$OUTPUT_MODE" == "csv" ]]; then
+        printf 'namespace,label,threshold,name,phase,restarts,action\n'
+        for ((i=0; i<pod_count; i++)); do
+            printf '"%s","%s",%s,"%s","%s",%s,"%s"\n' "$NAMESPACE" "$LABEL" "$THRESHOLD" "${names[$i]}" "${phases[$i]}" "${restarts[$i]}" "${actions[$i]}"
+        done
     fi
 
     write_audit "$pod_count" "$deleted" "$outcome"

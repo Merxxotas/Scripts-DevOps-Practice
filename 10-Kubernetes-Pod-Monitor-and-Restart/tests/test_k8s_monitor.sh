@@ -245,6 +245,34 @@ setup
 run_k8s --bogus
 assert_equals 1 "$LAST_EXIT_CODE" "Test 20: unknown option exits 1"
 
+# Test 21: --json outputs JSON
+setup
+printf 'pod-a|Running|5,\npod-b|Running|1,\n' > "$TEST_SANDBOX/kubectl_pods"
+run_k8s --json
+assert_equals 0 "$LAST_EXIT_CODE" "Test 21a: --json exits 0"
+assert_contains "$LAST_STDOUT" '"outcome": "success"' "Test 21b: json outcome success"
+assert_contains "$LAST_STDOUT" '"action": "deleted"' "Test 21c: json deleted action"
+
+# Test 22: --csv outputs header + rows
+setup
+printf 'pod-a|Running|5,\npod-b|Running|1,\n' > "$TEST_SANDBOX/kubectl_pods"
+run_k8s --csv
+assert_equals 0 "$LAST_EXIT_CODE" "Test 22a: --csv exits 0"
+assert_contains "$LAST_STDOUT" 'namespace,label,threshold' "Test 22b: csv header"
+assert_contains "$LAST_STDOUT" '"deleted"' "Test 22c: csv deleted"
+
+# Test 23: --json dry-run
+setup
+printf 'pod-a|Running|5,\n' > "$TEST_SANDBOX/kubectl_pods"
+run_k8s --dry-run --json
+assert_equals 0 "$LAST_EXIT_CODE" "Test 23a: --json dry-run exits 0"
+assert_contains "$LAST_STDOUT" '"outcome": "dry-run"' "Test 23b: json dry-run outcome"
+
+# Test 24: mutual exclusion
+setup
+run_k8s --json --csv
+assert_equals 1 "$LAST_EXIT_CODE" "Test 24: mutual exclusion exits 1"
+
 # ---------- summary ----------
 echo ""
 echo "========================================"
