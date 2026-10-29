@@ -123,7 +123,18 @@ if ($DryRun) {
         Write-Host "$($CGreen)Dry run - no request made.$($CReset)"
     } elseif ($outputMode -eq "json") {
         $sslVal = "null"
-        $json = "{`n  `"url`": `"$Url`",`n  `"expected_code`": $ExpectedCode,`n  `"status_code`": null,`n  `"healthy`": null,`n  `"response_time_seconds`": null,`n  `"size_bytes`": null,`n  `"ssl_expiry`": $sslVal,`n  `"outcome`": `"dry-run`"`n}"
+        $jsonLines = @()
+        $jsonLines += "{"
+        $jsonLines += "  `"url`": `"$Url`","
+        $jsonLines += "  `"expected_code`": $ExpectedCode,"
+        $jsonLines += "  `"status_code`": null,"
+        $jsonLines += "  `"healthy`": null,"
+        $jsonLines += "  `"response_time_seconds`": null,"
+        $jsonLines += "  `"size_bytes`": null,"
+        $jsonLines += "  `"ssl_expiry`": $sslVal,"
+        $jsonLines += "  `"outcome`": `"dry-run`""
+        $jsonLines += "}"
+        $json = $jsonLines -join "`n"
         Write-Host $json
     } elseif ($outputMode -eq "csv") {
         Write-Host "url,expected_code,status_code,healthy,response_time_seconds,size_bytes,ssl_expiry,outcome"
@@ -253,7 +264,18 @@ if ($humanMode) {
     }
     $healthyJson = if ($outcome -eq "healthy") { "true" } else { "false" }
     $statusJson = if ($httpCode -eq 0) { "null" } else { $httpCode }
-    $json = "{`n  `"url`": `"$Url`",`n  `"expected_code`": $ExpectedCode,`n  `"status_code`": $statusJson,`n  `"healthy`": $healthyJson,`n  `"response_time_seconds`": $respTime,`n  `"size_bytes`": $size,`n  `"ssl_expiry`": $sslVal,`n  `"outcome`": `"$outcome`"`n}"
+    $jsonLines = @()
+    $jsonLines += "{"
+    $jsonLines += "  `"url`": `"$Url`","
+    $jsonLines += "  `"expected_code`": $ExpectedCode,"
+    $jsonLines += "  `"status_code`": $statusJson,"
+    $jsonLines += "  `"healthy`": $healthyJson,"
+    $jsonLines += "  `"response_time_seconds`": $respTime,"
+    $jsonLines += "  `"size_bytes`": $size,"
+    $jsonLines += "  `"ssl_expiry`": $sslVal,"
+    $jsonLines += "  `"outcome`": `"$outcome`""
+    $jsonLines += "}"
+    $json = $jsonLines -join "`n"
     Write-Host $json
 } elseif ($outputMode -eq "csv") {
     $sslCsv = ""
