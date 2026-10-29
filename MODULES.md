@@ -27,7 +27,7 @@ pipeline and documentation. See [`AGENTS.md`](AGENTS.md) for the module contract
 | 3 | Automated Database Backup with Timestamp | Bash / PowerShell | ✅ **Shipped** | ✅ | Full |
 | 4 | Service Monitor and Auto-Restart | Bash / PowerShell | ✅ **Shipped** | ✅ | Full |
 | 5 | CPU and Memory Usage Monitor | Bash / PowerShell / Python / Docker | ✅ **Shipped** | ✅ | Full |
-| 6 | Website Availability (HTTP Health Check) | Bash / PowerShell | 🔵 Seed | — | — |
+| 6 | Website Availability (HTTP Health Check) | Bash / PowerShell | ✅ **Shipped** | ✅ | Full |
 | 7 | Find and Kill High-CPU Processes | Bash / PowerShell | ✅ **Shipped** | ✅ | Full |
 | 8 | Log Rotation and Compression | Bash / PowerShell | ✅ **Shipped** | ✅ | Full |
 | 9 | Automated Git Deployment | Bash / PowerShell | ✅ **Shipped** | ✅ | Full |
@@ -111,6 +111,21 @@ Service uptime monitoring with automatic restart for a named service. Full Bash 
 
 **Known gaps**, recorded rather than hidden: no continuous watch loop, no HTTP/TCP health probe, no dependency-graph restart, no `--json`/`--csv` output, no service enable/disable. One service per invocation. Audit write is best-effort. Restart success is verified via the platform service manager; tests stub `systemctl` on Bash and exercise parsing/guardrails/dry-run on PowerShell.
 
+### ✅ 6 — Website Availability (HTTP Health Check) *(Shipped)*
+
+Single-URL HTTP health check reporting status, response time, size and (opt-in) SSL
+expiry. Full Bash + PowerShell parity.
+
+- `health_check.sh` · `health_check.ps1` · `tests/` · `docs/` (+ 3 labs) · `SPECS.md` · `ROADMAP.md` · `CODESTYLE.md`
+- CI: `.github/workflows/ci-website-availability.yml` — ShellCheck, Bash on ubuntu + macOS, PowerShell on Windows + Ubuntu
+- Wiki: [31](wiki/31-Website-Availability-Overview.md) · [32](wiki/32-Website-Availability-Bash-vs-PowerShell.md) · [33](wiki/33-Website-Availability-Scenarios-and-Labs.md)
+
+**Known gaps**, recorded rather than hidden: no redirect following, no continuous watch loop, no
+`--json`/`--csv` output, no authentication or custom headers, no other HTTP methods. One URL per
+invocation. Audit write is best-effort. SSL expiry requires `openssl` (best-effort).
+
+---
+
 ### ✅ 7 — Find and Kill High-CPU Processes *(Shipped)*
 
 Detection and termination of runaway CPU processes. Full Bash + PowerShell parity.
@@ -190,7 +205,7 @@ had never run, so nothing about it had ever been verified.
 Bash script has no options for thresholds or process count; memory % is wrong on macOS (file cache
 counted as used); exit code 2 is reserved but unused.
 
-### 🔵 Seed modules — 4, 6, 7, 9, 10
+### 🔵 Seed modules — 10
 
 Each holds a single Bash + PowerShell pair of roughly 40–70 lines, written in one sitting on
 **2026-03-09**. They are functional sketches, not production utilities: no CLI parser, no safety
@@ -201,12 +216,6 @@ remaining seven will be converted to.
 
 | # | Module | Files | Purpose |
 | :-- | :--- | :--- | :--- |
-| 3 | Automated Database Backup with Timestamp | `db_backup.sh`, `db_backup.ps1` | Timestamped database dumps with rotation. |
-| 4 | Service Monitor and Auto-Restart | `service_monitor.sh`, `service_monitor.ps1` | Service uptime monitoring and automatic restart. |
-| 6 | Website Availability (HTTP Health Check) | `health_check.sh`, `health_check.ps1` | Endpoint HTTP status and response-time checking. |
-| 7 | Find and Kill High-CPU Processes | `kill_high_cpu.sh`, `kill_high_cpu.ps1` | Runaway CPU process identification and cleanup. |
-| 8 | Log Rotation and Compression | `log_rotate.sh`, `log_rotate.ps1` | Log archiving, gzip compression and retention. |
-| 9 | Automated Git Deployment | `git_deploy.sh`, `git_deploy.ps1` | Deployment pull and service restart. |
 | 10 | Kubernetes Pod Monitor and Restart | `k8s_monitor.sh`, `k8s_monitor.ps1` | K8s pod health monitoring and `kubectl` management. |
 
 **Seed → Shipped checklist** (the same contract modules 1, 2 and 11 satisfy — module 1 is the
@@ -238,7 +247,7 @@ Module 1 shipped on **2026-10-21** and set the template; the sequence now starts
 | — | **4 — Service Monitor and Auto-Restart** | **Shipped.** Completed. |
 | — | **7 — Find and Kill High-CPU Processes** | **Shipped.** Completed. |
 | — | **9 — Automated Git Deployment** | **Shipped.** Completed. |
-| 6 | **6 — Website Availability** | Self-contained HTTP monitoring. |
+| — | **6 — Website Availability** | **Shipped.** Completed. |
 | 7 | **10 — Kubernetes Pod Monitor** | Highest operational complexity; benefits from the hardened patterns established above. |
 
 ---
