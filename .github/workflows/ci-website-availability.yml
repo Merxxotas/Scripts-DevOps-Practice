@@ -40,7 +40,7 @@ jobs:
           chmod +x "6-Website-Availability-(HTTP-Health-Check)/tests/test_health_check.sh"
       - name: Run Bash Test Suite
         run: |
-          ./6-Website-Availability-(HTTP-Health-Check)/tests/test_health_check.sh
+          ./6-Website-Availability-\(HTTP-Health-Check\)/tests/test_health_check.sh
 
   lint-powershell:
     name: Lint PowerShell (PSScriptAnalyzer)

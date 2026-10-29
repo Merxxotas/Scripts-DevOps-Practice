@@ -19,7 +19,6 @@ PASSED_TESTS=0
 FAILED_TESTS=0
 
 LAST_STDOUT=""
-LAST_STDERR=""
 LAST_EXIT_CODE=0
 
 # Fake curl: prints $TEST_SANDBOX/curl_response (format: code|time|size),
@@ -70,7 +69,6 @@ run_hc() {
     local exit_code=0
     "$HC_SCRIPT" "$@" >"$stdout_file" 2>"$stderr_file" || exit_code=$?
     LAST_STDOUT="$(cat "$stdout_file" 2>/dev/null || true)"
-    LAST_STDERR="$(cat "$stderr_file" 2>/dev/null || true)"
     LAST_EXIT_CODE="$exit_code"
 }
 
