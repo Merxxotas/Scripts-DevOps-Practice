@@ -104,16 +104,16 @@ setup
 run_k8s --help
 assert_equals 0 "$LAST_EXIT_CODE" "Test 2: --help exits 0"
 
-# Test 3: kubectl missing -> exit 1 (skip if a real kubectl exists on the system)
+# Test 3: kubectl missing -> exit 1 (run with a PATH that has no kubectl)
 setup
-if command -v kubectl >/dev/null 2>&1 && [[ "$(command -v kubectl)" != "$FAKE_BIN/kubectl" ]]; then
-    printf "%b[SKIP]%b Test 3: real kubectl present, skipping missing test\n" "$GREEN" "$RESET"
-    ((PASSED_TESTS++)) || true
+set +e
+PATH="/usr/bin:/bin" "$K8S_SCRIPT" >/dev/null 2>&1
+rc=$?
+set -e
+if [[ "$rc" -eq 1 ]]; then
+    printf "%b[PASS]%b Test 3: kubectl missing exits 1\n" "$GREEN" "$RESET"; ((PASSED_TESTS++)) || true
 else
-    mv "$FAKE_BIN/kubectl" "$FAKE_BIN/kubectl.bak"
-    run_k8s
-    assert_equals 1 "$LAST_EXIT_CODE" "Test 3: kubectl missing exits 1"
-    mv "$FAKE_BIN/kubectl.bak" "$FAKE_BIN/kubectl"
+    printf "%b[FAIL]%b Test 3: kubectl missing exits 1 (got %s)\n" "$RED" "$RESET" "$rc" >&2; ((FAILED_TESTS++)) || true
 fi
 
 # Test 4: invalid namespace (empty)
