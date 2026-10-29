@@ -81,7 +81,7 @@ Invoke-K8s -ScriptArgs @("-Namespace", "")
 Assert-Equal 1 $script:LastExitCode "Test 2: empty namespace exits 1"
 
 # Test 3: invalid namespace (bad chars)
-Invoke-K8s -ScriptArgs @("-Namespace", "Bad Name")
+Invoke-K8s -ScriptArgs @("-Namespace", "Bad!Name")
 Assert-Equal 1 $script:LastExitCode "Test 3: bad namespace exits 1"
 
 # Test 4: invalid label (empty)
@@ -114,20 +114,20 @@ Assert-Contains $script:LastStdout "No pods found" "Test 8b: no pods message"
 
 # Test 9: healthy (below threshold) -> exit 0
 $mockPods = "pod-a|Running|1,`npod-b|Running|2,"
-Invoke-K8s -ScriptArgs @("-RestartThreshold", "3") -MockPods $mockPods
+Invoke-K8s -ScriptArgs @("-RestartThreshold", "3") -MockPods $mockPods -MockDeleteExit "0"
 Assert-Equal 0 $script:LastExitCode "Test 9a: below threshold exits 0"
 Assert-Contains $script:LastStdout "kept (below threshold)" "Test 9b: kept message"
 
 # Test 10: threshold exceeded -> delete, exit 0
 $mockPods = "pod-a|Running|5,`npod-b|Running|1,"
-Invoke-K8s -ScriptArgs @("-RestartThreshold", "3") -MockPods $mockPods
+Invoke-K8s -ScriptArgs @("-RestartThreshold", "3") -MockPods $mockPods -MockDeleteExit "0"
 Assert-Equal 0 $script:LastExitCode "Test 10a: delete success exits 0"
 Assert-Contains $script:LastStdout "-> deleted" "Test 10b: deleted message"
 Assert-Contains $script:LastStdout "Deleted: 1" "Test 10c: deleted count"
 
 # Test 11: multi-container restart sum (3+2=5 > 3 -> delete)
 $mockPods = "pod-a|Running|3,2,"
-Invoke-K8s -ScriptArgs @("-RestartThreshold", "3") -MockPods $mockPods
+Invoke-K8s -ScriptArgs @("-RestartThreshold", "3") -MockPods $mockPods -MockDeleteExit "0"
 Assert-Equal 0 $script:LastExitCode "Test 11a: multi-container sum exits 0"
 Assert-Contains $script:LastStdout "-> deleted" "Test 11b: deleted (sum 5 > 3)"
 
@@ -140,7 +140,7 @@ Assert-Contains $script:LastStdout "delete FAILED" "Test 12b: failed message"
 # Test 13: audit log
 $audit = Join-Path $TestSandbox "audit.log"
 $mockPods = "pod-a|Running|5,"
-Invoke-K8s -ScriptArgs @("-AuditLog", $audit) -MockPods $mockPods
+Invoke-K8s -ScriptArgs @("-AuditLog", $audit) -MockPods $mockPods -MockDeleteExit "0"
 Assert-Equal 0 $script:LastExitCode "Test 13a: audit run exits 0"
 Assert-FileExists $audit "Test 13b: audit file created"
 $auditContent = Get-Content -Raw -LiteralPath $audit
@@ -157,19 +157,19 @@ Assert-Contains $auditContent2 "outcome=dry-run" "Test 14c: audit outcome dry-ru
 
 # Test 15: force flag
 $mockPods = "pod-a|Running|5,"
-Invoke-K8s -ScriptArgs @("-Force") -MockPods $mockPods
+Invoke-K8s -ScriptArgs @("-Force") -MockPods $mockPods -MockDeleteExit "0"
 Assert-Equal 0 $script:LastExitCode "Test 15a: force run exits 0"
 Assert-Contains $script:LastStdout "hard (--force)" "Test 15b: force label"
 
 # Test 16: verbose prints diagnostic
 $mockPods = "pod-a|Running|5,"
-Invoke-K8s -ScriptArgs @("-Verbose") -MockPods $mockPods
+Invoke-K8s -ScriptArgs @("-Verbose") -MockPods $mockPods -MockDeleteExit "0"
 Assert-Equal 0 $script:LastExitCode "Test 16a: verbose exits 0"
 Assert-Contains $script:LastStdout "Querying pods" "Test 16b: verbose diagnostic"
 
 # Test 17: custom namespace/selector
 $mockPods = "pod-a|Running|5,"
-Invoke-K8s -ScriptArgs @("-Namespace", "kube-system", "-LabelSelector", "app=api", "-RestartThreshold", "2") -MockPods $mockPods
+Invoke-K8s -ScriptArgs @("-Namespace", "kube-system", "-LabelSelector", "app=api", "-RestartThreshold", "2") -MockPods $mockPods -MockDeleteExit "0"
 Assert-Equal 0 $script:LastExitCode "Test 17: custom flags exit 0"
 
 # ---------- summary ----------

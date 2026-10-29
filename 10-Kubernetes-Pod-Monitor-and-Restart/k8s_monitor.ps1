@@ -210,7 +210,7 @@ for ($i = 0; $i -lt $podCount; $i++) {
             $failed++
         }
     } else {
-        Write-Host "    $CGreen" + "-> kept (below threshold)" + "$CReset"
+        Write-Host "    $($CGreen)-> kept (below threshold)$($CReset)"
     }
 }
 

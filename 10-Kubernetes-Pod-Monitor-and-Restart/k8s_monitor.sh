@@ -19,7 +19,6 @@ readonly C_GREEN='\033[32m'
 readonly C_YELLOW='\033[33m'
 readonly C_BLUE='\033[34m'
 readonly C_CYAN='\033[36m'
-readonly C_MAGENTA='\033[35m'
 
 # ---------------------------------------------------------------------------
 # Defaults
@@ -199,7 +198,7 @@ main() {
         local i
         for ((i=0; i<pod_count; i++)); do
             log "  ${C_CYAN}${names[$i]}${C_RESET}  phase=${phases[$i]}  restarts=${restarts[$i]}"
-            if (( restarts[$i] > THRESHOLD )); then
+            if (( restarts[i] > THRESHOLD )); then
                 log "    ${C_RED}-> would delete${C_RESET}"
             else
                 log "    ${C_GREEN}-> keep${C_RESET}"
@@ -217,7 +216,7 @@ main() {
         log "  ${C_CYAN}${names[$i]}${C_RESET}"
         log "    ${C_DIM}Phase:${C_RESET}    ${phases[$i]}"
         log "    ${C_DIM}Restarts:${C_RESET} ${restarts[$i]}"
-        if (( restarts[$i] > THRESHOLD )); then
+        if (( restarts[i] > THRESHOLD )); then
             vlog "Deleting ${names[$i]}..."
             local del_ok=false
             if $FORCE; then
