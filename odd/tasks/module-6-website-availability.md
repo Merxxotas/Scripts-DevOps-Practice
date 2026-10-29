@@ -50,10 +50,11 @@ S16 — Tests. Deterministic suite stubbing curl/Invoke-WebRequest under a temp 
 - [x] T8: Create root CI workflow .github/workflows/ci-website-availability.yml. route: inline
 - [x] T9: Write wiki pages + sidebar. route: inline
 - [x] T10: Register module in MODULES.md, README.md, CHANGELOG.md, AGENTS.md. route: inline
-- [ ] T11: Close feature document + Engram mirror. route: inline
+- [x] T11: Close feature document + Engram mirror. route: inline
 
 ## Log
 
 L1: User request (verbatim): "Module 6 (Website Availability / HTTP Health Check) — seed on disk only. Convert it to the shipped contract following Modules 4/7/9 as templates. Flags: -u/--url / -Url (default https://example.com), -t/--timeout / -TimeoutSec (default 10), -e/--expected-code / -ExpectedCode (default 200), --ssl-check / -SslCheck (default off), --dry-run / -DryRun, --audit-log / -AuditLog, -v/--verbose / -Verbose, -h/--help / -Help. Guardrails: URL must start with http:// or https://; timeout positive integer; expected code 100-599. Dry-run: print target/expected/timeout, no request, exit 0. Exit codes: 0 healthy (status matches), 1 config/safety, 2 unhealthy (mismatch or connection failure). Output: status code, response time, size, SSL expiry (if --ssl-check). Audit log: one ISO-8601 line per run. Open decisions resolved: unhealthy exit code = 2; SSL check opt-in; no redirects in v1; keep response size. Testing: stubbed HTTP client, representative status codes, no Playwright, no network. HTTP client: curl as engine with curlie-inspired colored output (Option A)."
 
 L2: 2026-10-29 — Created feature branch feat/6-website-availability from main. Feature document created. Open decisions resolved and recorded.
+L3: 2026-10-29 — Shipped module 6. Bash suite 38/0; PS suite CI-only. Commits: d9f8a02 (feat), 6c00b46 (docs). Risk: item 3 (new module added; contracts/docs/wiki registered).
