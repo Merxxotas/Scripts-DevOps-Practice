@@ -154,6 +154,30 @@ Invoke-Hc -ScriptArgs @("-SslCheck", "-Url", "https://example.com") -MockRespons
 Assert-Equal 0 $script:LastExitCode "Test 18a: ssl-check exits 0"
 Assert-Contains $script:LastStdout "SSL expiry" "Test 18b: SSL expiry line"
 
+# Test 19: -Json outputs JSON
+Invoke-Hc -ScriptArgs @("-Json") -MockResponse "200|0.123|1024"
+Assert-Equal 0 $script:LastExitCode "Test 19a: -Json exits 0"
+Assert-Contains $script:LastStdout '"outcome": "healthy"' "Test 19b: json outcome healthy"
+
+# Test 20: -Json dry-run
+Invoke-Hc -ScriptArgs @("-DryRun", "-Json") -MockResponse "000|0.000|0"
+Assert-Equal 0 $script:LastExitCode "Test 20a: -Json dry-run exits 0"
+Assert-Contains $script:LastStdout '"outcome": "dry-run"' "Test 20b: json dry-run outcome"
+
+# Test 21: -Csv outputs header + row
+Invoke-Hc -ScriptArgs @("-Csv") -MockResponse "200|0.123|1024"
+Assert-Equal 0 $script:LastExitCode "Test 21a: -Csv exits 0"
+Assert-Contains $script:LastStdout "url,expected_code,status_code" "Test 21b: csv header"
+Assert-Contains $script:LastStdout "healthy" "Test 21c: csv outcome"
+
+# Test 22: -Json and -Csv mutually exclusive
+Invoke-Hc -ScriptArgs @("-Json", "-Csv") -MockResponse "200|0.123|1024"
+if ($script:LastExitCode -ne 0) {
+    Write-Host "[PASS] Test 22: mutual exclusion fails" -ForegroundColor Green; $script:PassedCount++
+} else {
+    Write-Host "[FAIL] Test 22: mutual exclusion should fail" -ForegroundColor Red; $script:FailedCount++
+}
+
 # ---------- summary ----------
 Write-Host ""
 Write-Host "========================================"

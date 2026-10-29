@@ -36,13 +36,16 @@ SSL_CHECK=false
 DRY_RUN=false
 AUDIT_LOG=""
 VERBOSE=false
+OUTPUT_MODE="human"
+JSON_OUTPUT=false
+CSV_OUTPUT=false
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
-log() { printf '%b\n' "$*"; }
+log() { if [[ "$OUTPUT_MODE" == "human" ]]; then printf '%b\n' "$*"; fi; }
 err() { printf '%b\n' "${C_RED}$*${C_RESET}" >&2; }
-vlog() { if $VERBOSE; then printf '%b\n' "${C_DIM}$*${C_RESET}"; fi; }
+vlog() { if [[ "$OUTPUT_MODE" == "human" ]] && $VERBOSE; then printf '%b\n' "${C_DIM}$*${C_RESET}"; fi; }
 
 usage() {
     cat <<'EOF'
@@ -57,6 +60,8 @@ Options:
       --ssl-check           Report SSL certificate expiry (HTTPS only)
       --dry-run             Print target/expected/timeout, no request
       --audit-log <PATH>     Append an ISO-8601 audit line per run
+      --json                 Output result as JSON
+      --csv                  Output result as CSV
   -v, --verbose             Diagnostic output
   -h, --help                Show this help and exit
 
@@ -84,6 +89,10 @@ parse_args() {
                 EXPECTED_CODE="$2"; shift 2 ;;
             --ssl-check)
                 SSL_CHECK=true; shift ;;
+            --json)
+                JSON_OUTPUT=true; shift ;;
+            --csv)
+                CSV_OUTPUT=true; shift ;;
             --dry-run)
                 DRY_RUN=true; shift ;;
             --audit-log)
@@ -103,6 +112,17 @@ parse_args() {
 # Validation
 # ---------------------------------------------------------------------------
 validate() {
+    if $JSON_OUTPUT && $CSV_OUTPUT; then
+        err "Cannot use --json and --csv together"
+        exit 1
+    fi
+    if $JSON_OUTPUT; then
+        OUTPUT_MODE="json"
+    elif $CSV_OUTPUT; then
+        OUTPUT_MODE="csv"
+    else
+        OUTPUT_MODE="human"
+    fi
     # URL scheme
     if [[ ! "$URL" =~ ^https?:// ]]; then
         err "Invalid URL: must start with http:// or https://"
@@ -178,8 +198,15 @@ main() {
     fi
 
     if $DRY_RUN; then
-        log ""
-        log "${C_GREEN}Dry run - no request made.${C_RESET}"
+        if [[ "$OUTPUT_MODE" == "json" ]]; then
+            printf '{\n  "url": "%s",\n  "expected_code": %s,\n  "status_code": null,\n  "healthy": null,\n  "response_time_seconds": null,\n  "size_bytes": null,\n  "ssl_expiry": null,\n  "outcome": "dry-run"\n}\n' "$URL" "$EXPECTED_CODE"
+        elif [[ "$OUTPUT_MODE" == "csv" ]]; then
+            printf 'url,expected_code,status_code,healthy,response_time_seconds,size_bytes,ssl_expiry,outcome\n'
+            printf '"%s",%s,,,,,,"dry-run"\n' "$URL" "$EXPECTED_CODE"
+        else
+            log ""
+            log "${C_GREEN}Dry run - no request made.${C_RESET}"
+        fi
         write_audit "-" "-" "-" "dry-run"
         exit 0
     fi
@@ -214,13 +241,15 @@ main() {
     # Output
     log ""
     log "${C_BOLD}Result${C_RESET}"
-    printf '  %-12s' "Status:"
-    if [[ "$outcome" == "healthy" ]]; then
-        printf '%b\n' "${C_GREEN}${http_code} OK${C_RESET}"
-    elif [[ "$http_code" == "000" ]]; then
-        printf '%b\n' "${C_RED}CONNECTION FAILED${C_RESET}"
-    else
-        printf '%b\n' "${C_YELLOW}${http_code} (unexpected, expected ${EXPECTED_CODE})${C_RESET}"
+    if [[ "$OUTPUT_MODE" == "human" ]]; then
+        printf '  %-12s' "Status:"
+        if [[ "$outcome" == "healthy" ]]; then
+            printf '%b\n' "${C_GREEN}${http_code} OK${C_RESET}"
+        elif [[ "$http_code" == "000" ]]; then
+            printf '%b\n' "${C_RED}CONNECTION FAILED${C_RESET}"
+        else
+            printf '%b\n' "${C_YELLOW}${http_code} (unexpected, expected ${EXPECTED_CODE})${C_RESET}"
+        fi
     fi
     log "  ${C_DIM}Time:${C_RESET}     ${C_CYAN}${resp_time}s${C_RESET}"
     log "  ${C_DIM}Size:${C_RESET}     ${C_CYAN}${size} bytes${C_RESET}"
@@ -237,6 +266,29 @@ main() {
     else
         log ""
         log "${C_RED}Unhealthy.${C_RESET}"
+    fi
+
+    # SSL expiry value for structured output
+    local ssl_val="null"
+    if $SSL_CHECK && [[ "$URL" == https* ]]; then
+        ssl_val="\"$(ssl_expiry)\""
+    fi
+
+    if [[ "$OUTPUT_MODE" == "json" ]]; then
+        printf '{\n  "url": "%s",\n  "expected_code": %s,\n  "status_code": %s,\n  "healthy": %s,\n  "response_time_seconds": %s,\n  "size_bytes": %s,\n  "ssl_expiry": %s,\n  "outcome": "%s"\n}\n' \
+            "$URL" "$EXPECTED_CODE" "$http_code" \
+            "$([[ "$outcome" == "healthy" ]] && echo true || echo false)" \
+            "$resp_time" "$size" "$ssl_val" "$outcome"
+    elif [[ "$OUTPUT_MODE" == "csv" ]]; then
+        printf 'url,expected_code,status_code,healthy,response_time_seconds,size_bytes,ssl_expiry,outcome\n'
+        local healthy_csv
+        healthy_csv="$([[ "$outcome" == "healthy" ]] && echo true || echo false)"
+        local ssl_csv=""
+        if $SSL_CHECK && [[ "$URL" == https* ]]; then
+            ssl_csv="$(ssl_expiry)"
+        fi
+        printf '"%s",%s,%s,%s,%s,%s,"%s","%s"\n' \
+            "$URL" "$EXPECTED_CODE" "$http_code" "$healthy_csv" "$resp_time" "$size" "$ssl_csv" "$outcome"
     fi
 
     write_audit "$http_code" "$resp_time" "$size" "$outcome"

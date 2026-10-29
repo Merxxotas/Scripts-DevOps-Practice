@@ -246,6 +246,33 @@ setup
 run_hc --bogus
 assert_equals 1 "$LAST_EXIT_CODE" "Test 22: unknown option exits 1"
 
+# Test 23: --json outputs valid JSON
+setup
+printf '200|0.123|1024' > "$TEST_SANDBOX/curl_response"
+run_hc --json
+assert_equals 0 "$LAST_EXIT_CODE" "Test 23a: --json exits 0"
+assert_contains "$LAST_STDOUT" '"outcome": "healthy"' "Test 23b: json outcome healthy"
+assert_contains "$LAST_STDOUT" '"status_code": 200' "Test 23c: json status_code"
+
+# Test 24: --json dry-run
+setup
+run_hc --dry-run --json
+assert_equals 0 "$LAST_EXIT_CODE" "Test 24a: --json dry-run exits 0"
+assert_contains "$LAST_STDOUT" '"outcome": "dry-run"' "Test 24b: json dry-run outcome"
+
+# Test 25: --csv outputs header + row
+setup
+printf '200|0.123|1024' > "$TEST_SANDBOX/curl_response"
+run_hc --csv
+assert_equals 0 "$LAST_EXIT_CODE" "Test 25a: --csv exits 0"
+assert_contains "$LAST_STDOUT" 'url,expected_code,status_code' "Test 25b: csv header"
+assert_contains "$LAST_STDOUT" 'healthy' "Test 25c: csv outcome"
+
+# Test 26: --json and --csv mutually exclusive
+setup
+run_hc --json --csv
+assert_equals 1 "$LAST_EXIT_CODE" "Test 26: mutual exclusion exits 1"
+
 # ---------- summary ----------
 echo ""
 echo "========================================"
