@@ -123,18 +123,7 @@ if ($DryRun) {
         Write-Host "$($CGreen)Dry run - no request made.$($CReset)"
     } elseif ($outputMode -eq "json") {
         $sslVal = "null"
-        $json = @"
-{
-  "url": "$Url",
-  "expected_code": $ExpectedCode,
-  "status_code": null,
-  "healthy": null,
-  "response_time_seconds": null,
-  "size_bytes": null,
-  "ssl_expiry": $sslVal,
-  "outcome": "dry-run"
-}
-"@
+        $json = "{`n  `"url`": `"$Url`",`n  `"expected_code`": $ExpectedCode,`n  `"status_code`": null,`n  `"healthy`": null,`n  `"response_time_seconds`": null,`n  `"size_bytes`": null,`n  `"ssl_expiry`": $sslVal,`n  `"outcome`": `"dry-run`"`n}"
         Write-Host $json
     } elseif ($outputMode -eq "csv") {
         Write-Host "url,expected_code,status_code,healthy,response_time_seconds,size_bytes,ssl_expiry,outcome"
@@ -264,18 +253,7 @@ if ($humanMode) {
     }
     $healthyJson = if ($outcome -eq "healthy") { "true" } else { "false" }
     $statusJson = if ($httpCode -eq 0) { "null" } else { $httpCode }
-    $json = @"
-{
-  "url": "$Url",
-  "expected_code": $ExpectedCode,
-  "status_code": $statusJson,
-  "healthy": $healthyJson,
-  "response_time_seconds": $respTime,
-  "size_bytes": $size,
-  "ssl_expiry": $sslVal,
-  "outcome": "$outcome"
-}
-"@
+    $json = "{`n  `"url`": `"$Url`",`n  `"expected_code`": $ExpectedCode,`n  `"status_code`": $statusJson,`n  `"healthy`": $healthyJson,`n  `"response_time_seconds`": $respTime,`n  `"size_bytes`": $size,`n  `"ssl_expiry`": $sslVal,`n  `"outcome`": `"$outcome`"`n}"
     Write-Host $json
 } elseif ($outputMode -eq "csv") {
     $sslCsv = ""
