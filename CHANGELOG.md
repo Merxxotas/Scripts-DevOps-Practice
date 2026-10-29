@@ -343,6 +343,57 @@ failures recorded but do not abort. Audit write is best-effort.
 
 ---
 
+## 2026-10-29 — Website Availability (HTTP Health Check) module
+
+**Module 6 — Website Availability (HTTP Health Check)** goes from a seed script pair to a fully
+shipped module: a cross-platform HTTP health check reporting status, response time, size and
+(opt-in) SSL certificate expiry for a single URL. Full Bash + PowerShell parity.
+
+### Added — the module
+
+- **`6-Website-Availability-(HTTP-Health-Check)/`** — the whole module, tracked for the first time.
+- **`health_check.sh`** and **`health_check.ps1`** — implementations with flags `-u/--url`/`-Url`,
+  `-t/--timeout`/`-TimeoutSec`, `-e/--expected-code`/`-ExpectedCode`, `--ssl-check`/`-SslCheck`,
+  `--dry-run`/`-DryRun`, `--audit-log`/`-AuditLog`, `-v/--verbose`/`-Verbose`, `-h/--help`/`-Help`.
+- **Exit-code contract** — `0` healthy or dry-run, `1` configuration/safety violation,
+  `2` unhealthy (mismatch or connection failure).
+- **Safety guardrails** — URL scheme (http/https), positive-integer timeout, expected code 100-599.
+- **Dry-run** — prints target/expected/timeout, no request.
+- **Metrics** — status code, response time, response size.
+- **SSL expiry** — opt-in `--ssl-check`, best-effort (requires `openssl`).
+- **No redirect following** in v1; received status reported as-is.
+- **ISO-8601 audit log** — `--audit-log` appends one line per run.
+- **`tests/test_health_check.sh`** (38 tests) and **`tests/test_health_check.ps1`**. Bash suite stubs
+  `curl`/`openssl`; no network used.
+- **`SPECS.md`**, **`ROADMAP.md`**, **`CODESTYLE.md`**, **`README.md`**.
+- **`docs/ARCHITECTURE_COMPARISON.md`**, **`docs/SCENARIOS.md`**, **`docs/labs/LAB1-3.md`**.
+
+### Added — CI
+
+- **`.github/workflows/ci-website-availability.yml`** — path-filtered, multi-OS matrix.
+
+### Added — knowledge base
+
+- **`wiki/31-Website-Availability-Overview.md`**, **`wiki/32-Website-Availability-Bash-vs-PowerShell.md`**,
+  **`wiki/33-Website-Availability-Scenarios-and-Labs.md`**, with the sidebar updated.
+
+### Changed
+
+- **`MODULES.md`**, **`README.md`**, **`AGENTS.md`** — module 6 marked shipped; seed group now one module.
+
+### Verification
+
+- **Bash suite, local** — 38 tests, 0 failures.
+- **PowerShell suite** — CI-only (no `pwsh` on the development machine).
+
+### Known gaps
+
+Recorded rather than hidden: no redirect following, no continuous watch loop, no
+`--json`/`--csv` output, no authentication or custom headers, no other HTTP methods. One URL per
+invocation. Audit write is best-effort. SSL expiry requires `openssl` (best-effort).
+
+---
+
 ## 2026-10-28 — Find and Kill High-CPU Processes module
 
 **Module 7 — Find and Kill High-CPU Processes** goes from a seed script pair to a fully shipped

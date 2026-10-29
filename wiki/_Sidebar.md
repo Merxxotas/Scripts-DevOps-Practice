@@ -32,6 +32,13 @@
 
 ---
 
+### 🌐 Module 6: Website Availability (HTTP Health Check)
+- **[[31-Website-Availability-Overview|📖 Website Availability Overview]]**
+- **[[32-Website-Availability-Bash-vs-PowerShell|📊 Bash vs PowerShell]]**
+- **[[33-Website-Availability-Scenarios-and-Labs|🧪 Scenarios & Labs]]**
+
+---
+
 ### 🔪 Module 7: Find and Kill High-CPU Processes
 - **[[25-Kill-High-CPU-Overview|📖 Kill High-CPU Overview]]**
 - **[[26-Kill-High-CPU-Bash-vs-PowerShell|📊 Bash vs PowerShell]]**

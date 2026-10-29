@@ -178,8 +178,8 @@ Verified on **2026-10-21**. These are real, current, and will bite you.
 
 | # | Gotcha |
 | :-- | :--- |
-| 1 | **Modules 6, 10 are not in git** (disk only; no `SPECS.md`/`ROADMAP.md`/`CODESTYLE.md`/tests/CI) — violates §3. |
-| 2 | **Module 1 is the next ship** — seed modules are raw script pairs with no CLI parser, guardrails, tests, docs or CI. Checklist in [`MODULES.md`](MODULES.md). |
+| 1 | **Module 10 is not in git** (disk only; no `SPECS.md`/`ROADMAP.md`/`CODESTYLE.md`/tests/CI) — violates §3. |
+| 2 | **Module 10 is the next ship** — seed module is a raw script pair with no CLI parser, guardrails, tests, docs or CI. Checklist in [`MODULES.md`](MODULES.md). |
 | 3 | **Path filters create a blind spot** — changes under `wiki/`, `MODULES.md`, `AGENTS.md` and other root docs match no workflow → no CI run. |
 | 4 | **The wiki lives in two places** — `main:wiki/` and the GitHub Wiki (`Scripts-DevOps-Practice.wiki.git`). Verified identical 2026-10-20, nothing enforces it. Push edits to both. |
 | 5 | **`main` is unprotected** — no branch protection, rulesets or required checks. |
