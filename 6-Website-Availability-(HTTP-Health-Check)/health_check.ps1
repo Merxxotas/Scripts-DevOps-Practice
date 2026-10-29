@@ -84,6 +84,7 @@ if ($Json -and $Csv) {
 }
 if ($Json) { $outputMode = "json" }
 elseif ($Csv) { $outputMode = "csv" }
+$humanMode = ($outputMode -eq "human")
 
 # ---------------------------------------------------------------------------
 # Validation
