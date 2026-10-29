@@ -68,6 +68,8 @@ No third-party dependencies beyond the shell and the platform HTTP client (`curl
 | `--ssl-check` | `-SslCheck` | off | Report SSL certificate expiry (HTTPS only) |
 | `--dry-run` | `-DryRun` | off | Print target/expected/timeout, no request |
 | `--audit-log` | `-AuditLog` | (none) | ISO-8601 audit log path |
+| `--json` | `-Json` | off | Output result as JSON |
+| `--csv` | `-Csv` | off | Output result as CSV |
 | `-v, --verbose` | `-Verbose` | off | Diagnostic output |
 | `-h, --help` | `-Help` | off | Show help, exit 0 |
 
@@ -111,6 +113,4 @@ When `--ssl-check` is given and the URL is HTTPS, the script reports the certifi
 
 ## 8. Scope Exclusions (v1)
 
-No redirect following, no continuous monitoring/watch loop, no `--json`/`--csv` output, no
-authentication, no custom headers, no POST/other methods. One URL per invocation. Audit write
-is best-effort.
+No redirect following, no continuous monitoring/watch loop, no authentication, no custom headers, no POST/other methods. One URL per invocation. Audit write is best-effort.

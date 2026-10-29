@@ -16,6 +16,8 @@ param(
     [switch]$DryRun,
     [string]$AuditLog = "",
     [switch]$Verbose,
+    [switch]$Json,
+    [switch]$Csv,
     [switch]$Help
 )
 
@@ -57,6 +59,8 @@ Options:
   -SslCheck             Report SSL certificate expiry (HTTPS only)
   -DryRun               Print target/expected/timeout, no request
   -AuditLog <PATH>      Append an ISO-8601 audit line per run
+  -Json                 Output result as JSON
+  -Csv                  Output result as CSV
   -Verbose              Diagnostic output
   -Help                 Show this help and exit
 
@@ -71,6 +75,16 @@ if ($Help) {
     Show-Usage
     exit 0
 }
+
+# Output mode
+$outputMode = "human"
+if ($Json -and $Csv) {
+    Write-Err "Cannot use -Json and -Csv together"
+    exit 1
+}
+if ($Json) { $outputMode = "json" }
+elseif ($Csv) { $outputMode = "csv" }
+$humanMode = ($outputMode -eq "human")
 
 # ---------------------------------------------------------------------------
 # Validation
@@ -91,20 +105,41 @@ if ($ExpectedCode -lt 100 -or $ExpectedCode -gt 599) {
 # ---------------------------------------------------------------------------
 # Header
 # ---------------------------------------------------------------------------
-Write-Host "$CBold$CBlue=== HTTP Health Check ===$CReset"
-Write-Host ("  {0}Target:{1}   {2}{3}{4}" -f $CDim, $CReset, $CCyan, $Url, $CReset)
-Write-Host ("  {0}Expected:{1} {2}{3}{4}" -f $CDim, $CReset, $CGreen, $ExpectedCode, $CReset)
-Write-Host ("  {0}Timeout:{1}  {2}{3}s{4}" -f $CDim, $CReset, $CYellow, $TimeoutSec, $CReset)
-if ($SslCheck) {
-    Write-Host ("  {0}SSL:{1}     {2}enabled{3}" -f $CDim, $CReset, $CMagenta, $CReset)
+if ($humanMode) {
+    Write-Host "$CBold$CBlue=== HTTP Health Check ===$CReset"
+    Write-Host ("  {0}Target:{1}   {2}{3}{4}" -f $CDim, $CReset, $CCyan, $Url, $CReset)
+    Write-Host ("  {0}Expected:{1} {2}{3}{4}" -f $CDim, $CReset, $CGreen, $ExpectedCode, $CReset)
+    Write-Host ("  {0}Timeout:{1}  {2}{3}s{4}" -f $CDim, $CReset, $CYellow, $TimeoutSec, $CReset)
+    if ($SslCheck) {
+        Write-Host ("  {0}SSL:{1}     {2}enabled{3}" -f $CDim, $CReset, $CMagenta, $CReset)
+    }
 }
 
 # ---------------------------------------------------------------------------
 # Dry-run
 # ---------------------------------------------------------------------------
 if ($DryRun) {
-    Write-Host ""
-    Write-Host "$($CGreen)Dry run - no request made.$($CReset)"
+    if ($humanMode) {
+        Write-Host ""
+        Write-Host "$($CGreen)Dry run - no request made.$($CReset)"
+    } elseif ($outputMode -eq "json") {
+        $sslVal = "null"
+        $jsonLines = @()
+        $jsonLines += "{"
+        $jsonLines += "  `"url`": `"$Url`","
+        $jsonLines += "  `"expected_code`": $ExpectedCode,"
+        $jsonLines += "  `"status_code`": null,"
+        $jsonLines += "  `"healthy`": null,"
+        $jsonLines += "  `"response_time_seconds`": null,"
+        $jsonLines += "  `"size_bytes`": null,"
+        $jsonLines += "  `"ssl_expiry`": $sslVal,"
+        $jsonLines += "  `"outcome`": `"dry-run`""
+        $jsonLines += "}"
+        foreach ($jl in $jsonLines) { Write-Host $jl }
+    } elseif ($outputMode -eq "csv") {
+        Write-Host "url,expected_code,status_code,healthy,response_time_seconds,size_bytes,ssl_expiry,outcome"
+        Write-Host "`"$Url`",$ExpectedCode,,,,,,""dry-run"""
+    }
     if ($AuditLog) {
         $ts = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
         "$ts url=$Url status=- time=- size=- outcome=dry-run" | Out-File -FilePath $AuditLog -Append -Encoding utf8 -ErrorAction SilentlyContinue
@@ -178,40 +213,85 @@ if ($connFailed -or $httpCode -eq 0) {
 # ---------------------------------------------------------------------------
 # Output
 # ---------------------------------------------------------------------------
-Write-Host ""
-Write-Host "$($CBold)Result$($CReset)"
-Write-Host ("  {0,-12}" -f "Status:") -NoNewline
-if ($outcome -eq "healthy") {
-    Write-Host "$CGreen$httpCode OK$CReset"
-} elseif ($httpCode -eq 0) {
-    Write-Host "$($CRed)CONNECTION FAILED$($CReset)"
-} else {
-    Write-Host "$CYellow$httpCode (unexpected, expected $ExpectedCode)$CReset"
-}
-Write-Host ("  {0}Time:{1}     {2}{3}s{4}" -f $CDim, $CReset, $CCyan, $respTime, $CReset)
-Write-Host ("  {0}Size:{1}     {2}{3} bytes{4}" -f $CDim, $CReset, $CCyan, $size, $CReset)
-
-if ($SslCheck -and $Url -match '^https') {
-    $expiry = "unavailable"
-    if (Get-Command openssl -ErrorAction SilentlyContinue) {
-        try {
-            $hostName = ([uri]$Url).Host
-            $endLine = ("" | openssl s_client -servername $hostName -connect "${hostName}:443" 2>$null) 2>$null | openssl x509 -noout -enddate 2>$null
-            if ($endLine -match 'notAfter=(.+)') {
-                $expiry = $Matches[1].Trim()
-            }
-        } catch {
-            $expiry = "unavailable"
-        }
+if ($humanMode) {
+    Write-Host ""
+    Write-Host "$($CBold)Result$($CReset)"
+    Write-Host ("  {0,-12}" -f "Status:") -NoNewline
+    if ($outcome -eq "healthy") {
+        Write-Host "$CGreen$httpCode OK$CReset"
+    } elseif ($httpCode -eq 0) {
+        Write-Host "$($CRed)CONNECTION FAILED$($CReset)"
+    } else {
+        Write-Host "$CYellow$httpCode (unexpected, expected $ExpectedCode)$CReset"
     }
-    Write-Host ("  {0}SSL expiry:{1} {2}{3}{4}" -f $CDim, $CReset, $CMagenta, $expiry, $CReset)
-}
+    Write-Host ("  {0}Time:{1}     {2}{3}s{4}" -f $CDim, $CReset, $CCyan, $respTime, $CReset)
+    Write-Host ("  {0}Size:{1}     {2}{3} bytes{4}" -f $CDim, $CReset, $CCyan, $size, $CReset)
 
-Write-Host ""
-if ($outcome -eq "healthy") {
-    Write-Host "$($CGreen)Healthy.$($CReset)"
-} else {
-    Write-Host "$($CRed)Unhealthy.$($CReset)"
+    if ($SslCheck -and $Url -match '^https') {
+        $expiry = "unavailable"
+        if (Get-Command openssl -ErrorAction SilentlyContinue) {
+            try {
+                $hostName = ([uri]$Url).Host
+                $endLine = ("" | openssl s_client -servername $hostName -connect "${hostName}:443" 2>$null) 2>$null | openssl x509 -noout -enddate 2>$null
+                if ($endLine -match 'notAfter=(.+)') {
+                    $expiry = $Matches[1].Trim()
+                }
+            } catch {
+                $expiry = "unavailable"
+            }
+        }
+        Write-Host ("  {0}SSL expiry:{1} {2}{3}{4}" -f $CDim, $CReset, $CMagenta, $expiry, $CReset)
+    }
+
+    Write-Host ""
+    if ($outcome -eq "healthy") {
+        Write-Host "$($CGreen)Healthy.$($CReset)"
+    } else {
+        Write-Host "$($CRed)Unhealthy.$($CReset)"
+    }
+} elseif ($outputMode -eq "json") {
+    $sslVal = "null"
+    if ($SslCheck -and $Url -match '^https') {
+        $expiry = "unavailable"
+        if (Get-Command openssl -ErrorAction SilentlyContinue) {
+            try {
+                $hostName = ([uri]$Url).Host
+                $endLine = ("" | openssl s_client -servername $hostName -connect "${hostName}:443" 2>$null) 2>$null | openssl x509 -noout -enddate 2>$null
+                if ($endLine -match 'notAfter=(.+)') { $expiry = $Matches[1].Trim() }
+            } catch { $expiry = "unavailable" }
+        }
+        $sslVal = "`"$expiry`""
+    }
+    $healthyJson = if ($outcome -eq "healthy") { "true" } else { "false" }
+    $statusJson = if ($httpCode -eq 0) { "null" } else { $httpCode }
+    $jsonLines = @()
+    $jsonLines += "{"
+    $jsonLines += "  `"url`": `"$Url`","
+    $jsonLines += "  `"expected_code`": $ExpectedCode,"
+    $jsonLines += "  `"status_code`": $statusJson,"
+    $jsonLines += "  `"healthy`": $healthyJson,"
+    $jsonLines += "  `"response_time_seconds`": $respTime,"
+    $jsonLines += "  `"size_bytes`": $size,"
+    $jsonLines += "  `"ssl_expiry`": $sslVal,"
+    $jsonLines += "  `"outcome`": `"$outcome`""
+    $jsonLines += "}"
+    foreach ($jl in $jsonLines) { Write-Host $jl }
+} elseif ($outputMode -eq "csv") {
+    $sslCsv = ""
+    if ($SslCheck -and $Url -match '^https') {
+        $expiry = "unavailable"
+        if (Get-Command openssl -ErrorAction SilentlyContinue) {
+            try {
+                $hostName = ([uri]$Url).Host
+                $endLine = ("" | openssl s_client -servername $hostName -connect "${hostName}:443" 2>$null) 2>$null | openssl x509 -noout -enddate 2>$null
+                if ($endLine -match 'notAfter=(.+)') { $expiry = $Matches[1].Trim() }
+            } catch { $expiry = "unavailable" }
+        }
+        $sslCsv = $expiry
+    }
+    $healthyCsv = if ($outcome -eq "healthy") { "true" } else { "false" }
+    Write-Host "url,expected_code,status_code,healthy,response_time_seconds,size_bytes,ssl_expiry,outcome"
+    Write-Host "`"$Url`",$ExpectedCode,$httpCode,$healthyCsv,$respTime,$size,`"$sslCsv`",$outcome"
 }
 
 # ---------------------------------------------------------------------------
