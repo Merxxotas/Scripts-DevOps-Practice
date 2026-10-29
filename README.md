@@ -1,5 +1,7 @@
 # DevOps Automation Scripts & Daemons Repository 🛠️
 
+[![CI](https://github.com/Merxxotas/Scripts-DevOps-Practice/actions/workflows/ci-disk-monitor.yml/badge.svg)](https://github.com/Merxxotas/Scripts-DevOps-Practice/actions) [![Release](https://img.shields.io/github/v/release/Merxxotas/Scripts-DevOps-Practice)](https://github.com/Merxxotas/Scripts-DevOps-Practice/releases) [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+
 Welcome to the central repository for DevOps automation scripts, event daemons, and system utilities.
 
 This repository is a **multi-language monorepo**. While it includes foundational Bash and PowerShell scripts, it is language-agnostic and uses modern runtimes such as **Python** and **Go** whenever complex event handling, high-performance concurrency, cross-platform portability, or compiled standalone binaries are required.
