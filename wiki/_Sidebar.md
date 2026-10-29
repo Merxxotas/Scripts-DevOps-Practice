@@ -31,8 +31,6 @@
 - **[[24-Service-Monitor-Scenarios-and-Labs|🧪 Scenarios & Labs]]**
 
 ---
-
-### 🌐 Module 6: Website Availability (HTTP Health Check)
 - **[[31-Website-Availability-Overview|📖 Website Availability Overview]]**
 - **[[32-Website-Availability-Bash-vs-PowerShell|📊 Bash vs PowerShell]]**
 - **[[33-Website-Availability-Scenarios-and-Labs|🧪 Scenarios & Labs]]**
@@ -57,6 +55,13 @@
 - **[[19-Log-Rotation-Overview|📖 Log Rotation Overview]]**
 - **[[20-Log-Rotation-Bash-vs-PowerShell|📊 Bash vs PowerShell]]**
 - **[[21-Log-Rotation-Scenarios-and-Labs|🧪 Scenarios & Labs]]**
+
+---
+
+### ☸️ Module 10: Kubernetes Pod Monitor and Restart
+- **[[34-Kubernetes-Pod-Monitor-Overview|📖 Kubernetes Pod Monitor Overview]]**
+- **[[35-Kubernetes-Pod-Monitor-Bash-vs-PowerShell|📊 Bash vs PowerShell]]**
+- **[[36-Kubernetes-Pod-Monitor-Scenarios-and-Labs|🧪 Scenarios & Labs]]**
 
 ---
 

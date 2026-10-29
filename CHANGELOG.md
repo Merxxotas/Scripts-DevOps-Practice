@@ -343,6 +343,59 @@ failures recorded but do not abort. Audit write is best-effort.
 
 ---
 
+## 2026-10-29 — Kubernetes Pod Monitor and Restart module
+
+**Module 10 — Kubernetes Pod Monitor and Restart** goes from a seed script pair to a fully
+shipped module: a cross-platform utility that monitors Kubernetes pods and deletes (restarts)
+those whose restart count exceeds a threshold. Full Bash + PowerShell parity.
+
+### Added — the module
+
+- **`10-Kubernetes-Pod-Monitor-and-Restart/`** — the whole module, tracked for the first time.
+- **`k8s_monitor.sh`** and **`k8s_monitor.ps1`** — implementations with flags `-n/--namespace`/`-Namespace`,
+  `-l/--label`/`-LabelSelector`, `-r/--restart-threshold`/`-RestartThreshold`, `--force`/`-Force`,
+  `--dry-run`/`-DryRun`, `--audit-log`/`-AuditLog`, `-v/--verbose`/`-Verbose`, `-h/--help`/`-Help`.
+- **Exit-code contract** — `0` success or dry-run, `1` configuration/safety violation (bad input,
+  kubectl missing), `2` partial failure (a delete failed).
+- **Safety guardrails** — namespace DNS-label validation, non-empty label selector, non-negative
+  threshold, kubectl availability check.
+- **Dry-run** — lists pods + which would be deleted, no deletion.
+- **Metrics** — per pod: name, phase (colored), restarts, action (kept/deleted/failed); summary block.
+- **Restart aggregation** — sum across all containers.
+- **Graceful by default** — hard delete only with `--force` (`--grace-period=0 --force`).
+- **ISO-8601 audit log** — `--audit-log` appends one line per run.
+- **`tests/test_k8s_monitor.sh`** (36 tests) and **`tests/test_k8s_monitor.ps1`**. Bash suite stubs
+  `kubectl`; no cluster required.
+- **`SPECS.md`**, **`ROADMAP.md`**, **`CODESTYLE.md`**, **`README.md`**.
+- **`docs/ARCHITECTURE_COMPARISON.md`**, **`docs/SCENARIOS.md`**, **`docs/labs/LAB1-3.md`**.
+
+### Added — CI
+
+- **`.github/workflows/ci-kubernetes-pod-monitor.yml`** — path-filtered, multi-OS matrix.
+
+### Added — knowledge base
+
+- **`wiki/34-Kubernetes-Pod-Monitor-Overview.md`**, **`wiki/35-Kubernetes-Pod-Monitor-Bash-vs-PowerShell.md`**,
+  **`wiki/36-Kubernetes-Pod-Monitor-Scenarios-and-Labs.md`**, with the sidebar updated.
+
+### Changed
+
+- **`MODULES.md`**, **`README.md`**, **`AGENTS.md`** — module 10 marked shipped; no seed modules remain.
+
+### Verification
+
+- **Bash suite, local** — 36 tests, 0 failures.
+- **PowerShell suite** — CI-only (no `pwsh` on the development machine).
+
+### Known gaps
+
+Recorded rather than hidden: no continuous watch loop, no multi-namespace, no deployment/replicaset
+management, no `--json`/`--csv` output. One namespace + selector per invocation. Graceful delete by
+default; hard delete only with `--force`. Audit write is best-effort. Requires `kubectl` and cluster
+access.
+
+---
+
 ## 2026-10-29 — Website Availability (HTTP Health Check) module
 
 **Module 6 — Website Availability (HTTP Health Check)** goes from a seed script pair to a fully

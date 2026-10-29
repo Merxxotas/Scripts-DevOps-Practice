@@ -31,7 +31,7 @@ pipeline and documentation. See [`AGENTS.md`](AGENTS.md) for the module contract
 | 7 | Find and Kill High-CPU Processes | Bash / PowerShell | ✅ **Shipped** | ✅ | Full |
 | 8 | Log Rotation and Compression | Bash / PowerShell | ✅ **Shipped** | ✅ | Full |
 | 9 | Automated Git Deployment | Bash / PowerShell | ✅ **Shipped** | ✅ | Full |
-| 10 | Kubernetes Pod Monitor and Restart | Bash / PowerShell | 🔵 Seed | — | — |
+| 10 | Kubernetes Pod Monitor and Restart | Bash / PowerShell | ✅ **Shipped** | ✅ | Full |
 | 11 | Scheduling and Automation (EventOps) | Python / Go | ✅ **Shipped** | ✅ | Full |
 
 ---
@@ -205,31 +205,25 @@ had never run, so nothing about it had ever been verified.
 Bash script has no options for thresholds or process count; memory % is wrong on macOS (file cache
 counted as used); exit code 2 is reserved but unused.
 
-### 🔵 Seed modules — 10
+### ✅ 10 — Kubernetes Pod Monitor and Restart *(Shipped)*
 
-Each holds a single Bash + PowerShell pair of roughly 40–70 lines, written in one sitting on
-**2026-03-09**. They are functional sketches, not production utilities: no CLI parser, no safety
-guardrails, no dry-run, no audit log, no exit-code contract, no tests, no documentation, no CI.
+Kubernetes pod monitoring with auto-restart (delete) for pods whose restart count exceeds a
+threshold. Full Bash + PowerShell parity.
 
-Module 1 was the first of them to be converted, on **2026-10-21**. It is now the template the
-remaining seven will be converted to.
+- `k8s_monitor.sh` · `k8s_monitor.ps1` · `tests/` · `docs/` (+ 3 labs) · `SPECS.md` · `ROADMAP.md` · `CODESTYLE.md`
+- CI: `.github/workflows/ci-kubernetes-pod-monitor.yml` — ShellCheck, Bash on ubuntu + macOS, PowerShell on Windows + Ubuntu
+- Wiki: [34](wiki/34-Kubernetes-Pod-Monitor-Overview.md) · [35](wiki/35-Kubernetes-Pod-Monitor-Bash-vs-PowerShell.md) · [36](wiki/36-Kubernetes-Pod-Monitor-Scenarios-and-Labs.md)
 
-| # | Module | Files | Purpose |
-| :-- | :--- | :--- | :--- |
-| 10 | Kubernetes Pod Monitor and Restart | `k8s_monitor.sh`, `k8s_monitor.ps1` | K8s pod health monitoring and `kubectl` management. |
+**Known gaps**, recorded rather than hidden: no continuous watch loop, no multi-namespace, no
+deployment/replicaset management, no `--json`/`--csv` output. One namespace + selector per
+invocation. Graceful delete by default; hard delete only with `--force`. Audit write is best-effort.
+Requires `kubectl` and cluster access.
 
-**Seed → Shipped checklist** (the same contract modules 1, 2 and 11 satisfy — module 1 is the
-template the remaining seeds will be converted to):
+---
 
-- [ ] `SPECS.md` — system overview, architecture, flag/parameter reference, data shapes
-- [ ] `ROADMAP.md` — phased milestones
-- [ ] `CODESTYLE.md` — module conventions
-- [ ] `README.md` — usage, flags, scheduling, troubleshooting
-- [ ] Hardened implementation — real CLI parsing, safety guardrails, dry-run, exit codes
-- [ ] `tests/` — deterministic suite covering every documented behaviour
-- [ ] `docs/ARCHITECTURE_COMPARISON.md`, `docs/SCENARIOS.md`, `docs/labs/LAB1-3.md`
-- [ ] Root `.github/workflows/ci-<module>.yml` with `paths:` filters and a multi-OS matrix
-- [ ] Wiki page and sidebar entry
+### 🔵 Seed modules — (none)
+
+All eleven modules are now shipped. No seed modules remain.
 
 ---
 
@@ -248,7 +242,7 @@ Module 1 shipped on **2026-10-21** and set the template; the sequence now starts
 | — | **7 — Find and Kill High-CPU Processes** | **Shipped.** Completed. |
 | — | **9 — Automated Git Deployment** | **Shipped.** Completed. |
 | — | **6 — Website Availability** | **Shipped.** Completed. |
-| 7 | **10 — Kubernetes Pod Monitor** | Highest operational complexity; benefits from the hardened patterns established above. |
+| — | **10 — Kubernetes Pod Monitor** | **Shipped.** Completed. |
 
 ---
 
