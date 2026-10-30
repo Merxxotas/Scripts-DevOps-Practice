@@ -25,8 +25,13 @@ RECURSIVE=false
 DRY_RUN=false
 LOG_FILE=""
 VERBOSE=false
+OUTPUT_MODE="human"
+JSON_OUTPUT=false
+CSV_OUTPUT=false
 
 # Metrics counters
+DELETED_PATHS=()
+DELETED_SIZES=()
 TOTAL_SCANNED=0
 ELIGIBLE_COUNT=0
 DELETED_COUNT=0
@@ -49,6 +54,8 @@ Optional Arguments:
   -r                Recursively scan child directories (default: flat scan).
   -n                Dry-run simulation mode (preview without deleting).
   -l <file>         Path to append persistent ISO-8601 audit logs.
+      --json            Output result as JSON.
+      --csv             Output result as CSV.
   -v                Enable verbose per-file diagnostic output.
   -h                Show this help and usage documentation.
 
@@ -57,6 +64,8 @@ Examples:
   $0 -d /var/log/myapp -t 30 -p "*.log" -r -l /var/log/cleanup_audit.log
 EOF
 }
+
+err() { printf "%b\n" "${COLOR_RED}$*${COLOR_RESET}" >&2; }
 
 # Writes messages to console and optional logfile with ISO-8601 timestamp
 log_message() {
@@ -174,35 +183,60 @@ validate_safety_guardrails() {
 
 # Parses and validates command line arguments
 parse_arguments() {
-    while getopts "d:t:p:m:rnl:vh" opt; do
-        case "$opt" in
-            d) LOG_DIR="$OPTARG" ;;
-            t)
-                if ! [[ "$OPTARG" =~ ^[0-9]+$ ]]; then
-                    printf "%bError: Retention days must be a positive integer.%b\n" "$COLOR_RED" "$COLOR_RESET" >&2
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            -d)
+                [[ $# -ge 2 ]] || { err "Option -d requires a value."; exit 1; }
+                LOG_DIR="$2"; shift 2 ;;
+            -t)
+                [[ $# -ge 2 ]] || { err "Option -t requires a value."; exit 1; }
+                if ! [[ "$2" =~ ^[0-9]+$ ]]; then
+                    err "Retention days must be a positive integer."
                     exit 1
                 fi
-                RETENTION_DAYS="$OPTARG"
-                ;;
-            p) FILE_PATTERN="$OPTARG" ;;
-            m)
-                if ! [[ "$OPTARG" =~ ^[0-9]+(.[0-9]+)?$ ]]; then
-                    printf "%bError: Minimum size must be a numeric value.%b\n" "$COLOR_RED" "$COLOR_RESET" >&2
+                RETENTION_DAYS="$2"; shift 2 ;;
+            -p)
+                [[ $# -ge 2 ]] || { err "Option -p requires a value."; exit 1; }
+                FILE_PATTERN="$2"; shift 2 ;;
+            -m)
+                [[ $# -ge 2 ]] || { err "Option -m requires a value."; exit 1; }
+                if ! [[ "$2" =~ ^[0-9]+(.[0-9]+)?$ ]]; then
+                    err "Minimum size must be a numeric value."
                     exit 1
                 fi
-                MIN_SIZE_MB="$OPTARG"
-                ;;
-            r) RECURSIVE=true ;;
-            n) DRY_RUN=true ;;
-            l) LOG_FILE="$OPTARG" ;;
-            v) VERBOSE=true ;;
-            h) show_help; exit 0 ;;
-            *) show_help; exit 1 ;;
+                MIN_SIZE_MB="$2"; shift 2 ;;
+            -r) RECURSIVE=true; shift ;;
+            -n) DRY_RUN=true; shift ;;
+            -l)
+                [[ $# -ge 2 ]] || { err "Option -l requires a value."; exit 1; }
+                LOG_FILE="$2"; shift 2 ;;
+            -v) VERBOSE=true; shift ;;
+            -h) show_help; exit 0 ;;
+            --json) JSON_OUTPUT=true; shift ;;
+            --csv) CSV_OUTPUT=true; shift ;;
+            --)
+                shift; break ;;
+            -*)
+                err "Unknown option: $1"; show_help; exit 1 ;;
+            *)
+                err "Unexpected argument: $1"; exit 1 ;;
         esac
     done
 
+    if $JSON_OUTPUT && $CSV_OUTPUT; then
+        err "Cannot use --json and --csv together"
+        exit 1
+    fi
+    if $JSON_OUTPUT; then
+        OUTPUT_MODE="json"
+    elif $CSV_OUTPUT; then
+        OUTPUT_MODE="csv"
+    else
+        OUTPUT_MODE="human"
+    fi
+
     if [[ -z "$LOG_DIR" ]]; then
-        printf "%bError: Target directory (-d) is required.%b\n" "$COLOR_RED" "$COLOR_RESET" >&2
+        err "Target directory (-d) is required."
         show_help
         exit 1
     fi
@@ -243,19 +277,21 @@ main() {
         mode_label="$(printf "%bLIVE (Deletions Active)%b" "$COLOR_GREEN" "$COLOR_RESET")"
     fi
 
-    printf "%b============================================================%b\n" "$COLOR_BLUE" "$COLOR_RESET"
-    printf "%b                DevOps Log Cleanup Utility                  %b\n" "$COLOR_BLUE" "$COLOR_RESET"
-    printf "%b============================================================%b\n" "$COLOR_BLUE" "$COLOR_RESET"
-    printf "Target Directory : %b%s%b\n" "$COLOR_CYAN" "$resolved_dir" "$COLOR_RESET"
-    printf "Retention Policy : %bOlder than %s days%b\n" "$COLOR_YELLOW" "$RETENTION_DAYS" "$COLOR_RESET"
-    printf "Matching Pattern : %b%s%b\n" "$COLOR_CYAN" "$FILE_PATTERN" "$COLOR_RESET"
-    printf "Min Size Filter  : %b%s MB%b\n" "$COLOR_CYAN" "$MIN_SIZE_MB" "$COLOR_RESET"
-    printf "Recursive Scan   : %b%s%b\n" "$COLOR_CYAN" "$RECURSIVE" "$COLOR_RESET"
-    printf "Execution Mode   : %b\n" "$mode_label"
-    if [[ -n "$LOG_FILE" ]]; then
-        printf "Audit Log File   : %b%s%b\n" "$COLOR_CYAN" "$LOG_FILE" "$COLOR_RESET"
+    if [[ "$OUTPUT_MODE" == "human" ]]; then
+        printf "%b============================================================%b\n" "$COLOR_BLUE" "$COLOR_RESET"
+        printf "%b                DevOps Log Cleanup Utility                  %b\n" "$COLOR_BLUE" "$COLOR_RESET"
+        printf "%b============================================================%b\n" "$COLOR_BLUE" "$COLOR_RESET"
+        printf "Target Directory : %b%s%b\n" "$COLOR_CYAN" "$resolved_dir" "$COLOR_RESET"
+        printf "Retention Policy : %bOlder than %s days%b\n" "$COLOR_YELLOW" "$RETENTION_DAYS" "$COLOR_RESET"
+        printf "Matching Pattern : %b%s%b\n" "$COLOR_CYAN" "$FILE_PATTERN" "$COLOR_RESET"
+        printf "Min Size Filter  : %b%s MB%b\n" "$COLOR_CYAN" "$MIN_SIZE_MB" "$COLOR_RESET"
+        printf "Recursive Scan   : %b%s%b\n" "$COLOR_CYAN" "$RECURSIVE" "$COLOR_RESET"
+        printf "Execution Mode   : %b\n" "$mode_label"
+        if [[ -n "$LOG_FILE" ]]; then
+            printf "Audit Log File   : %b%s%b\n" "$COLOR_CYAN" "$LOG_FILE" "$COLOR_RESET"
+        fi
+        printf "\n%bScanning target files...%b\n" "$COLOR_BLUE" "$COLOR_RESET"
     fi
-    printf "\n%bScanning target files...%b\n" "$COLOR_BLUE" "$COLOR_RESET"
 
     local current_epoch
     current_epoch="$(date +%s)"
@@ -296,24 +332,34 @@ main() {
                 age_days=$(( (current_epoch - file_mtime) / 86400 ))
 
                 if [[ "$DRY_RUN" = true ]]; then
-                    printf "%b[DRY RUN]%b Would delete: %s (%s, %d days old)\n" "$COLOR_YELLOW" "$COLOR_RESET" "$file_path" "$formatted_size" "$age_days"
+                    if [[ "$OUTPUT_MODE" == "human" ]]; then
+                        printf "%b[DRY RUN]%b Would delete: %s (%s, %d days old)\n" "$COLOR_YELLOW" "$COLOR_RESET" "$file_path" "$formatted_size" "$age_days"
+                    fi
                     log_message "INFO" "[DRY RUN] Would delete: $file_path (Size: $formatted_size, Age: ${age_days}d)"
+                    DELETED_PATHS+=("$file_path")
+                    DELETED_SIZES+=("$file_size")
                     ((DELETED_COUNT++)) || true
                 else
                     if rm -f "$file_path" 2>/dev/null; then
-                        printf "%b✓ Deleted:%b %s (%s, %d days old)\n" "$COLOR_GREEN" "$COLOR_RESET" "$file_path" "$formatted_size" "$age_days"
+                        if [[ "$OUTPUT_MODE" == "human" ]]; then
+                            printf "%b✓ Deleted:%b %s (%s, %d days old)\n" "$COLOR_GREEN" "$COLOR_RESET" "$file_path" "$formatted_size" "$age_days"
+                        fi
                         log_message "INFO" "DELETED: $file_path (Size: $formatted_size, Age: ${age_days}d)"
+                        DELETED_PATHS+=("$file_path")
+                        DELETED_SIZES+=("$file_size")
                         ((DELETED_COUNT++)) || true
                     else
-                        printf "%b✗ Failed to delete:%b %s\n" "$COLOR_RED" "$COLOR_RESET" "$file_path" >&2
+                        if [[ "$OUTPUT_MODE" == "human" ]]; then
+                            printf "%b✗ Failed to delete:%b %s\n" "$COLOR_RED" "$COLOR_RESET" "$file_path" >&2
+                        fi
                         log_message "ERROR" "FAILED to delete: $file_path"
                         ((FAILED_COUNT++)) || true
                     fi
                 fi
-            elif [[ "$VERBOSE" = true ]]; then
+            elif [[ "$VERBOSE" = true && "$OUTPUT_MODE" == "human" ]]; then
                 printf "%b[SKIP - SIZE]%b %s is below minimum size threshold (%s < %s MB)\n" "$COLOR_CYAN" "$COLOR_RESET" "$file_path" "$(format_bytes "$file_size")" "$MIN_SIZE_MB"
             fi
-        elif [[ "$VERBOSE" = true ]]; then
+        elif [[ "$VERBOSE" = true && "$OUTPUT_MODE" == "human" ]]; then
             local file_age
             file_age=$(( (current_epoch - file_mtime) / 86400 ))
             printf "%b[SKIP - AGE]%b %s is within retention period (%d days <= %d days)\n" "$COLOR_CYAN" "$COLOR_RESET" "$file_path" "$file_age" "$RETENTION_DAYS"
@@ -323,15 +369,33 @@ main() {
     local total_space_formatted
     total_space_formatted="$(format_bytes "$TOTAL_RECLAIMED_BYTES")"
 
-    printf "\n%b============================================================%b\n" "$COLOR_BLUE" "$COLOR_RESET"
-    printf "%b                    Execution Summary                       %b\n" "$COLOR_BLUE" "$COLOR_RESET"
-    printf "%b============================================================%b\n" "$COLOR_BLUE" "$COLOR_RESET"
-    printf "Total Files Scanned : %b%d%b\n" "$COLOR_BOLD" "$TOTAL_SCANNED" "$COLOR_RESET"
-    printf "Eligible for Purge  : %b%d%b\n" "$COLOR_BOLD" "$ELIGIBLE_COUNT" "$COLOR_RESET"
-    printf "Files Processed     : %b%d%b\n" "$COLOR_GREEN" "$DELETED_COUNT" "$COLOR_RESET"
-    printf "Failed Deletions    : %b%d%b\n" "$COLOR_RED" "$FAILED_COUNT" "$COLOR_RESET"
-    printf "Storage Reclaimed   : %b%b%s%b\n" "$COLOR_BOLD" "$COLOR_GREEN" "$total_space_formatted" "$COLOR_RESET"
-    printf "%b============================================================%b\n" "$COLOR_BLUE" "$COLOR_RESET"
+    if [[ "$OUTPUT_MODE" == "human" ]]; then
+        printf "\n%b============================================================%b\n" "$COLOR_BLUE" "$COLOR_RESET"
+        printf "%b                    Execution Summary                       %b\n" "$COLOR_BLUE" "$COLOR_RESET"
+        printf "%b============================================================%b\n" "$COLOR_BLUE" "$COLOR_RESET"
+        printf "Total Files Scanned : %b%d%b\n" "$COLOR_BOLD" "$TOTAL_SCANNED" "$COLOR_RESET"
+        printf "Eligible for Purge  : %b%d%b\n" "$COLOR_BOLD" "$ELIGIBLE_COUNT" "$COLOR_RESET"
+        printf "Files Processed     : %b%d%b\n" "$COLOR_GREEN" "$DELETED_COUNT" "$COLOR_RESET"
+        printf "Failed Deletions    : %b%d%b\n" "$COLOR_RED" "$FAILED_COUNT" "$COLOR_RESET"
+        printf "Storage Reclaimed   : %b%b%s%b\n" "$COLOR_BOLD" "$COLOR_GREEN" "$total_space_formatted" "$COLOR_RESET"
+        printf "%b============================================================%b\n" "$COLOR_BLUE" "$COLOR_RESET"
+    fi
+
+    if [[ "$OUTPUT_MODE" == "json" ]]; then
+        local files_json=""
+        local i
+        for ((i=0; i<${#DELETED_PATHS[@]}; i++)); do
+            if [[ -n "$files_json" ]]; then files_json="${files_json}, "; fi
+            files_json="${files_json}{\"path\": \"${DELETED_PATHS[$i]}\", \"size_bytes\": ${DELETED_SIZES[$i]}}"
+        done
+        printf '{\n  "scanned": %s,\n  "eligible": %s,\n  "deleted": %s,\n  "failed": %s,\n  "reclaimed_bytes": %s,\n  "outcome": "%s",\n  "files": [%s]\n}\n' "$TOTAL_SCANNED" "$ELIGIBLE_COUNT" "$DELETED_COUNT" "$FAILED_COUNT" "$TOTAL_RECLAIMED_BYTES" "$([[ "$DRY_RUN" == true ]] && echo dry-run || ([[ "$FAILED_COUNT" -gt 0 ]] && echo failed || echo success))" "$files_json"
+    elif [[ "$OUTPUT_MODE" == "csv" ]]; then
+        printf 'path,size_bytes\n'
+        local i
+        for ((i=0; i<${#DELETED_PATHS[@]}; i++)); do
+            printf '"%s",%s\n' "${DELETED_PATHS[$i]}" "${DELETED_SIZES[$i]}"
+        done
+    fi
 
     log_message "INFO" "Cleanup completed: Scanned=$TOTAL_SCANNED, Eligible=$ELIGIBLE_COUNT, Processed=$DELETED_COUNT, Failed=$FAILED_COUNT, Reclaimed=$total_space_formatted"
 

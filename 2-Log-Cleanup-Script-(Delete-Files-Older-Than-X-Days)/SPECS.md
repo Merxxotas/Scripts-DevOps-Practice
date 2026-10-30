@@ -98,6 +98,8 @@ Usage: ./cleanup_logs.sh -d <path> [-t <days>] [-p <pattern>] [-m <min_size_mb>]
 | `-r` | `--recursive` | Scan directory and all subdirectories recursively | `false` (flat) | No |
 | `-n` | `--dry-run` | Simulation mode: preview actions without deleting | `false` | No |
 | `-l <file>` | `--log-file <file>` | Append execution results and audit log to file | None | No |
+| | `--json` | Output result as JSON | off | No |
+| | `--csv` | Output result as CSV | off | No |
 | `-v` | `--verbose` | Enable verbose diagnostic output per file | `false` | No |
 | `-h` | `--help` | Display command usage and examples | N/A | No |
 
@@ -119,6 +121,8 @@ Syntax:
 | `-Recursive` | `[switch]` | Scan recursively through child directories | `$false` | No |
 | `-DryRun` | `[switch]` | Preview files to be deleted without removing | `$false` | No |
 | `-LogFile` | `[string]` | Path to persistent audit logfile | `$null` | No |
+| `-Json` | `[switch]` | Output result as JSON | `$false` | No |
+| `-Csv` | `[switch]` | Output result as CSV | `$false` | No |
 | `-Verbose` | `[switch]` | Standard PowerShell switch for verbose stream | `$false` | No |
 
 ---
