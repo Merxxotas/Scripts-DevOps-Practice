@@ -20,6 +20,8 @@ param(
     [switch]$DryRun,
     [string]$AuditLog = "",
     [switch]$Verbose,
+    [switch]$Json,
+    [switch]$Csv,
     [switch]$Help
 )
 
@@ -68,6 +70,8 @@ function Show-Help {
     Write-Host "  -RetryDelaySeconds <n> Seconds between attempts (default: 5)."
     Write-Host "  -DryRun                Preview actions without touching the service."
     Write-Host "  -AuditLog <file>       Append ISO-8601 audit log entries."
+    Write-Host "  -Json                  Output result as JSON."
+    Write-Host "  -Csv                   Output result as CSV."
     Write-Host "  -Verbose               Enable diagnostic output."
     Write-Host "  -Help                  Show this help and usage documentation."
 }
@@ -91,6 +95,16 @@ if ($Help) {
     exit 0
 }
 
+# Output mode
+$outputMode = "human"
+if ($Json -and $Csv) {
+    Write-Host "$($Colors.Red)Error: Cannot use -Json and -Csv together.$($Colors.Reset)" -ForegroundColor Red
+    exit 1
+}
+if ($Json) { $outputMode = "json" }
+elseif ($Csv) { $outputMode = "csv" }
+$humanMode = ($outputMode -eq "human")
+
 # Validation
 if ([string]::IsNullOrWhiteSpace($ServiceName)) {
     Write-Host "$($Colors.Red)Error: Service name is required.$($Colors.Reset)" -ForegroundColor Red
@@ -103,16 +117,18 @@ if (-not (Test-ValidServiceName $ServiceName)) {
 }
 
 # Header
-Write-Host "============================================================" -ForegroundColor Blue
-Write-Host "            DevOps Service Monitor Utility                 " -ForegroundColor Blue
-Write-Host "============================================================" -ForegroundColor Blue
-Write-Host "Service          : $($Colors.Cyan)$ServiceName$($Colors.Reset)"
-Write-Host "Max Retries      : $($Colors.Cyan)$MaxRetries$($Colors.Reset)"
-Write-Host "Retry Delay      : $($Colors.Cyan)$RetryDelaySeconds s$($Colors.Reset)"
-if (-not [string]::IsNullOrWhiteSpace($AuditLog)) {
-    Write-Host "Audit Log        : $($Colors.Cyan)$AuditLog$($Colors.Reset)"
+if ($humanMode) {
+    Write-Host "============================================================" -ForegroundColor Blue
+    Write-Host "            DevOps Service Monitor Utility                 " -ForegroundColor Blue
+    Write-Host "============================================================" -ForegroundColor Blue
+    Write-Host "Service          : $($Colors.Cyan)$ServiceName$($Colors.Reset)"
+    Write-Host "Max Retries      : $($Colors.Cyan)$MaxRetries$($Colors.Reset)"
+    Write-Host "Retry Delay      : $($Colors.Cyan)$RetryDelaySeconds s$($Colors.Reset)"
+    if (-not [string]::IsNullOrWhiteSpace($AuditLog)) {
+        Write-Host "Audit Log        : $($Colors.Cyan)$AuditLog$($Colors.Reset)"
+    }
+    Write-Host ""
 }
-Write-Host ""
 
 $Service = Get-ServiceObject -Name $ServiceName
 if ($null -eq $Service) {
@@ -123,27 +139,79 @@ if ($null -eq $Service) {
 
 if ($Service.Status -eq 'Running') {
     if ($DryRun) {
-        Write-Host "$($Colors.Yellow)[DRY RUN]$($Colors.Reset) Service '$ServiceName' is running; no restart planned."
+        if ($humanMode) {
+            Write-Host "$($Colors.Yellow)[DRY RUN]$($Colors.Reset) Service '$ServiceName' is running; no restart planned."
+        }
         Write-AuditLog -Level "INFO" -Message "[DRY RUN] No restart needed for '$ServiceName'."
+        if ($outputMode -eq "json") {
+            $jsonLines = @()
+            $jsonLines += "{"
+            $jsonLines += "  `"service`": `"$ServiceName`","
+            $jsonLines += "  `"max_retries`": $MaxRetries,"
+            $jsonLines += "  `"retry_delay`": $RetryDelaySeconds,"
+            $jsonLines += "  `"retries_used`": 0,"
+            $jsonLines += "  `"outcome`": `"dry-run`""
+            $jsonLines += "}"
+            foreach ($jl in $jsonLines) { Write-Host $jl }
+        } elseif ($outputMode -eq "csv") {
+            Write-Host "service,max_retries,retry_delay,retries_used,outcome"
+            Write-Host "`"$ServiceName`",$MaxRetries,$RetryDelaySeconds,0,`"dry-run`""
+        }
         exit 0
     }
-    Write-Host "$($Colors.Green)✓ Service '$ServiceName' is running.$($Colors.Reset)" -ForegroundColor Green
+    if ($humanMode) {
+        Write-Host "$($Colors.Green)✓ Service '$ServiceName' is running.$($Colors.Reset)" -ForegroundColor Green
+    }
     Write-AuditLog -Level "INFO" -Message "Service '$ServiceName' is running."
+    if ($outputMode -eq "json") {
+        $jsonLines = @()
+        $jsonLines += "{"
+        $jsonLines += "  `"service`": `"$ServiceName`","
+        $jsonLines += "  `"max_retries`": $MaxRetries,"
+        $jsonLines += "  `"retry_delay`": $RetryDelaySeconds,"
+        $jsonLines += "  `"retries_used`": 0,"
+        $jsonLines += "  `"outcome`": `"running`""
+        $jsonLines += "}"
+        foreach ($jl in $jsonLines) { Write-Host $jl }
+    } elseif ($outputMode -eq "csv") {
+        Write-Host "service,max_retries,retry_delay,retries_used,outcome"
+        Write-Host "`"$ServiceName`",$MaxRetries,$RetryDelaySeconds,0,`"running`""
+    }
     exit 0
 }
 
-Write-Host "$($Colors.Red)✗ Service '$ServiceName' is not running.$($Colors.Reset)" -ForegroundColor Red
+if ($humanMode) {
+    Write-Host "$($Colors.Red)✗ Service '$ServiceName' is not running.$($Colors.Reset)" -ForegroundColor Red
+}
 
 if ($DryRun) {
-    Write-Host "$($Colors.Yellow)[DRY RUN]$($Colors.Reset) Would restart '$ServiceName' up to $MaxRetries time(s), waiting $RetryDelaySeconds s between attempts."
+    if ($humanMode) {
+        Write-Host "$($Colors.Yellow)[DRY RUN]$($Colors.Reset) Would restart '$ServiceName' up to $MaxRetries time(s), waiting $RetryDelaySeconds s between attempts."
+    }
     Write-AuditLog -Level "INFO" -Message "[DRY RUN] Restart planned for '$ServiceName'."
+    if ($outputMode -eq "json") {
+        $jsonLines = @()
+        $jsonLines += "{"
+        $jsonLines += "  `"service`": `"$ServiceName`","
+        $jsonLines += "  `"max_retries`": $MaxRetries,"
+        $jsonLines += "  `"retry_delay`": $RetryDelaySeconds,"
+        $jsonLines += "  `"retries_used`": 0,"
+        $jsonLines += "  `"outcome`": `"dry-run`""
+        $jsonLines += "}"
+        foreach ($jl in $jsonLines) { Write-Host $jl }
+    } elseif ($outputMode -eq "csv") {
+        Write-Host "service,max_retries,retry_delay,retries_used,outcome"
+        Write-Host "`"$ServiceName`",$MaxRetries,$RetryDelaySeconds,0,`"dry-run`""
+    }
     exit 0
 }
 
-Write-Host "$($Colors.Yellow)Attempting to restart...$($Colors.Reset)" -ForegroundColor Yellow
+if ($humanMode) {
+    Write-Host "$($Colors.Yellow)Attempting to restart...$($Colors.Reset)" -ForegroundColor Yellow
+}
 
 for ($attempt = 1; $attempt -le $MaxRetries; $attempt++) {
-    if ($Verbose) {
+    if ($Verbose -and $humanMode) {
         Write-Host "  attempt $attempt/$($MaxRetries): restarting $ServiceName"
     }
     try {
@@ -151,7 +219,9 @@ for ($attempt = 1; $attempt -le $MaxRetries; $attempt++) {
         Start-Sleep -Seconds 2
         $Service.Refresh()
         if ($Service.Status -eq 'Running') {
-            Write-Host "$($Colors.Green)✓ Service '$ServiceName' restarted successfully.$($Colors.Reset)" -ForegroundColor Green
+            if ($humanMode) {
+                Write-Host "$($Colors.Green)✓ Service '$ServiceName' restarted successfully.$($Colors.Reset)" -ForegroundColor Green
+            }
             try {
                 Write-EventLog -LogName Application -Source "ServiceMonitor" -EventId 1001 -EntryType Information -Message "Service $ServiceName was restarted" -ErrorAction SilentlyContinue
             } catch {
@@ -159,23 +229,41 @@ for ($attempt = 1; $attempt -le $MaxRetries; $attempt++) {
             }
             $Script:RetriesUsed = $attempt
             Write-AuditLog -Level "INFO" -Message "Service '$ServiceName' restarted after $attempt attempt(s)."
-            Write-Host ""
-            Write-Host "============================================================" -ForegroundColor Blue
-            Write-Host "                    Execution Summary                       " -ForegroundColor Blue
-            Write-Host "============================================================" -ForegroundColor Blue
-            Write-Host "Service          : $($Colors.Bold)$ServiceName$($Colors.Reset)"
-            Write-Host "Result           : $($Colors.Green)restarted$($Colors.Reset)"
-            Write-Host "Retries Used     : $($Colors.Bold)$($Script:RetriesUsed)$($Colors.Reset)"
-            Write-Host "Failed Steps     : $($Colors.Red)0$($Colors.Reset)"
-            Write-Host "============================================================" -ForegroundColor Blue
+            if ($humanMode) {
+                Write-Host ""
+                Write-Host "============================================================" -ForegroundColor Blue
+                Write-Host "                    Execution Summary                       " -ForegroundColor Blue
+                Write-Host "============================================================" -ForegroundColor Blue
+                Write-Host "Service          : $($Colors.Bold)$ServiceName$($Colors.Reset)"
+                Write-Host "Result           : $($Colors.Green)restarted$($Colors.Reset)"
+                Write-Host "Retries Used     : $($Colors.Bold)$($Script:RetriesUsed)$($Colors.Reset)"
+                Write-Host "Failed Steps     : $($Colors.Red)0$($Colors.Reset)"
+                Write-Host "============================================================" -ForegroundColor Blue
+            }
+            if ($outputMode -eq "json") {
+                $jsonLines = @()
+                $jsonLines += "{"
+                $jsonLines += "  `"service`": `"$ServiceName`","
+                $jsonLines += "  `"max_retries`": $MaxRetries,"
+                $jsonLines += "  `"retry_delay`": $RetryDelaySeconds,"
+                $jsonLines += "  `"retries_used`": $($Script:RetriesUsed),"
+                $jsonLines += "  `"outcome`": `"restarted`""
+                $jsonLines += "}"
+                foreach ($jl in $jsonLines) { Write-Host $jl }
+            } elseif ($outputMode -eq "csv") {
+                Write-Host "service,max_retries,retry_delay,retries_used,outcome"
+                Write-Host "`"$ServiceName`",$MaxRetries,$RetryDelaySeconds,$($Script:RetriesUsed),`"restarted`""
+            }
             exit 0
         }
     } catch {
         $Script:RetriesUsed = $attempt
-        Write-Host "$($Colors.Red)✗ Restart attempt $attempt/$MaxRetries failed.$($Colors.Reset)" -ForegroundColor Red
+        if ($humanMode) {
+            Write-Host "$($Colors.Red)✗ Restart attempt $attempt/$MaxRetries failed.$($Colors.Reset)" -ForegroundColor Red
+        }
         Write-AuditLog -Level "ERROR" -Message "Restart attempt $attempt/$MaxRetries failed for '$ServiceName'."
         if ($attempt -lt $MaxRetries) {
-            if ($Verbose) {
+            if ($Verbose -and $humanMode) {
                 Write-Host "  waiting $RetryDelaySeconds s before next attempt"
             }
             Start-Sleep -Seconds $RetryDelaySeconds
@@ -183,15 +271,33 @@ for ($attempt = 1; $attempt -le $MaxRetries; $attempt++) {
     }
 }
 
-Write-Host "$($Colors.Red)✗ Failed to restart service '$ServiceName' after $MaxRetries attempt(s).$($Colors.Reset)" -ForegroundColor Red
+if ($humanMode) {
+    Write-Host "$($Colors.Red)✗ Failed to restart service '$ServiceName' after $MaxRetries attempt(s).$($Colors.Reset)" -ForegroundColor Red
+}
 Write-AuditLog -Level "ERROR" -Message "Failed to restart '$ServiceName' after $MaxRetries attempt(s)."
-Write-Host ""
-Write-Host "============================================================" -ForegroundColor Blue
-Write-Host "                    Execution Summary                       " -ForegroundColor Blue
-Write-Host "============================================================" -ForegroundColor Blue
-Write-Host "Service          : $($Colors.Bold)$ServiceName$($Colors.Reset)"
-Write-Host "Result           : $($Colors.Red)failed$($Colors.Reset)"
-Write-Host "Retries Used     : $($Colors.Bold)$($Script:RetriesUsed)$($Colors.Reset)"
-Write-Host "Failed Steps     : $($Colors.Red)1$($Colors.Reset)"
-Write-Host "============================================================" -ForegroundColor Blue
+if ($humanMode) {
+    Write-Host ""
+    Write-Host "============================================================" -ForegroundColor Blue
+    Write-Host "                    Execution Summary                       " -ForegroundColor Blue
+    Write-Host "============================================================" -ForegroundColor Blue
+    Write-Host "Service          : $($Colors.Bold)$ServiceName$($Colors.Reset)"
+    Write-Host "Result           : $($Colors.Red)failed$($Colors.Reset)"
+    Write-Host "Retries Used     : $($Colors.Bold)$($Script:RetriesUsed)$($Colors.Reset)"
+    Write-Host "Failed Steps     : $($Colors.Red)1$($Colors.Reset)"
+    Write-Host "============================================================" -ForegroundColor Blue
+}
+if ($outputMode -eq "json") {
+    $jsonLines = @()
+    $jsonLines += "{"
+    $jsonLines += "  `"service`": `"$ServiceName`","
+    $jsonLines += "  `"max_retries`": $MaxRetries,"
+    $jsonLines += "  `"retry_delay`": $RetryDelaySeconds,"
+    $jsonLines += "  `"retries_used`": $($Script:RetriesUsed),"
+    $jsonLines += "  `"outcome`": `"failed`""
+    $jsonLines += "}"
+    foreach ($jl in $jsonLines) { Write-Host $jl }
+} elseif ($outputMode -eq "csv") {
+    Write-Host "service,max_retries,retry_delay,retries_used,outcome"
+    Write-Host "`"$ServiceName`",$MaxRetries,$RetryDelaySeconds,$($Script:RetriesUsed),`"failed`""
+}
 exit 2

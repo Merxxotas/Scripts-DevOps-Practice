@@ -73,6 +73,8 @@ shell and the platform service manager.
 | `--retry-delay` | `-RetryDelaySeconds` | `5` | Seconds between attempts |
 | `--dry-run` | `-DryRun` | off | Preview only |
 | `--audit-log` | `-AuditLog` | (none) | ISO-8601 audit log path |
+| `--json` | `-Json` | off | Output result as JSON |
+| `--csv` | `-Csv` | off | Output result as CSV |
 | `-v, --verbose` | `-Verbose` | off | Diagnostic output |
 | `-h, --help` | `-Help` | off | Show help, exit 0 |
 
@@ -117,5 +119,5 @@ outcome and the service. Write failures are best-effort and do not change the ex
 ## 8. Scope Exclusions (v1)
 
 No continuous daemon/watch loop, no health-check HTTP probe, no dependency-graph restart, no
-`--json`/`--csv` output, no service enable/disable, no container orchestration. One service
-per invocation. Audit write is best-effort.
+service enable/disable, no container orchestration. One service per invocation. Audit write
+is best-effort. JSON/CSV output available via `--json`/`--csv`.

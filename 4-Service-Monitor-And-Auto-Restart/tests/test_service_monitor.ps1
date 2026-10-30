@@ -140,6 +140,25 @@ if ($existingService) {
 
 # Test 10: skipped (unknown-option binding is platform-dependent)
 
+# Test 11: -Json dry-run outputs JSON
+if ($existingService) {
+    Invoke-Monitor -ScriptArgs @("-ServiceName", $existingService, "-DryRun", "-Json")
+    Assert-Equal 0 $script:LastExitCode "Test 11a: -Json dry-run exits 0"
+    Assert-Contains $script:LastStdout '"outcome": "dry-run"' "Test 11b: json dry-run outcome"
+}
+
+# Test 12: -Csv dry-run outputs header + row
+if ($existingService) {
+    Invoke-Monitor -ScriptArgs @("-ServiceName", $existingService, "-DryRun", "-Csv")
+    Assert-Equal 0 $script:LastExitCode "Test 12a: -Csv dry-run exits 0"
+    Assert-Contains $script:LastStdout "service,max_retries,retry_delay" "Test 12b: csv header"
+    Assert-Contains $script:LastStdout "dry-run" "Test 12c: csv outcome"
+}
+
+# Test 13: -Json and -Csv mutually exclusive
+Invoke-Monitor -ScriptArgs @("-ServiceName", "NonExistentServiceXYZ123", "-Json", "-Csv")
+Assert-Equal 1 $script:LastExitCode "Test 13: mutual exclusion exits 1"
+
 # Summary
 Write-Host ""
 Write-Host "========================================"

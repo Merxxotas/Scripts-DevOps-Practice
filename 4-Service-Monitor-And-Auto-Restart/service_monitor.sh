@@ -23,6 +23,9 @@ RETRY_DELAY=5
 DRY_RUN=false
 AUDIT_LOG=""
 VERBOSE=false
+OUTPUT_MODE="human"
+JSON_OUTPUT=false
+CSV_OUTPUT=false
 
 # Metrics / state
 RETRIES_USED=0
@@ -50,6 +53,9 @@ valid_service_name() {
     [[ "${1:-}" =~ ^[a-zA-Z0-9_.@-]+$ ]]
 }
 
+log() { if [[ "$OUTPUT_MODE" == "human" ]]; then printf '%b\n' "$*"; fi; }
+err() { printf '%b\n' "${COLOR_RED}$*${COLOR_RESET}" >&2; }
+
 show_help() {
     cat <<EOF
 Service Monitor and Auto-Restart Utility (Bash)
@@ -61,6 +67,8 @@ Optional Arguments:
       --retry-delay <n>     Seconds between attempts (default: 5).
       --dry-run             Preview actions without touching the service.
       --audit-log <file>    Append ISO-8601 audit log entries.
+      --json                Output result as JSON.
+      --csv                 Output result as CSV.
   -v, --verbose            Enable diagnostic output.
   -h, --help               Show this help and usage documentation.
 
@@ -125,6 +133,14 @@ parse_arguments() {
                 AUDIT_LOG="$2"
                 shift 2
                 ;;
+            --json)
+                JSON_OUTPUT=true
+                shift
+                ;;
+            --csv)
+                CSV_OUTPUT=true
+                shift
+                ;;
             -v|--verbose)
                 VERBOSE=true
                 shift
@@ -149,6 +165,18 @@ parse_arguments() {
         esac
     done
 
+    if $JSON_OUTPUT && $CSV_OUTPUT; then
+        err "Cannot use --json and --csv together"
+        exit 1
+    fi
+    if $JSON_OUTPUT; then
+        OUTPUT_MODE="json"
+    elif $CSV_OUTPUT; then
+        OUTPUT_MODE="csv"
+    else
+        OUTPUT_MODE="human"
+    fi
+
     if [[ -z "$SERVICE_NAME" ]]; then
         printf "%bError: Service name is required.%b\n" "$COLOR_RED" "$COLOR_RESET" >&2
         exit 1
@@ -171,16 +199,18 @@ parse_arguments() {
 main() {
     parse_arguments "$@"
 
-    printf "%b============================================================%b\n" "$COLOR_BLUE" "$COLOR_RESET"
-    printf "%b            DevOps Service Monitor Utility                 %b\n" "$COLOR_BLUE" "$COLOR_RESET"
-    printf "%b============================================================%b\n" "$COLOR_BLUE" "$COLOR_RESET"
-    printf "Service          : %b%s%b\n" "$COLOR_CYAN" "$SERVICE_NAME" "$COLOR_RESET"
-    printf "Max Retries      : %b%s%b\n" "$COLOR_CYAN" "$MAX_RETRIES" "$COLOR_RESET"
-    printf "Retry Delay      : %b%s s%b\n" "$COLOR_CYAN" "$RETRY_DELAY" "$COLOR_RESET"
-    if [[ -n "$AUDIT_LOG" ]]; then
-        printf "Audit Log        : %b%s%b\n" "$COLOR_CYAN" "$AUDIT_LOG" "$COLOR_RESET"
+    if [[ "$OUTPUT_MODE" == "human" ]]; then
+        printf "%b============================================================%b\n" "$COLOR_BLUE" "$COLOR_RESET"
+        printf "%b            DevOps Service Monitor Utility                 %b\n" "$COLOR_BLUE" "$COLOR_RESET"
+        printf "%b============================================================%b\n" "$COLOR_BLUE" "$COLOR_RESET"
+        printf "Service          : %b%s%b\n" "$COLOR_CYAN" "$SERVICE_NAME" "$COLOR_RESET"
+        printf "Max Retries      : %b%s%b\n" "$COLOR_CYAN" "$MAX_RETRIES" "$COLOR_RESET"
+        printf "Retry Delay      : %b%s s%b\n" "$COLOR_CYAN" "$RETRY_DELAY" "$COLOR_RESET"
+        if [[ -n "$AUDIT_LOG" ]]; then
+            printf "Audit Log        : %b%s%b\n" "$COLOR_CYAN" "$AUDIT_LOG" "$COLOR_RESET"
+        fi
+        printf "\n"
     fi
-    printf "\n"
 
     # Existence check
     if ! service_exists "$SERVICE_NAME"; then
@@ -192,49 +222,87 @@ main() {
     # Status check
     if service_active "$SERVICE_NAME"; then
         if [[ "$DRY_RUN" == true ]]; then
-            printf "%b[DRY RUN]%b Service '%s' is running; no restart planned.\n" \
-                "$COLOR_YELLOW" "$COLOR_RESET" "$SERVICE_NAME"
+            if [[ "$OUTPUT_MODE" == "human" ]]; then
+                printf "%b[DRY RUN]%b Service '%s' is running; no restart planned.\n" \
+                    "$COLOR_YELLOW" "$COLOR_RESET" "$SERVICE_NAME"
+            fi
             log_message "INFO" "[DRY RUN] No restart needed for '$SERVICE_NAME'."
+            if [[ "$OUTPUT_MODE" == "json" ]]; then
+                printf '{\n  "service": "%s",\n  "max_retries": %s,\n  "retry_delay": %s,\n  "retries_used": 0,\n  "outcome": "dry-run"\n}\n' "$SERVICE_NAME" "$MAX_RETRIES" "$RETRY_DELAY"
+            elif [[ "$OUTPUT_MODE" == "csv" ]]; then
+                printf 'service,max_retries,retry_delay,retries_used,outcome\n'
+                printf '"%s",%s,%s,0,"dry-run"\n' "$SERVICE_NAME" "$MAX_RETRIES" "$RETRY_DELAY"
+            fi
             exit 0
         fi
-        printf "%b✓ Service '%s' is running.%b\n" "$COLOR_GREEN" "$SERVICE_NAME" "$COLOR_RESET"
+        if [[ "$OUTPUT_MODE" == "human" ]]; then
+            printf "%b✓ Service '%s' is running.%b\n" "$COLOR_GREEN" "$SERVICE_NAME" "$COLOR_RESET"
+        fi
         log_message "INFO" "Service '$SERVICE_NAME' is running."
+        if [[ "$OUTPUT_MODE" == "json" ]]; then
+            printf '{\n  "service": "%s",\n  "max_retries": %s,\n  "retry_delay": %s,\n  "retries_used": 0,\n  "outcome": "running"\n}\n' "$SERVICE_NAME" "$MAX_RETRIES" "$RETRY_DELAY"
+        elif [[ "$OUTPUT_MODE" == "csv" ]]; then
+            printf 'service,max_retries,retry_delay,retries_used,outcome\n'
+            printf '"%s",%s,%s,0,"running"\n' "$SERVICE_NAME" "$MAX_RETRIES" "$RETRY_DELAY"
+        fi
         exit 0
     fi
 
-    printf "%b✗ Service '%s' is not running.%b\n" "$COLOR_RED" "$SERVICE_NAME" "$COLOR_RESET"
+    if [[ "$OUTPUT_MODE" == "human" ]]; then
+        printf "%b✗ Service '%s' is not running.%b\n" "$COLOR_RED" "$SERVICE_NAME" "$COLOR_RESET"
+    fi
 
     # Dry-run
     if [[ "$DRY_RUN" == true ]]; then
-        printf "%b[DRY RUN]%b Would restart '%s' up to %s time(s), waiting %s s between attempts.\n" \
-            "$COLOR_YELLOW" "$COLOR_RESET" "$SERVICE_NAME" "$MAX_RETRIES" "$RETRY_DELAY"
+        if [[ "$OUTPUT_MODE" == "human" ]]; then
+            printf "%b[DRY RUN]%b Would restart '%s' up to %s time(s), waiting %s s between attempts.\n" \
+                "$COLOR_YELLOW" "$COLOR_RESET" "$SERVICE_NAME" "$MAX_RETRIES" "$RETRY_DELAY"
+        fi
         log_message "INFO" "[DRY RUN] Restart planned for '$SERVICE_NAME'."
+        if [[ "$OUTPUT_MODE" == "json" ]]; then
+            printf '{\n  "service": "%s",\n  "max_retries": %s,\n  "retry_delay": %s,\n  "retries_used": 0,\n  "outcome": "dry-run"\n}\n' "$SERVICE_NAME" "$MAX_RETRIES" "$RETRY_DELAY"
+        elif [[ "$OUTPUT_MODE" == "csv" ]]; then
+            printf 'service,max_retries,retry_delay,retries_used,outcome\n'
+            printf '"%s",%s,%s,0,"dry-run"\n' "$SERVICE_NAME" "$MAX_RETRIES" "$RETRY_DELAY"
+        fi
         exit 0
     fi
 
     # Auto-restart loop
-    printf "%bAttempting to restart...%b\n" "$COLOR_YELLOW" "$COLOR_RESET"
+    if [[ "$OUTPUT_MODE" == "human" ]]; then
+        printf "%bAttempting to restart...%b\n" "$COLOR_YELLOW" "$COLOR_RESET"
+    fi
     local attempt
     for (( attempt=1; attempt<=MAX_RETRIES; attempt++ )); do
-        if [[ "$VERBOSE" == true ]]; then
+        if [[ "$VERBOSE" == true && "$OUTPUT_MODE" == "human" ]]; then
             printf "  attempt %d/%d: restarting %s\n" "$attempt" "$MAX_RETRIES" "$SERVICE_NAME"
         fi
         if systemctl restart "$SERVICE_NAME" 2>/dev/null; then
             sleep 2
             if service_active "$SERVICE_NAME"; then
-                printf "%b✓ Service '%s' restarted successfully.%b\n" "$COLOR_GREEN" "$SERVICE_NAME" "$COLOR_RESET"
+                if [[ "$OUTPUT_MODE" == "human" ]]; then
+                    printf "%b✓ Service '%s' restarted successfully.%b\n" "$COLOR_GREEN" "$SERVICE_NAME" "$COLOR_RESET"
+                fi
                 notify_restart "$SERVICE_NAME"
                 RETRIES_USED="$attempt"
                 log_message "INFO" "Service '$SERVICE_NAME' restarted after $attempt attempt(s)."
-                # Summary
-                printf "\n%b============================================================%b\n" "$COLOR_BLUE" "$COLOR_RESET"
-                printf "%b                    Execution Summary                       %b\n" "$COLOR_BLUE" "$COLOR_RESET"
-                printf "%b============================================================%b\n" "$COLOR_BLUE" "$COLOR_RESET"
-                printf "Service          : %b%s%b\n" "$COLOR_BOLD" "$SERVICE_NAME" "$COLOR_RESET"
-                printf "Result           : %brestarted%b\n" "$COLOR_GREEN" "$COLOR_RESET"
-                printf "Retries Used     : %b%d%b\n" "$COLOR_BOLD" "$RETRIES_USED" "$COLOR_RESET"
-                printf "Failed Steps     : %b0%b\n" "$COLOR_RED" "$COLOR_RESET"
-                printf "%b============================================================%b\n" "$COLOR_BLUE" "$COLOR_RESET"
+                if [[ "$OUTPUT_MODE" == "human" ]]; then
+                    # Summary
+                    printf "\n%b============================================================%b\n" "$COLOR_BLUE" "$COLOR_RESET"
+                    printf "%b                    Execution Summary                       %b\n" "$COLOR_BLUE" "$COLOR_RESET"
+                    printf "%b============================================================%b\n" "$COLOR_BLUE" "$COLOR_RESET"
+                    printf "Service          : %b%s%b\n" "$COLOR_BOLD" "$SERVICE_NAME" "$COLOR_RESET"
+                    printf "Result           : %brestarted%b\n" "$COLOR_GREEN" "$COLOR_RESET"
+                    printf "Retries Used     : %b%d%b\n" "$COLOR_BOLD" "$RETRIES_USED" "$COLOR_RESET"
+                    printf "Failed Steps     : %b0%b\n" "$COLOR_RED" "$COLOR_RESET"
+                    printf "%b============================================================%b\n" "$COLOR_BLUE" "$COLOR_RESET"
+                fi
+                if [[ "$OUTPUT_MODE" == "json" ]]; then
+                    printf '{\n  "service": "%s",\n  "max_retries": %s,\n  "retry_delay": %s,\n  "retries_used": %s,\n  "outcome": "restarted"\n}\n' "$SERVICE_NAME" "$MAX_RETRIES" "$RETRY_DELAY" "$RETRIES_USED"
+                elif [[ "$OUTPUT_MODE" == "csv" ]]; then
+                    printf 'service,max_retries,retry_delay,retries_used,outcome\n'
+                    printf '"%s",%s,%s,%s,"restarted"\n' "$SERVICE_NAME" "$MAX_RETRIES" "$RETRY_DELAY" "$RETRIES_USED"
+                fi
                 exit 0
             fi
         fi
@@ -242,7 +310,7 @@ main() {
         printf "%b✗ Restart attempt %d/%d failed.%b\n" "$COLOR_RED" "$attempt" "$MAX_RETRIES" "$COLOR_RESET" >&2
         log_message "ERROR" "Restart attempt $attempt/$MAX_RETRIES failed for '$SERVICE_NAME'."
         if [[ "$attempt" -lt "$MAX_RETRIES" ]]; then
-            if [[ "$VERBOSE" == true ]]; then
+            if [[ "$VERBOSE" == true && "$OUTPUT_MODE" == "human" ]]; then
                 printf "  waiting %s s before next attempt\n" "$RETRY_DELAY"
             fi
             sleep "$RETRY_DELAY"
@@ -251,15 +319,23 @@ main() {
 
     printf "%b✗ Failed to restart service '%s' after %s attempt(s).%b\n" "$COLOR_RED" "$SERVICE_NAME" "$MAX_RETRIES" "$COLOR_RESET" >&2
     log_message "ERROR" "Failed to restart '$SERVICE_NAME' after $MAX_RETRIES attempt(s)."
-    # Summary
-    printf "\n%b============================================================%b\n" "$COLOR_BLUE" "$COLOR_RESET"
-    printf "%b                    Execution Summary                       %b\n" "$COLOR_BLUE" "$COLOR_RESET"
-    printf "%b============================================================%b\n" "$COLOR_BLUE" "$COLOR_RESET"
-    printf "Service          : %b%s%b\n" "$COLOR_BOLD" "$SERVICE_NAME" "$COLOR_RESET"
-    printf "Result           : %bfailed%b\n" "$COLOR_RED" "$COLOR_RESET"
-    printf "Retries Used     : %b%d%b\n" "$COLOR_BOLD" "$RETRIES_USED" "$COLOR_RESET"
-    printf "Failed Steps     : %b1%b\n" "$COLOR_RED" "$COLOR_RESET"
-    printf "%b============================================================%b\n" "$COLOR_BLUE" "$COLOR_RESET"
+    if [[ "$OUTPUT_MODE" == "human" ]]; then
+        # Summary
+        printf "\n%b============================================================%b\n" "$COLOR_BLUE" "$COLOR_RESET"
+        printf "%b                    Execution Summary                       %b\n" "$COLOR_BLUE" "$COLOR_RESET"
+        printf "%b============================================================%b\n" "$COLOR_BLUE" "$COLOR_RESET"
+        printf "Service          : %b%s%b\n" "$COLOR_BOLD" "$SERVICE_NAME" "$COLOR_RESET"
+        printf "Result           : %bfailed%b\n" "$COLOR_RED" "$COLOR_RESET"
+        printf "Retries Used     : %b%d%b\n" "$COLOR_BOLD" "$RETRIES_USED" "$COLOR_RESET"
+        printf "Failed Steps     : %b1%b\n" "$COLOR_RED" "$COLOR_RESET"
+        printf "%b============================================================%b\n" "$COLOR_BLUE" "$COLOR_RESET"
+    fi
+    if [[ "$OUTPUT_MODE" == "json" ]]; then
+        printf '{\n  "service": "%s",\n  "max_retries": %s,\n  "retry_delay": %s,\n  "retries_used": %s,\n  "outcome": "failed"\n}\n' "$SERVICE_NAME" "$MAX_RETRIES" "$RETRY_DELAY" "$RETRIES_USED"
+    elif [[ "$OUTPUT_MODE" == "csv" ]]; then
+        printf 'service,max_retries,retry_delay,retries_used,outcome\n'
+        printf '"%s",%s,%s,%s,"failed"\n' "$SERVICE_NAME" "$MAX_RETRIES" "$RETRY_DELAY" "$RETRIES_USED"
+    fi
     exit 2
 }
 
