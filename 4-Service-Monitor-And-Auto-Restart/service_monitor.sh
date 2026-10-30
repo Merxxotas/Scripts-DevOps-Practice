@@ -53,7 +53,6 @@ valid_service_name() {
     [[ "${1:-}" =~ ^[a-zA-Z0-9_.@-]+$ ]]
 }
 
-log() { if [[ "$OUTPUT_MODE" == "human" ]]; then printf '%b\n' "$*"; fi; }
 err() { printf '%b\n' "${COLOR_RED}$*${COLOR_RESET}" >&2; }
 
 show_help() {
