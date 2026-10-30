@@ -59,7 +59,13 @@ param(
     [switch]$DryRun,
 
     [Parameter(Mandatory = $false)]
-    [string]$LogFile
+    [string]$LogFile,
+
+    [Parameter(Mandatory = $false)]
+    [switch]$Json,
+
+    [Parameter(Mandatory = $false)]
+    [switch]$Csv
 )
 
 Set-StrictMode -Version Latest
@@ -82,6 +88,16 @@ $Script:EligibleCount = 0
 $Script:DeletedCount = 0
 $Script:FailedCount = 0
 $Script:TotalReclaimedBytes = [long]0
+$Script:DeletedPaths = @()
+$Script:DeletedSizes = @()
+$Script:OutputMode = "human"
+if ($Json -and $Csv) {
+    Write-Host "$($Colors.Red)Error: Cannot use -Json and -Csv together.$($Colors.Reset)"
+    exit 1
+}
+if ($Json) { $Script:OutputMode = "json" }
+elseif ($Csv) { $Script:OutputMode = "csv" }
+$humanMode = ($Script:OutputMode -eq "human")
 
 # Logs structured messages to persistent logfile
 function Write-AuditLog {
@@ -192,20 +208,22 @@ function Invoke-LogCleanup {
 
     Write-AuditLog -Level "INFO" -Message "Log cleanup initiated for '$ResolvedDir' (Retention: ${Days}d, Pattern: '$Pattern', Recursive: $Recursive, DryRun: $DryRun, MinSizeMB: $MinSizeMB)"
 
-    Write-Host "$($Colors.Blue)$($Colors.Bold)============================================================$($Colors.Reset)"
-    Write-Host "$($Colors.Blue)$($Colors.Bold)                DevOps Log Cleanup Utility                  $($Colors.Reset)"
-    Write-Host "$($Colors.Blue)$($Colors.Bold)============================================================$($Colors.Reset)"
-    Write-Host "Target Directory : $($Colors.Cyan)$ResolvedDir$($Colors.Reset)"
-    Write-Host "Retention Policy : $($Colors.Yellow)Older than $Days days$($Colors.Reset)"
-    Write-Host "Matching Pattern : $($Colors.Cyan)$Pattern$($Colors.Reset)"
-    Write-Host "Min Size Filter  : $($Colors.Cyan)$MinSizeMB MB$($Colors.Reset)"
-    Write-Host "Recursive Scan   : $($Colors.Cyan)$Recursive$($Colors.Reset)"
     $ModeText = if ($DryRun) { "$($Colors.Yellow)DRY RUN (Simulation)$($Colors.Reset)" } else { "$($Colors.Green)LIVE (Deletions Active)$($Colors.Reset)" }
-    Write-Host "Execution Mode   : $ModeText"
-    if (-not [string]::IsNullOrWhiteSpace($LogFile)) {
-        Write-Host "Audit Log File   : $($Colors.Cyan)$LogFile$($Colors.Reset)"
+    if ($humanMode) {
+        Write-Host "$($Colors.Blue)$($Colors.Bold)============================================================$($Colors.Reset)"
+        Write-Host "$($Colors.Blue)$($Colors.Bold)                DevOps Log Cleanup Utility                  $($Colors.Reset)"
+        Write-Host "$($Colors.Blue)$($Colors.Bold)============================================================$($Colors.Reset)"
+        Write-Host "Target Directory : $($Colors.Cyan)$ResolvedDir$($Colors.Reset)"
+        Write-Host "Retention Policy : $($Colors.Yellow)Older than $Days days$($Colors.Reset)"
+        Write-Host "Matching Pattern : $($Colors.Cyan)$Pattern$($Colors.Reset)"
+        Write-Host "Min Size Filter  : $($Colors.Cyan)$MinSizeMB MB$($Colors.Reset)"
+        Write-Host "Recursive Scan   : $($Colors.Cyan)$Recursive$($Colors.Reset)"
+        Write-Host "Execution Mode   : $ModeText"
+        if (-not [string]::IsNullOrWhiteSpace($LogFile)) {
+            Write-Host "Audit Log File   : $($Colors.Cyan)$LogFile$($Colors.Reset)"
+        }
+        Write-Host "`n$($Colors.Blue)Scanning target files...$($Colors.Reset)"
     }
-    Write-Host "`n$($Colors.Blue)Scanning target files...$($Colors.Reset)"
 
     if ($Recursive) {
         $Files = Get-ChildItem -LiteralPath $ResolvedDir -Filter $Pattern -File -Force -Recurse -ErrorAction SilentlyContinue
@@ -228,40 +246,74 @@ function Invoke-LogCleanup {
                 $AgeDays = [int]((Get-Date) - $File.LastWriteTime).TotalDays
 
                 if ($DryRun) {
-                    Write-Host "$($Colors.Yellow)[DRY RUN]$($Colors.Reset) Would delete: $($File.FullName) ($FormattedSize, $AgeDays days old)"
+                    if ($humanMode) {
+                        Write-Host "$($Colors.Yellow)[DRY RUN]$($Colors.Reset) Would delete: $($File.FullName) ($FormattedSize, $AgeDays days old)"
+                    }
                     Write-AuditLog -Level "INFO" -Message "[DRY RUN] Would delete: $($File.FullName) (Size: $FormattedSize, Age: ${AgeDays}d)"
+                    $Script:DeletedPaths += $File.FullName
+                    $Script:DeletedSizes += $File.Length
                     $Script:DeletedCount++
                 } else {
                     try {
                         Remove-Item -LiteralPath $File.FullName -Force -ErrorAction Stop
-                        Write-Host "$($Colors.Green)✓ Deleted:$($Colors.Reset) $($File.FullName) ($FormattedSize, $AgeDays days old)"
+                        if ($humanMode) {
+                            Write-Host "$($Colors.Green)✓ Deleted:$($Colors.Reset) $($File.FullName) ($FormattedSize, $AgeDays days old)"
+                        }
                         Write-AuditLog -Level "INFO" -Message "DELETED: $($File.FullName) (Size: $FormattedSize, Age: ${AgeDays}d)"
+                        $Script:DeletedPaths += $File.FullName
+                        $Script:DeletedSizes += $File.Length
                         $Script:DeletedCount++
                     } catch {
-                        Write-Host "$($Colors.Red)✗ Failed to delete:$($Colors.Reset) $($File.FullName) - $($_.Exception.Message)"
+                        if ($humanMode) {
+                            Write-Host "$($Colors.Red)✗ Failed to delete:$($Colors.Reset) $($File.FullName) - $($_.Exception.Message)"
+                        }
                         Write-AuditLog -Level "ERROR" -Message "FAILED to delete: $($File.FullName) - $($_.Exception.Message)"
                         $Script:FailedCount++
                     }
                 }
-            } elseif ($PSBoundParameters.ContainsKey('Verbose') -and $Verbose) {
+            } elseif ($PSBoundParameters.ContainsKey('Verbose') -and $Verbose -and $humanMode) {
                 Write-Host "$($Colors.Cyan)[SKIP - SIZE]$($Colors.Reset) $($File.FullName) is below minimum size threshold"
             }
-        } elseif ($PSBoundParameters.ContainsKey('Verbose') -and $Verbose) {
+        } elseif ($PSBoundParameters.ContainsKey('Verbose') -and $Verbose -and $humanMode) {
             Write-Host "$($Colors.Cyan)[SKIP - AGE]$($Colors.Reset) $($File.FullName) is within retention period"
         }
     }
 
     $TotalSpaceFormatted = Format-ByteSize -Bytes $Script:TotalReclaimedBytes
 
-    Write-Host "`n$($Colors.Blue)$($Colors.Bold)============================================================$($Colors.Reset)"
-    Write-Host "$($Colors.Blue)$($Colors.Bold)                    Execution Summary                       $($Colors.Reset)"
-    Write-Host "$($Colors.Blue)$($Colors.Bold)============================================================$($Colors.Reset)"
-    Write-Host "Total Files Scanned : $($Colors.Bold)$Script:TotalScanned$($Colors.Reset)"
-    Write-Host "Eligible for Purge  : $($Colors.Bold)$Script:EligibleCount$($Colors.Reset)"
-    Write-Host "Files Processed     : $($Colors.Green)$Script:DeletedCount$($Colors.Reset)"
-    Write-Host "Failed Deletions    : $($Colors.Red)$Script:FailedCount$($Colors.Reset)"
-    Write-Host "Storage Reclaimed   : $($Colors.Bold)$($Colors.Green)$TotalSpaceFormatted$($Colors.Reset)"
-    Write-Host "$($Colors.Blue)$($Colors.Bold)============================================================$($Colors.Reset)"
+    if ($humanMode) {
+        Write-Host "`n$($Colors.Blue)$($Colors.Bold)============================================================$($Colors.Reset)"
+        Write-Host "$($Colors.Blue)$($Colors.Bold)                    Execution Summary                       $($Colors.Reset)"
+        Write-Host "$($Colors.Blue)$($Colors.Bold)============================================================$($Colors.Reset)"
+        Write-Host "Total Files Scanned : $($Colors.Bold)$Script:TotalScanned$($Colors.Reset)"
+        Write-Host "Eligible for Purge  : $($Colors.Bold)$Script:EligibleCount$($Colors.Reset)"
+        Write-Host "Files Processed     : $($Colors.Green)$Script:DeletedCount$($Colors.Reset)"
+        Write-Host "Failed Deletions    : $($Colors.Red)$Script:FailedCount$($Colors.Reset)"
+        Write-Host "Storage Reclaimed   : $($Colors.Bold)$($Colors.Green)$TotalSpaceFormatted$($Colors.Reset)"
+        Write-Host "$($Colors.Blue)$($Colors.Bold)============================================================$($Colors.Reset)"
+    }
+    if ($Script:OutputMode -eq "json") {
+        $filesJson = @()
+        for ($i = 0; $i -lt $Script:DeletedPaths.Count; $i++) {
+            $filesJson += "{`"path`": `"$($Script:DeletedPaths[$i])`", `"size_bytes`": $($Script:DeletedSizes[$i])}"
+        }
+        $filesStr = $filesJson -join ", "
+        $outcome = if ($DryRun) { "dry-run" } elseif ($Script:FailedCount -gt 0) { "failed" } else { "success" }
+        Write-Host "{"
+        Write-Host "  `"scanned`": $($Script:TotalScanned),"
+        Write-Host "  `"eligible`": $($Script:EligibleCount),"
+        Write-Host "  `"deleted`": $($Script:DeletedCount),"
+        Write-Host "  `"failed`": $($Script:FailedCount),"
+        Write-Host "  `"reclaimed_bytes`": $($Script:TotalReclaimedBytes),"
+        Write-Host "  `"outcome`": `"$outcome`","
+        Write-Host "  `"files`": [$filesStr]"
+        Write-Host "}"
+    } elseif ($Script:OutputMode -eq "csv") {
+        Write-Host "path,size_bytes"
+        for ($i = 0; $i -lt $Script:DeletedPaths.Count; $i++) {
+            Write-Host "`"$($Script:DeletedPaths[$i])`",$($Script:DeletedSizes[$i])"
+        }
+    }
 
     Write-AuditLog -Level "INFO" -Message "Cleanup completed: Scanned=$Script:TotalScanned, Eligible=$Script:EligibleCount, Processed=$Script:DeletedCount, Failed=$Script:FailedCount, Reclaimed=$TotalSpaceFormatted"
 

@@ -42,6 +42,20 @@ assert_equals() {
     fi
 }
 
+
+assert_contains() {
+    local haystack="$1"
+    local needle="$2"
+    local test_name="$3"
+    if [[ "$haystack" == *"$needle"* ]]; then
+        printf "%b[PASS]%b %s\n" "$GREEN" "$RESET" "$test_name"
+        ((PASSED_TESTS++)) || true
+    else
+        printf "%b[FAIL]%b %s (missing '%s')\n" "$RED" "$RESET" "$test_name" "$needle" >&2
+        ((FAILED_TESTS++)) || true
+    fi
+}
+
 # Test 1: Help menu returns 0
 test_help_menu() {
     local exit_code=0
@@ -173,6 +187,62 @@ test_audit_logging() {
 
 # Run all tests
 printf "%bStarting Bash Log Cleanup Test Suite...%b\n" "$CYAN" "$RESET"
+test_json_dry_run() {
+    setup
+    local old_file="$TEST_SANDBOX/purge_me.log"
+    echo "purgeable log" > "$old_file"
+    if date -d "45 days ago" +%s >/dev/null 2>&1; then
+        local past_date
+        past_date=$(date -d "45 days ago" +"%Y%m%d%H%M")
+        touch -t "$past_date" "$old_file"
+    elif date -v-45d +%s >/dev/null 2>&1; then
+        local past_date
+        past_date=$(date -v-45d +"%Y%m%d%H%M")
+        touch -t "$past_date" "$old_file"
+    fi
+    local stdout_file="$TEST_SANDBOX/stdout.txt"
+    "$CLEANUP_SCRIPT" -d "$TEST_SANDBOX" -t 30 -n --json >"$stdout_file" 2>/dev/null
+    local ec=$?
+    local out
+    out=$(cat "$stdout_file")
+    assert_equals "0" "$ec" "Test JSONa: --json exits 0"
+    assert_contains "$out" '"outcome": "dry-run"' "Test JSONb: json outcome dry-run"
+    assert_contains "$out" '"scanned"' "Test JSONc: json scanned field"
+    teardown
+}
+
+test_csv_dry_run() {
+    setup
+    local old_file="$TEST_SANDBOX/purge_me.log"
+    echo "purgeable log" > "$old_file"
+    if date -d "45 days ago" +%s >/dev/null 2>&1; then
+        local past_date
+        past_date=$(date -d "45 days ago" +"%Y%m%d%H%M")
+        touch -t "$past_date" "$old_file"
+    elif date -v-45d +%s >/dev/null 2>&1; then
+        local past_date
+        past_date=$(date -v-45d +"%Y%m%d%H%M")
+        touch -t "$past_date" "$old_file"
+    fi
+    local stdout_file="$TEST_SANDBOX/stdout.txt"
+    "$CLEANUP_SCRIPT" -d "$TEST_SANDBOX" -t 30 -n --csv >"$stdout_file" 2>/dev/null
+    local ec=$?
+    local out
+    out=$(cat "$stdout_file")
+    assert_equals "0" "$ec" "Test CSVa: --csv exits 0"
+    assert_contains "$out" "path,size_bytes" "Test CSVb: csv header"
+    teardown
+}
+
+test_json_csv_mutual() {
+    setup
+    local stdout_file="$TEST_SANDBOX/stdout.txt"
+    local ec=0
+    "$CLEANUP_SCRIPT" -d "$TEST_SANDBOX" -t 30 --json --csv >"$stdout_file" 2>/dev/null || ec=$?
+    assert_equals "1" "$ec" "Test MUTa: mutual exclusion exits 1"
+    teardown
+}
+
 test_help_menu
 test_missing_directory
 test_safety_guardrails
@@ -180,6 +250,9 @@ test_dry_run_mode
 test_retention_deletion
 test_recursive_cleanup
 test_audit_logging
+test_json_dry_run
+test_csv_dry_run
+test_json_csv_mutual
 
 printf "============================================================\n"
 printf "Tests Summary: %b%d Passed%b, %b%d Failed%b\n" "$GREEN" "$PASSED_TESTS" "$RESET" "$RED" "$FAILED_TESTS" "$RESET"
