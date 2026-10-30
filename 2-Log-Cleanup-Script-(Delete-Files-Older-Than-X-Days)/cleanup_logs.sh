@@ -388,7 +388,9 @@ main() {
             if [[ -n "$files_json" ]]; then files_json="${files_json}, "; fi
             files_json="${files_json}{\"path\": \"${DELETED_PATHS[$i]}\", \"size_bytes\": ${DELETED_SIZES[$i]}}"
         done
-        printf '{\n  "scanned": %s,\n  "eligible": %s,\n  "deleted": %s,\n  "failed": %s,\n  "reclaimed_bytes": %s,\n  "outcome": "%s",\n  "files": [%s]\n}\n' "$TOTAL_SCANNED" "$ELIGIBLE_COUNT" "$DELETED_COUNT" "$FAILED_COUNT" "$TOTAL_RECLAIMED_BYTES" "$([[ "$DRY_RUN" == true ]] && echo dry-run || ([[ "$FAILED_COUNT" -gt 0 ]] && echo failed || echo success))" "$files_json"
+        local outcome
+        if [[ "$DRY_RUN" == true ]]; then outcome="dry-run"; elif [[ "$FAILED_COUNT" -gt 0 ]]; then outcome="failed"; else outcome="success"; fi
+        printf '{\n  "scanned": %s,\n  "eligible": %s,\n  "deleted": %s,\n  "failed": %s,\n  "reclaimed_bytes": %s,\n  "outcome": "%s",\n  "files": [%s]\n}\n' "$TOTAL_SCANNED" "$ELIGIBLE_COUNT" "$DELETED_COUNT" "$FAILED_COUNT" "$TOTAL_RECLAIMED_BYTES" "$outcome" "$files_json"
     elif [[ "$OUTPUT_MODE" == "csv" ]]; then
         printf 'path,size_bytes\n'
         local i
