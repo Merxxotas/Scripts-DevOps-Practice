@@ -146,8 +146,9 @@ Bash + PowerShell parity.
 - Wiki: [19](wiki/19-Log-Rotation-Overview.md) · [20](wiki/20-Log-Rotation-Bash-vs-PowerShell.md) · [21](wiki/21-Log-Rotation-Scenarios-and-Labs.md)
 
 **Known gaps**, recorded rather than hidden: no time-based or date-stamped rotation, no
-`copytruncate`/`create` modes, no post-rotation hook, no compression of already-rotated backups,
-no `--json`/`--csv` output. One log file per invocation. Audit write is best-effort.
+`copytruncate`/`create` modes, no post-rotation hook, no compression of already-rotated backups.
+JSON/CSV output available via `--json`/`--csv`. One log file per invocation. Audit write is
+best-effort.
 
 ### ✅ 9 — Automated Git Deployment *(Shipped)*
 
