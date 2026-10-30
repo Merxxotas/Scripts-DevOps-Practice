@@ -338,6 +338,33 @@ test_help_mentions_backends() {
 
 # Run all tests
 printf "%bStarting DB Backup Test Suite...%b\n" "$CYAN" "$RESET"
+test_json_dry_run() {
+    setup
+    export STUB_DUMP_CAPTURE="$CAPTURE_FILE"
+    : > "$CAPTURE_FILE"
+    run_backup --db-password secret --backup-dir "$TEST_SANDBOX/bk" --dry-run --json
+    assert_equals "0" "$LAST_EXIT_CODE" "Test JSONa: --json dry-run exits 0"
+    assert_contains "$LAST_STDOUT" '"outcome": "dry-run"' "Test JSONb: json outcome dry-run"
+    assert_contains "$LAST_STDOUT" '"db_type"' "Test JSONc: json db_type field"
+}
+
+test_csv_dry_run() {
+    setup
+    export STUB_DUMP_CAPTURE="$CAPTURE_FILE"
+    : > "$CAPTURE_FILE"
+    run_backup --db-password secret --backup-dir "$TEST_SANDBOX/bk" --dry-run --csv
+    assert_equals "0" "$LAST_EXIT_CODE" "Test CSVa: --csv dry-run exits 0"
+    assert_contains "$LAST_STDOUT" "db_type,db_name,backup_file" "Test CSVb: csv header"
+}
+
+test_json_csv_mutual() {
+    setup
+    export STUB_DUMP_CAPTURE="$CAPTURE_FILE"
+    : > "$CAPTURE_FILE"
+    run_backup --db-password secret --backup-dir "$TEST_SANDBOX/bk" --dry-run --json --csv
+    assert_equals "1" "$LAST_EXIT_CODE" "Test MUTa: mutual exclusion exits 1"
+}
+
 test_help_menu
 test_unknown_flag
 test_missing_password
@@ -353,6 +380,9 @@ test_password_from_env
 test_no_compress
 test_audit_log
 test_help_mentions_backends
+test_json_dry_run
+test_csv_dry_run
+test_json_csv_mutual
 
 printf "============================================================\n"
 printf "Tests Summary: %b%d Passed%b, %b%d Failed%b\n" "$GREEN" "$PASSED_TESTS" "$RESET" "$RED" "$FAILED_TESTS" "$RESET"

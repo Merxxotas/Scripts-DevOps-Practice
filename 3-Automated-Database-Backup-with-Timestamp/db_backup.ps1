@@ -28,7 +28,9 @@ param(
     [switch]$DryRun,
     [string]$LogFile = "",
     [switch]$Verbose,
-    [switch]$Help
+    [switch]$Help,
+    [switch]$Json,
+    [switch]$Csv
 )
 
 $ErrorActionPreference = "Stop"
@@ -56,17 +58,17 @@ function Write-ErrorLine {
 
 function Write-InfoLine {
     param([string]$Message)
-    Write-Host "$($Colors.Blue)$Message$($Colors.Reset)"
+    if ($humanMode) { Write-Host "$($Colors.Blue)$Message$($Colors.Reset)" }
 }
 
 function Write-SuccessLine {
     param([string]$Message)
-    Write-Host "$($Colors.Green)$Message$($Colors.Reset)"
+    if ($humanMode) { Write-Host "$($Colors.Green)$Message$($Colors.Reset)" }
 }
 
 function Write-WarningLine {
     param([string]$Message)
-    Write-Host "$($Colors.Yellow)$Message$($Colors.Reset)" -ForegroundColor Yellow
+    if ($humanMode) { Write-Host "$($Colors.Yellow)$Message$($Colors.Reset)" -ForegroundColor Yellow }
 }
 
 function Show-Help {
@@ -172,6 +174,16 @@ $CompressEnabled = $true
 if ($NoCompress) { $CompressEnabled = $false }
 if ($Compress) { $CompressEnabled = $true }
 
+# Output mode
+$Script:OutputMode = "human"
+if ($Json -and $Csv) {
+    Write-ErrorLine "Cannot use -Json and -Csv together"
+    exit 1
+}
+if ($Json) { $Script:OutputMode = "json" }
+elseif ($Csv) { $Script:OutputMode = "csv" }
+$humanMode = ($Script:OutputMode -eq "human")
+
 # Validate db type
 if (-not (Test-ValidDbType $DbType)) {
     Write-ErrorLine "Unsupported database type: '$DbType'. Use mysql or postgresql."
@@ -233,6 +245,19 @@ if ($DryRun) {
     }
     Write-InfoLine "[DRY RUN] Would prune backups older than $RetentionDays days in $BackupDir"
     Write-AuditLine "INFO" "Dry run: planned backup $backupFile (no changes made)."
+    if ($Script:OutputMode -eq "json") {
+        Write-Host "{"
+        Write-Host "  `"db_type`": `"$DbType`","
+        Write-Host "  `"db_name`": `"$DbName`","
+        Write-Host "  `"backup_file`": `"$backupFile`","
+        Write-Host "  `"compressed`": $($CompressEnabled.ToString().ToLower()),"
+        Write-Host "  `"retention_days`": $RetentionDays,"
+        Write-Host "  `"outcome`": `"dry-run`""
+        Write-Host "}"
+    } elseif ($Script:OutputMode -eq "csv") {
+        Write-Host "db_type,db_name,backup_file,compressed,retention_days,outcome"
+        Write-Host "`"$DbType`",`"$DbName`",`"$backupFile`",$($CompressEnabled.ToString().ToLower()),$RetentionDays,`"dry-run`""
+    }
     exit 0
 }
 
@@ -281,6 +306,19 @@ if ($dumpStatus -ne 0) {
     Write-ErrorLine "Database dump failed (exit $dumpStatus)."
     Write-AuditLine "ERROR" "Dump failed for $DbType/$DbName (exit $dumpStatus)."
     Remove-Item -Path $backupFile -Force -ErrorAction SilentlyContinue
+    if ($Script:OutputMode -eq "json") {
+        Write-Host "{"
+        Write-Host "  `"db_type`": `"$DbType`","
+        Write-Host "  `"db_name`": `"$DbName`","
+        Write-Host "  `"backup_file`": `"$backupFile`","
+        Write-Host "  `"compressed`": $($CompressEnabled.ToString().ToLower()),"
+        Write-Host "  `"retention_days`": $RetentionDays,"
+        Write-Host "  `"outcome`": `"failed`""
+        Write-Host "}"
+    } elseif ($Script:OutputMode -eq "csv") {
+        Write-Host "db_type,db_name,backup_file,compressed,retention_days,outcome"
+        Write-Host "`"$DbType`",`"$DbName`",`"$backupFile`",$($CompressEnabled.ToString().ToLower()),$RetentionDays,`"failed`""
+    }
     exit 2
 }
 
@@ -295,6 +333,19 @@ if ($CompressEnabled) {
     } catch {
         Write-ErrorLine "Compression failed for $backupFile. $($_.Exception.Message)"
         Write-AuditLine "ERROR" "Compression failed for $backupFile."
+        if ($Script:OutputMode -eq "json") {
+            Write-Host "{"
+            Write-Host "  `"db_type`": `"$DbType`","
+            Write-Host "  `"db_name`": `"$DbName`","
+            Write-Host "  `"backup_file`": `"$backupFile`","
+            Write-Host "  `"compressed`": false,"
+            Write-Host "  `"retention_days`": $RetentionDays,"
+            Write-Host "  `"outcome`": `"failed`""
+            Write-Host "}"
+        } elseif ($Script:OutputMode -eq "csv") {
+            Write-Host "db_type,db_name,backup_file,compressed,retention_days,outcome"
+            Write-Host "`"$DbType`",`"$DbName`",`"$backupFile`",false,$RetentionDays,`"failed`""
+        }
         exit 2
     }
     Write-SuccessLine "Compressed: $compressedFile"
@@ -326,6 +377,23 @@ if ($pruneFailed -gt 0) {
 
 Write-SuccessLine "Backup complete. Pruned $pruned old backup(s)."
 Write-AuditLine "INFO" "Backup complete for $DbType/$DbName. Pruned $pruned old backup(s)."
+
+$backupOut = if ($CompressEnabled) { $compressedFile } else { $backupFile }
+$outcome = if ($pruneFailed -gt 0) { "partial-failure" } else { "success" }
+if ($Script:OutputMode -eq "json") {
+    Write-Host "{"
+    Write-Host "  `"db_type`": `"$DbType`","
+    Write-Host "  `"db_name`": `"$DbName`","
+    Write-Host "  `"backup_file`": `"$backupOut`","
+    Write-Host "  `"compressed`": $($CompressEnabled.ToString().ToLower()),"
+    Write-Host "  `"retention_days`": $RetentionDays,"
+    Write-Host "  `"pruned`": $pruned,"
+    Write-Host "  `"outcome`": `"$outcome`""
+    Write-Host "}"
+} elseif ($Script:OutputMode -eq "csv") {
+    Write-Host "db_type,db_name,backup_file,compressed,retention_days,pruned,outcome"
+    Write-Host "`"$DbType`",`"$DbName`",`"$backupOut`",$($CompressEnabled.ToString().ToLower()),$RetentionDays,$pruned,`"$outcome`""
+}
 
 if ($pruneFailed -gt 0) {
     exit 2

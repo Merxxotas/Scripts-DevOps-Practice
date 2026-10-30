@@ -98,7 +98,7 @@ Bash + PowerShell parity.
 - Wiki: [16](wiki/16-Database-Backup-Overview.md) · [17](wiki/17-Database-Backup-Bash-vs-PowerShell.md) · [18](wiki/18-Database-Backup-Scenarios-and-Labs.md)
 
 **Known gaps**, recorded rather than hidden: no incremental/differential backups, no cloud streaming,
-no MSSQL, no encryption of the backup file, no `--json`/`--csv` output. One database per
+no MSSQL, no encryption of the backup file. JSON/CSV output available via `--json`/`--csv`. One database per
 invocation. Audit write is best-effort.
 
 ### ✅ 4 — Service Monitor and Auto-Restart *(Shipped)*

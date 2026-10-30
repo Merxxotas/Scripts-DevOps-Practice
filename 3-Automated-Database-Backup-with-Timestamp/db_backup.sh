@@ -35,6 +35,9 @@ COMPRESS=true
 DRY_RUN=false
 LOG_FILE=""
 VERBOSE=false
+OUTPUT_MODE="human"
+JSON_OUTPUT=false
+CSV_OUTPUT=false
 
 
 COLOR_RED="$RED"
@@ -63,11 +66,15 @@ print_error() {
 }
 
 print_info() {
-    printf '%b%s%b\n' "$COLOR_BLUE" "$1" "$COLOR_RESET"
+    if [[ "$OUTPUT_MODE" == "human" ]]; then
+        printf '%b%s%b\n' "$COLOR_BLUE" "$1" "$COLOR_RESET"
+    fi
 }
 
 print_success() {
-    printf '%b%s%b\n' "$COLOR_GREEN" "$1" "$COLOR_RESET"
+    if [[ "$OUTPUT_MODE" == "human" ]]; then
+        printf '%b%s%b\n' "$COLOR_GREEN" "$1" "$COLOR_RESET"
+    fi
 }
 
 print_warning() {
@@ -132,6 +139,8 @@ Optional Arguments:
       --no-compress          Do not compress the backup.
       --dry-run              Preview without dumping, compressing or deleting.
   -l, --log-file <file>      Append ISO-8601 audit records.
+      --json                 Output result as JSON.
+      --csv                  Output result as CSV.
   -v, --verbose              Enable diagnostic output.
   -h, --help                 Show this help and exit 0.
 
@@ -172,6 +181,10 @@ parse_args() {
                 LOG_FILE="$2"; shift 2 ;;
             -v|--verbose)
                 VERBOSE=true; shift ;;
+            --json)
+                JSON_OUTPUT=true; shift ;;
+            --csv)
+                CSV_OUTPUT=true; shift ;;
             -h|--help)
                 show_help; exit 0 ;;
             --)
@@ -181,6 +194,18 @@ parse_args() {
                 exit 1 ;;
         esac
     done
+
+    if $JSON_OUTPUT && $CSV_OUTPUT; then
+        print_error "Cannot use --json and --csv together"
+        exit 1
+    fi
+    if $JSON_OUTPUT; then
+        OUTPUT_MODE="json"
+    elif $CSV_OUTPUT; then
+        OUTPUT_MODE="csv"
+    else
+        OUTPUT_MODE="human"
+    fi
 }
 
 # ---------- dump command resolution ----------
@@ -264,6 +289,12 @@ main() {
         fi
         print_info "[DRY RUN] Would prune backups older than $RETENTION_DAYS days in $BACKUP_DIR"
         log_message "INFO" "Dry run: planned backup $backup_file (no changes made)."
+        if [[ "$OUTPUT_MODE" == "json" ]]; then
+            printf '{\n  "db_type": "%s",\n  "db_name": "%s",\n  "backup_file": "%s",\n  "compressed": %s,\n  "retention_days": %s,\n  "outcome": "dry-run"\n}\n' "$DB_TYPE" "$DB_NAME" "$backup_file" "$([[ "$COMPRESS" == true ]] && echo true || echo false)" "$RETENTION_DAYS"
+        elif [[ "$OUTPUT_MODE" == "csv" ]]; then
+            printf 'db_type,db_name,backup_file,compressed,retention_days,outcome\n'
+            printf '"%s","%s","%s",%s,%s,"dry-run"\n' "$DB_TYPE" "$DB_NAME" "$backup_file" "$([[ "$COMPRESS" == true ]] && echo true || echo false)" "$RETENTION_DAYS"
+        fi
         exit 0
     fi
 
@@ -298,6 +329,12 @@ main() {
         print_error "Database dump failed (exit $dump_status)."
         log_message "ERROR" "Dump failed for $DB_TYPE/$DB_NAME (exit $dump_status)."
         rm -f "$backup_file"
+        if [[ "$OUTPUT_MODE" == "json" ]]; then
+            printf '{\n  "db_type": "%s",\n  "db_name": "%s",\n  "backup_file": "%s",\n  "compressed": %s,\n  "retention_days": %s,\n  "outcome": "failed"\n}\n' "$DB_TYPE" "$DB_NAME" "$backup_file" "$([[ "$COMPRESS" == true ]] && echo true || echo false)" "$RETENTION_DAYS"
+        elif [[ "$OUTPUT_MODE" == "csv" ]]; then
+            printf 'db_type,db_name,backup_file,compressed,retention_days,outcome\n'
+            printf '"%s","%s","%s",%s,%s,"failed"\n' "$DB_TYPE" "$DB_NAME" "$backup_file" "$([[ "$COMPRESS" == true ]] && echo true || echo false)" "$RETENTION_DAYS"
+        fi
         exit 2
     fi
 
@@ -309,6 +346,12 @@ main() {
         if ! gzip -f "$backup_file" 2>/dev/null; then
             print_error "Compression failed for $backup_file."
             log_message "ERROR" "Compression failed for $backup_file."
+            if [[ "$OUTPUT_MODE" == "json" ]]; then
+                printf '{\n  "db_type": "%s",\n  "db_name": "%s",\n  "backup_file": "%s",\n  "compressed": false,\n  "retention_days": %s,\n  "outcome": "failed"\n}\n' "$DB_TYPE" "$DB_NAME" "$backup_file" "$RETENTION_DAYS"
+            elif [[ "$OUTPUT_MODE" == "csv" ]]; then
+                printf 'db_type,db_name,backup_file,compressed,retention_days,outcome\n'
+                printf '"%s","%s","%s",false,%s,"failed"\n' "$DB_TYPE" "$DB_NAME" "$backup_file" "$RETENTION_DAYS"
+            fi
             exit 2
         fi
         print_success "Compressed: $compressed_file"
@@ -337,6 +380,16 @@ main() {
 
     print_success "Backup complete. Pruned $pruned old backup(s)."
     log_message "INFO" "Backup complete for $DB_TYPE/$DB_NAME. Pruned $pruned old backup(s)."
+
+    local outcome
+    if [[ $prune_failed -gt 0 ]]; then outcome="partial-failure"; else outcome="success"; fi
+
+    if [[ "$OUTPUT_MODE" == "json" ]]; then
+        printf '{\n  "db_type": "%s",\n  "db_name": "%s",\n  "backup_file": "%s",\n  "compressed": %s,\n  "retention_days": %s,\n  "pruned": %s,\n  "outcome": "%s"\n}\n' "$DB_TYPE" "$DB_NAME" "$([[ "$COMPRESS" == true ]] && echo "$compressed_file" || echo "$backup_file")" "$([[ "$COMPRESS" == true ]] && echo true || echo false)" "$RETENTION_DAYS" "$pruned" "$outcome"
+    elif [[ "$OUTPUT_MODE" == "csv" ]]; then
+        printf 'db_type,db_name,backup_file,compressed,retention_days,pruned,outcome\n'
+        printf '"%s","%s","%s",%s,%s,%s,"%s"\n' "$DB_TYPE" "$DB_NAME" "$([[ "$COMPRESS" == true ]] && echo "$compressed_file" || echo "$backup_file")" "$([[ "$COMPRESS" == true ]] && echo true || echo false)" "$RETENTION_DAYS" "$pruned" "$outcome"
+    fi
 
     if [[ $prune_failed -gt 0 ]]; then
         exit 2
