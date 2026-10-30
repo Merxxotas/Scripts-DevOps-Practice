@@ -488,6 +488,26 @@ Test-AuditLog
 Test-HelpMentionsBackends
 Test-PublicInterfaceMatchesBashSide
 
+# Json/Csv mutual exclusion
+$psi = New-Object System.Diagnostics.ProcessStartInfo
+$psi.FileName = "pwsh"
+if (-not (Get-Command pwsh -ErrorAction SilentlyContinue)) { $psi.FileName = "powershell" }
+$psi.Arguments = "-NoProfile -File `"$BackupScript`" -DbPassword secret -Json -Csv"
+$psi.RedirectStandardOutput = $true
+$psi.RedirectStandardError = $true
+$psi.UseShellExecute = $false
+$proc = [System.Diagnostics.Process]::Start($psi)
+$null = $proc.StandardOutput.ReadToEnd()
+$null = $proc.StandardError.ReadToEnd()
+$proc.WaitForExit()
+if ($proc.ExitCode -eq 1) {
+    Write-Host "[PASS] Json/Csv mutual exclusion exits 1" -ForegroundColor Green
+    $script:PassedCount++
+} else {
+    Write-Host "[FAIL] Json/Csv mutual exclusion (got $($proc.ExitCode))" -ForegroundColor Red
+    $script:FailedCount++
+}
+
 Write-Host "============================================================"
 Write-Host "Tests Summary: $([char]27)[0;32m$script:PassedCount Passed$([char]27)[0m, $([char]27)[0;31m$script:FailedCount Failed$([char]27)[0m"
 Write-Host "============================================================"

@@ -78,6 +78,8 @@ feature parity. No third-party dependencies beyond the database client itself.
 | `--no-compress` | `-NoCompress` | off | Do not compress |
 | `--dry-run` | `-DryRun` | off | Preview only |
 | `-l, --log-file` | `-LogFile` | (none) | ISO-8601 audit log |
+| `--json` | `-Json` | off | Output result as JSON |
+| `--csv` | `-Csv` | off | Output result as CSV |
 | `-v, --verbose` | `-Verbose` | off | Diagnostic output |
 | `-h, --help` | `-Help` | off | Show help, exit 0 |
 
@@ -139,7 +141,7 @@ outcome, the backup file, and pruned files. The password is never written.
 ## 10. Scope Exclusions (v1)
 
 No incremental/differential backups, no cloud streaming, no MSSQL, no encryption of the backup
-file, no `--json`/`--csv` output. One database per invocation. Audit write is best-effort.
+file. JSON/CSV output available via `--json`/`--csv`. One database per invocation. Audit write is best-effort.
 
 ---
 
