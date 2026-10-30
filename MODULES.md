@@ -75,9 +75,9 @@ never been in git, so nothing about it had ever been verified.
 | The Bash harness created the mail-capture file itself, so "the mail agent was never invoked" could not be asserted by the file's absence | The assertion checks the capture's contents |
 | The PowerShell suite failed PSScriptAnalyzer — two unapproved verbs, two plural nouns, global counters | Approved verbs, singular nouns, and script-scoped state |
 
-**Known gaps**, recorded rather than hidden: one partition per invocation; no `--json`/`--csv` output and
-no direct SMTP transport are deliberate v1 non-goals; the audit write is best-effort (may fail on a
-full disk); the CI matrix is x86-only (no ARM64 runner yet).
+**Known gaps**, recorded rather than hidden: one partition per invocation; no direct SMTP transport is
+a deliberate v1 non-goal; JSON/CSV output available via `--json`/`--csv`; the audit write is
+best-effort (may fail on a full disk); the CI matrix is x86-only (no ARM64 runner yet).
 
 ### ✅ 2 — Log Cleanup *(Shipped)*
 

@@ -1941,6 +1941,31 @@ test_http_error_status_is_a_failed_handoff
 test_doctor_remedy_survives_a_quoted_path
 test_doctor_warns_when_the_permission_cannot_be_determined
 
+# JSON/CSV tests
+test_json_within_threshold() {
+    setup
+    DISK_MONITOR_USAGE_OVERRIDE=50 run_monitor -t 80 --notify none --json
+    assert_equals "0" "$LAST_EXIT_CODE" "Test JSONa: --json within threshold exits 0"
+    assert_contains "$LAST_STDOUT" '"outcome": "within-threshold"' "Test JSONb: json outcome within-threshold"
+}
+
+test_csv_within_threshold() {
+    setup
+    DISK_MONITOR_USAGE_OVERRIDE=50 run_monitor -t 80 --notify none --csv
+    assert_equals "0" "$LAST_EXIT_CODE" "Test CSVa: --csv within threshold exits 0"
+    assert_contains "$LAST_STDOUT" "partition,usage_percent,threshold,outcome" "Test CSVb: csv header"
+}
+
+test_json_csv_mutual() {
+    setup
+    DISK_MONITOR_USAGE_OVERRIDE=50 run_monitor -t 80 --notify none --json --csv
+    assert_equals "1" "$LAST_EXIT_CODE" "Test MUTa: mutual exclusion exits 1"
+}
+
+test_json_within_threshold
+test_csv_within_threshold
+test_json_csv_mutual
+
 printf "============================================================\n"
 printf "Tests Summary: %b%d Passed%b, %b%d Failed%b\n" "$GREEN" "$PASSED_TESTS" "$RESET" "$RED" "$FAILED_TESTS" "$RESET"
 printf "============================================================\n"

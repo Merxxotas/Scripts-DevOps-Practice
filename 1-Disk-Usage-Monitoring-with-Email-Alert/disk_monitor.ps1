@@ -125,7 +125,13 @@ param(
     [switch]$Doctor,
 
     [Parameter(Mandatory = $false)]
-    [switch]$Help
+    [switch]$Help,
+
+    [Parameter(Mandatory = $false)]
+    [switch]$Json,
+
+    [Parameter(Mandatory = $false)]
+    [switch]$Csv
 )
 
 Set-StrictMode -Version Latest
@@ -243,6 +249,8 @@ Optional Arguments:
   -Timeout <seconds>       HTTP request timeout in seconds (default: 10).
   -HttpCommand <cmd>       HTTP client to send the request with (default: curl).
   -LogFile <file>          Path to append ISO-8601 audit records.
+  -Json                    Output result as JSON.
+  -Csv                     Output result as CSV.
   -Config <file>           Configuration file to read (default: ./.diskmonitor.conf).
   -Doctor                  Report what is configured and what is missing.
   -Verbose                 Enable diagnostic output.
@@ -1472,6 +1480,15 @@ function Invoke-DiskMonitor {
         Show-Help
         exit 0
     }
+
+    $script:OutputMode = "human"
+    if ($Json -and $Csv) {
+        Write-ErrorLine "$($Colors.Red)Error: Cannot use -Json and -Csv together.$($Colors.Reset)"
+        exit 1
+    }
+    if ($Json) { $script:OutputMode = "json" }
+    elseif ($Csv) { $script:OutputMode = "csv" }
+    $script:HumanMode = ($script:OutputMode -eq "human")
 
     Resolve-Configuration
 
