@@ -211,6 +211,35 @@ touch "$TEST_SANDBOX/nginx.installed"
 run_monitor --bogus
 assert_equals 1 "$LAST_EXIT_CODE" "Test 12: unknown option exits 1"
 
+# Test 13: --json outputs valid JSON (running)
+setup
+touch "$TEST_SANDBOX/nginx.installed" "$TEST_SANDBOX/nginx.active"
+run_monitor -s nginx --json
+assert_equals 0 "$LAST_EXIT_CODE" "Test 13a: --json exits 0"
+assert_contains "$LAST_STDOUT" '"outcome": "running"' "Test 13b: json outcome running"
+assert_contains "$LAST_STDOUT" '"service": "nginx"' "Test 13c: json service"
+
+# Test 14: --json dry-run
+setup
+touch "$TEST_SANDBOX/nginx.installed"
+run_monitor -s nginx --dry-run --json
+assert_equals 0 "$LAST_EXIT_CODE" "Test 14a: --json dry-run exits 0"
+assert_contains "$LAST_STDOUT" '"outcome": "dry-run"' "Test 14b: json dry-run outcome"
+
+# Test 15: --csv outputs header + row
+setup
+touch "$TEST_SANDBOX/nginx.installed" "$TEST_SANDBOX/nginx.active"
+run_monitor -s nginx --csv
+assert_equals 0 "$LAST_EXIT_CODE" "Test 15a: --csv exits 0"
+assert_contains "$LAST_STDOUT" 'service,max_retries,retry_delay' "Test 15b: csv header"
+assert_contains "$LAST_STDOUT" 'running' "Test 15c: csv outcome"
+
+# Test 16: --json and --csv mutually exclusive
+setup
+touch "$TEST_SANDBOX/nginx.installed"
+run_monitor -s nginx --json --csv
+assert_equals 1 "$LAST_EXIT_CODE" "Test 16: mutual exclusion exits 1"
+
 # Summary
 echo ""
 echo "========================================"

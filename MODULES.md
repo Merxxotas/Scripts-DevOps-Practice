@@ -109,7 +109,7 @@ Service uptime monitoring with automatic restart for a named service. Full Bash 
 - CI: `.github/workflows/ci-service-monitor.yml` — ShellCheck, Bash on ubuntu + macOS, PowerShell on Windows + Ubuntu
 - Wiki: [22](wiki/22-Service-Monitor-Overview.md) · [23](wiki/23-Service-Monitor-Bash-vs-PowerShell.md) · [24](wiki/24-Service-Monitor-Scenarios-and-Labs.md)
 
-**Known gaps**, recorded rather than hidden: no continuous watch loop, no HTTP/TCP health probe, no dependency-graph restart, no `--json`/`--csv` output, no service enable/disable. One service per invocation. Audit write is best-effort. Restart success is verified via the platform service manager; tests stub `systemctl` on Bash and exercise parsing/guardrails/dry-run on PowerShell.
+**Known gaps**, recorded rather than hidden: no continuous watch loop, no HTTP/TCP health probe, no dependency-graph restart, no service enable/disable. One service per invocation. Audit write is best-effort. JSON/CSV output available via `--json`/`--csv`. Restart success is verified via the platform service manager; tests stub `systemctl` on Bash and exercise parsing/guardrails/dry-run on PowerShell.
 
 ### ✅ 6 — Website Availability (HTTP Health Check) *(Shipped)*
 
