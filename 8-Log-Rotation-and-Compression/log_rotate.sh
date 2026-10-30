@@ -25,6 +25,9 @@ FORCE=false
 DRY_RUN=false
 AUDIT_LOG=""
 VERBOSE=false
+OUTPUT_MODE="human"
+JSON_OUTPUT=false
+CSV_OUTPUT=false
 
 # Metrics / state
 ROTATED=false
@@ -63,6 +66,8 @@ Optional Arguments:
       --force                Rotate regardless of file size.
       --dry-run              Preview actions without touching anything.
       --audit-log <file>     Append ISO-8601 audit log entries.
+      --json                Output result as JSON.
+      --csv                 Output result as CSV.
   -v, --verbose             Enable diagnostic output.
   -h, --help                Show this help and usage documentation.
 
@@ -192,6 +197,14 @@ parse_arguments() {
                 AUDIT_LOG="$2"
                 shift 2
                 ;;
+            --json)
+                JSON_OUTPUT=true
+                shift
+                ;;
+            --csv)
+                CSV_OUTPUT=true
+                shift
+                ;;
             -v|--verbose)
                 VERBOSE=true
                 shift
@@ -215,6 +228,18 @@ parse_arguments() {
                 ;;
         esac
     done
+
+    if $JSON_OUTPUT && $CSV_OUTPUT; then
+        printf "%bError: Cannot use --json and --csv together.%b\n" "$COLOR_RED" "$COLOR_RESET" >&2
+        exit 1
+    fi
+    if $JSON_OUTPUT; then
+        OUTPUT_MODE="json"
+    elif $CSV_OUTPUT; then
+        OUTPUT_MODE="csv"
+    else
+        OUTPUT_MODE="human"
+    fi
 
     if [[ -z "$LOG_FILE" ]]; then
         printf "%bError: Log file path is required.%b\n" "$COLOR_RED" "$COLOR_RESET" >&2
@@ -270,18 +295,20 @@ main() {
     local resolved
     resolved="$(get_realpath "$LOG_FILE")"
 
-    printf "%b============================================================%b\n" "$COLOR_BLUE" "$COLOR_RESET"
-    printf "%b            DevOps Log Rotation Utility                    %b\n" "$COLOR_BLUE" "$COLOR_RESET"
-    printf "%b============================================================%b\n" "$COLOR_BLUE" "$COLOR_RESET"
-    printf "Log File         : %b%s%b\n" "$COLOR_CYAN" "$resolved" "$COLOR_RESET"
-    printf "Current Size     : %b%s bytes%b\n" "$COLOR_CYAN" "$file_size" "$COLOR_RESET"
-    printf "Max Size         : %b%s MB (%s bytes)%b\n" "$COLOR_CYAN" "$MAX_SIZE_MB" "$max_size_bytes" "$COLOR_RESET"
-    printf "Backup Count     : %b%s%b\n" "$COLOR_CYAN" "$BACKUP_COUNT" "$COLOR_RESET"
-    printf "Compression      : %b%s%b\n" "$COLOR_CYAN" "$COMPRESS" "$COLOR_RESET"
-    if [[ -n "$AUDIT_LOG" ]]; then
-        printf "Audit Log        : %b%s%b\n" "$COLOR_CYAN" "$AUDIT_LOG" "$COLOR_RESET"
+    if [[ "$OUTPUT_MODE" == "human" ]]; then
+        printf "%b============================================================%b\n" "$COLOR_BLUE" "$COLOR_RESET"
+        printf "%b            DevOps Log Rotation Utility                    %b\n" "$COLOR_BLUE" "$COLOR_RESET"
+        printf "%b============================================================%b\n" "$COLOR_BLUE" "$COLOR_RESET"
+        printf "Log File         : %b%s%b\n" "$COLOR_CYAN" "$resolved" "$COLOR_RESET"
+        printf "Current Size     : %b%s bytes%b\n" "$COLOR_CYAN" "$file_size" "$COLOR_RESET"
+        printf "Max Size         : %b%s MB (%s bytes)%b\n" "$COLOR_CYAN" "$MAX_SIZE_MB" "$max_size_bytes" "$COLOR_RESET"
+        printf "Backup Count     : %b%s%b\n" "$COLOR_CYAN" "$BACKUP_COUNT" "$COLOR_RESET"
+        printf "Compression      : %b%s%b\n" "$COLOR_CYAN" "$COMPRESS" "$COLOR_RESET"
+        if [[ -n "$AUDIT_LOG" ]]; then
+            printf "Audit Log        : %b%s%b\n" "$COLOR_CYAN" "$AUDIT_LOG" "$COLOR_RESET"
+        fi
+        printf "\n"
     fi
-    printf "\n"
 
     # Decide whether rotation is needed
     local need_rotate=false
@@ -292,42 +319,60 @@ main() {
     fi
 
     if [[ "$need_rotate" == false ]]; then
-        printf "%bNo rotation needed (size %s <= threshold %s).%b\n" "$COLOR_GREEN" "$file_size" "$max_size_bytes" "$COLOR_RESET"
+        if [[ "$OUTPUT_MODE" == "human" ]]; then
+            printf "%bNo rotation needed (size %s <= threshold %s).%b\n" "$COLOR_GREEN" "$file_size" "$max_size_bytes" "$COLOR_RESET"
+        fi
         log_message "INFO" "No rotation needed for '$resolved' (size=$file_size, threshold=$max_size_bytes)."
+        if [[ "$OUTPUT_MODE" == "json" ]]; then
+            printf '{\n  "log_file": "%s",\n  "current_size_bytes": %s,\n  "max_size_bytes": %s,\n  "backup_count": %s,\n  "compress": %s,\n  "rotated": false,\n  "failed_steps": 0,\n  "outcome": "no-rotation-needed"\n}\n' "$resolved" "$file_size" "$max_size_bytes" "$BACKUP_COUNT" "$([[ "$COMPRESS" == true ]] && echo true || echo false)"
+        elif [[ "$OUTPUT_MODE" == "csv" ]]; then
+            printf 'log_file,current_size_bytes,max_size_bytes,backup_count,compress,rotated,failed_steps,outcome\n'
+            printf '"%s",%s,%s,%s,%s,false,0,"no-rotation-needed"\n' "$resolved" "$file_size" "$max_size_bytes" "$BACKUP_COUNT" "$([[ "$COMPRESS" == true ]] && echo true || echo false)"
+        fi
         exit 0
     fi
 
     # Dry-run plan
     if [[ "$DRY_RUN" == true ]]; then
-        printf "%b[DRY RUN]%b Rotation planned for '%s':\n" "$COLOR_YELLOW" "$COLOR_RESET" "$resolved"
-        # shift plan
-        local i
-        for (( i=BACKUP_COUNT; i>=1; i-- )); do
-            local src
-            src="$(backup_name "$i")"
-            local dst
-            dst="$(backup_name $((i+1)))"
-            if [[ -f "$src" ]]; then
-                printf "  %b[DRY RUN]%b would move %s -> %s\n" "$COLOR_YELLOW" "$COLOR_RESET" "$src" "$dst"
+        if [[ "$OUTPUT_MODE" == "human" ]]; then
+            printf "%b[DRY RUN]%b Rotation planned for '%s':\n" "$COLOR_YELLOW" "$COLOR_RESET" "$resolved"
+            # shift plan
+            local i
+            for (( i=BACKUP_COUNT; i>=1; i-- )); do
+                local src
+                src="$(backup_name "$i")"
+                local dst
+                dst="$(backup_name $((i+1)))"
+                if [[ -f "$src" ]]; then
+                    printf "  %b[DRY RUN]%b would move %s -> %s\n" "$COLOR_YELLOW" "$COLOR_RESET" "$src" "$dst"
+                fi
+            done
+            printf "  %b[DRY RUN]%b would copy %s -> %s\n" "$COLOR_YELLOW" "$COLOR_RESET" "$LOG_FILE" "$(backup_name 1)"
+            if [[ "$COMPRESS" == true ]]; then
+                printf "  %b[DRY RUN]%b would compress %s -> %s\n" "$COLOR_YELLOW" "$COLOR_RESET" "$(backup_name 1)" "$(backup_name 1)"
             fi
-        done
-        printf "  %b[DRY RUN]%b would copy %s -> %s\n" "$COLOR_YELLOW" "$COLOR_RESET" "$LOG_FILE" "$(backup_name 1)"
-        if [[ "$COMPRESS" == true ]]; then
-            printf "  %b[DRY RUN]%b would compress %s -> %s\n" "$COLOR_YELLOW" "$COLOR_RESET" "$(backup_name 1)" "$(backup_name 1)"
-        fi
-        printf "  %b[DRY RUN]%b would truncate %s\n" "$COLOR_YELLOW" "$COLOR_RESET" "$LOG_FILE"
-        local prune_idx=$((BACKUP_COUNT + 1))
-        local prune_name
-        prune_name="$(backup_name "$prune_idx")"
-        if [[ -f "$prune_name" ]]; then
-            printf "  %b[DRY RUN]%b would remove %s\n" "$COLOR_YELLOW" "$COLOR_RESET" "$prune_name"
+            printf "  %b[DRY RUN]%b would truncate %s\n" "$COLOR_YELLOW" "$COLOR_RESET" "$LOG_FILE"
+            local prune_idx=$((BACKUP_COUNT + 1))
+            local prune_name
+            prune_name="$(backup_name "$prune_idx")"
+            if [[ -f "$prune_name" ]]; then
+                printf "  %b[DRY RUN]%b would remove %s\n" "$COLOR_YELLOW" "$COLOR_RESET" "$prune_name"
+            fi
         fi
         log_message "INFO" "[DRY RUN] Rotation planned for '$resolved'."
+        if [[ "$OUTPUT_MODE" == "json" ]]; then
+            printf '{\n  "log_file": "%s",\n  "current_size_bytes": %s,\n  "max_size_bytes": %s,\n  "backup_count": %s,\n  "compress": %s,\n  "rotated": false,\n  "failed_steps": 0,\n  "outcome": "dry-run"\n}\n' "$resolved" "$file_size" "$max_size_bytes" "$BACKUP_COUNT" "$([[ "$COMPRESS" == true ]] && echo true || echo false)"
+        elif [[ "$OUTPUT_MODE" == "csv" ]]; then
+            printf 'log_file,current_size_bytes,max_size_bytes,backup_count,compress,rotated,failed_steps,outcome\n'
+            printf '"%s",%s,%s,%s,%s,false,0,"dry-run"\n' "$resolved" "$file_size" "$max_size_bytes" "$BACKUP_COUNT" "$([[ "$COMPRESS" == true ]] && echo true || echo false)"
+        fi
         exit 0
     fi
 
     # Live rotation
-    printf "%bRotating...%b\n" "$COLOR_YELLOW" "$COLOR_RESET"
+    if [[ "$OUTPUT_MODE" == "human" ]]; then
+        printf "%bRotating...%b\n" "$COLOR_YELLOW" "$COLOR_RESET"
+    fi
 
     # Shift existing backups from highest down
     local i
@@ -336,7 +381,7 @@ main() {
         src="$(backup_name "$i")"
         dst="$(backup_name $((i+1)))"
         if [[ -f "$src" ]]; then
-            if [[ "$VERBOSE" == true ]]; then
+            if [[ "$VERBOSE" == true && "$OUTPUT_MODE" == "human" ]]; then
                 printf "  shifting %s -> %s\n" "$src" "$dst"
             fi
             if ! mv -f "$src" "$dst" 2>/dev/null; then
@@ -356,7 +401,7 @@ main() {
         raw_slot="${LOG_FILE}.1"
     fi
 
-    if [[ "$VERBOSE" == true ]]; then
+    if [[ "$VERBOSE" == true && "$OUTPUT_MODE" == "human" ]]; then
         printf "  copying %s -> %s\n" "$LOG_FILE" "$raw_slot"
     fi
     if ! cp -p "$LOG_FILE" "$raw_slot" 2>/dev/null; then
@@ -365,12 +410,14 @@ main() {
         ((FAILED_COUNT++)) || true
     else
         if [[ "$COMPRESS" == true ]]; then
-            if [[ "$VERBOSE" == true ]]; then
+            if [[ "$VERBOSE" == true && "$OUTPUT_MODE" == "human" ]]; then
                 printf "  compressing %s -> %s\n" "$raw_slot" "$slot1"
             fi
             if gzip -c "$raw_slot" > "$slot1" 2>/dev/null; then
                 rm -f "$raw_slot" 2>/dev/null || true
-                printf "%b✓ Rotated to %s%b\n" "$COLOR_GREEN" "$slot1" "$COLOR_RESET"
+                if [[ "$OUTPUT_MODE" == "human" ]]; then
+                    printf "%b✓ Rotated to %s%b\n" "$COLOR_GREEN" "$slot1" "$COLOR_RESET"
+                fi
                 ROTATED=true
             else
                 printf "%b✗ Compression failed for %s%b\n" "$COLOR_RED" "$raw_slot" "$COLOR_RESET" >&2
@@ -381,14 +428,16 @@ main() {
             fi
         else
             # raw_slot already equals slot1 in no-compress mode
-            printf "%b✓ Rotated to %s%b\n" "$COLOR_GREEN" "$slot1" "$COLOR_RESET"
+            if [[ "$OUTPUT_MODE" == "human" ]]; then
+                printf "%b✓ Rotated to %s%b\n" "$COLOR_GREEN" "$slot1" "$COLOR_RESET"
+            fi
             ROTATED=true
         fi
     fi
 
     # Truncate current log
     if [[ "$FAILED_COUNT" -eq 0 ]]; then
-        if [[ "$VERBOSE" == true ]]; then
+        if [[ "$VERBOSE" == true && "$OUTPUT_MODE" == "human" ]]; then
             printf "  truncating %s\n" "$LOG_FILE"
         fi
         if ! : > "$LOG_FILE" 2>/dev/null; then
@@ -406,7 +455,7 @@ main() {
     local prune_name
     prune_name="$(backup_name "$prune_idx")"
     if [[ -f "$prune_name" ]]; then
-        if [[ "$VERBOSE" == true ]]; then
+        if [[ "$VERBOSE" == true && "$OUTPUT_MODE" == "human" ]]; then
             printf "  pruning %s\n" "$prune_name"
         fi
         if ! rm -f "$prune_name" 2>/dev/null; then
@@ -414,19 +463,32 @@ main() {
             log_message "ERROR" "Failed to remove $prune_name"
             ((FAILED_COUNT++)) || true
         else
-            printf "%b✓ Removed old backup %s%b\n" "$COLOR_YELLOW" "$prune_name" "$COLOR_RESET"
+            if [[ "$OUTPUT_MODE" == "human" ]]; then
+                printf "%b✓ Removed old backup %s%b\n" "$COLOR_YELLOW" "$prune_name" "$COLOR_RESET"
+            fi
         fi
     fi
 
     # Summary
-    printf "\n%b============================================================%b\n" "$COLOR_BLUE" "$COLOR_RESET"
-    printf "%b                    Execution Summary                       %b\n" "$COLOR_BLUE" "$COLOR_RESET"
-    printf "%b============================================================%b\n" "$COLOR_BLUE" "$COLOR_RESET"
-    printf "Log File         : %b%s%b\n" "$COLOR_BOLD" "$resolved" "$COLOR_RESET"
-    printf "Rotated          : %b%s%b\n" "$COLOR_BOLD" "$ROTATED" "$COLOR_RESET"
-    printf "Backup Count     : %b%s%b\n" "$COLOR_BOLD" "$BACKUP_COUNT" "$COLOR_RESET"
-    printf "Failed Steps     : %b%d%b\n" "$COLOR_RED" "$FAILED_COUNT" "$COLOR_RESET"
-    printf "%b============================================================%b\n" "$COLOR_BLUE" "$COLOR_RESET"
+    local current_size
+    current_size="$(get_file_size "$LOG_FILE")"
+    if [[ "$OUTPUT_MODE" == "human" ]]; then
+        printf "\n%b============================================================%b\n" "$COLOR_BLUE" "$COLOR_RESET"
+        printf "%b                    Execution Summary                       %b\n" "$COLOR_BLUE" "$COLOR_RESET"
+        printf "%b============================================================%b\n" "$COLOR_BLUE" "$COLOR_RESET"
+        printf "Log File         : %b%s%b\n" "$COLOR_BOLD" "$resolved" "$COLOR_RESET"
+        printf "Rotated          : %b%s%b\n" "$COLOR_BOLD" "$ROTATED" "$COLOR_RESET"
+        printf "Backup Count     : %b%s%b\n" "$COLOR_BOLD" "$BACKUP_COUNT" "$COLOR_RESET"
+        printf "Failed Steps     : %b%d%b\n" "$COLOR_RED" "$FAILED_COUNT" "$COLOR_RESET"
+        printf "%b============================================================%b\n" "$COLOR_BLUE" "$COLOR_RESET"
+    fi
+
+    if [[ "$OUTPUT_MODE" == "json" ]]; then
+        printf '{\n  "log_file": "%s",\n  "current_size_bytes": %s,\n  "max_size_bytes": %s,\n  "backup_count": %s,\n  "compress": %s,\n  "rotated": %s,\n  "failed_steps": %s,\n  "outcome": "%s"\n}\n' "$resolved" "$current_size" "$max_size_bytes" "$BACKUP_COUNT" "$([[ "$COMPRESS" == true ]] && echo true || echo false)" "$([[ "$ROTATED" == true ]] && echo true || echo false)" "$FAILED_COUNT" "$([[ "$FAILED_COUNT" -gt 0 ]] && echo failed || echo rotated)"
+    elif [[ "$OUTPUT_MODE" == "csv" ]]; then
+        printf 'log_file,current_size_bytes,max_size_bytes,backup_count,compress,rotated,failed_steps,outcome\n'
+        printf '"%s",%s,%s,%s,%s,%s,%s,"%s"\n' "$resolved" "$current_size" "$max_size_bytes" "$BACKUP_COUNT" "$([[ "$COMPRESS" == true ]] && echo true || echo false)" "$([[ "$ROTATED" == true ]] && echo true || echo false)" "$FAILED_COUNT" "$([[ "$FAILED_COUNT" -gt 0 ]] && echo failed || echo rotated)"
+    fi
 
     if [[ "$FAILED_COUNT" -gt 0 ]]; then
         log_message "ERROR" "Rotation completed with failures for '$resolved' (failed=$FAILED_COUNT)."

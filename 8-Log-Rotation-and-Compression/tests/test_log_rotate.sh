@@ -262,6 +262,39 @@ test_parity_flags() {
 
 # ---------- runner ----------
 
+test_json_output() {
+    setup
+    printf 'line\n%.0s' {1..100} > "$TEST_SANDBOX/f.log"
+    run_rotate -f "$TEST_SANDBOX/f.log" -m 0 --json
+    assert_equals "0" "$LAST_EXIT_CODE" "Test 18a: --json exits 0"
+    assert_contains "$LAST_STDOUT" '"outcome": "rotated"' "Test 18b: json outcome rotated"
+    assert_contains "$LAST_STDOUT" '"log_file"' "Test 18c: json log_file field"
+}
+
+test_json_dry_run() {
+    setup
+    printf 'line\n%.0s' {1..100} > "$TEST_SANDBOX/f.log"
+    run_rotate -f "$TEST_SANDBOX/f.log" -m 0 --dry-run --json
+    assert_equals "0" "$LAST_EXIT_CODE" "Test 19a: --json dry-run exits 0"
+    assert_contains "$LAST_STDOUT" '"outcome": "dry-run"' "Test 19b: json dry-run outcome"
+}
+
+test_csv_output() {
+    setup
+    printf 'line\n%.0s' {1..100} > "$TEST_SANDBOX/f.log"
+    run_rotate -f "$TEST_SANDBOX/f.log" -m 0 --csv
+    assert_equals "0" "$LAST_EXIT_CODE" "Test 20a: --csv exits 0"
+    assert_contains "$LAST_STDOUT" 'log_file,current_size_bytes' "Test 20b: csv header"
+    assert_contains "$LAST_STDOUT" 'rotated' "Test 20c: csv outcome"
+}
+
+test_json_csv_mutual() {
+    setup
+    printf 'line\n%.0s' {1..100} > "$TEST_SANDBOX/f.log"
+    run_rotate -f "$TEST_SANDBOX/f.log" -m 0 --json --csv
+    assert_equals "1" "$LAST_EXIT_CODE" "Test 21: mutual exclusion exits 1"
+}
+
 run_all() {
     test_help_menu
     test_missing_file
@@ -280,6 +313,10 @@ run_all() {
     test_verbose
     test_no_compress_raw_not_gz
     test_parity_flags
+    test_json_output
+    test_json_dry_run
+    test_csv_output
+    test_json_csv_mutual
 }
 
 run_all

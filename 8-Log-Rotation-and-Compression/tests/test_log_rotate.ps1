@@ -160,6 +160,26 @@ Invoke-Rotate -ScriptArgs @("-LogFile", "`"$f`"", "-Force", "-AuditLog", "`"$aud
 Assert-Equal 0 $script:LastExitCode "Test 10a: audit run exits 0"
 Assert-FileExists $audit "Test 10b: audit file created"
 
+# Test 11: -Json dry-run outputs JSON
+$f = Join-Path $TestSandbox "j.log"
+"line" | Set-Content -LiteralPath $f -NoNewline
+Invoke-Rotate -ScriptArgs @("-LogFile", "`"$f`"", "-Force", "-DryRun", "-Json")
+Assert-Equal 0 $script:LastExitCode "Test 11a: -Json dry-run exits 0"
+Assert-Contains $script:LastStdout '"outcome": "dry-run"' "Test 11b: json dry-run outcome"
+
+# Test 12: -Csv dry-run outputs header + row
+$f = Join-Path $TestSandbox "c.log"
+"line" | Set-Content -LiteralPath $f -NoNewline
+Invoke-Rotate -ScriptArgs @("-LogFile", "`"$f`"", "-Force", "-DryRun", "-Csv")
+Assert-Equal 0 $script:LastExitCode "Test 12a: -Csv dry-run exits 0"
+Assert-Contains $script:LastStdout "log_file,current_size_bytes" "Test 12b: csv header"
+
+# Test 13: -Json and -Csv mutually exclusive
+$f = Join-Path $TestSandbox "m.log"
+"line" | Set-Content -LiteralPath $f -NoNewline
+Invoke-Rotate -ScriptArgs @("-LogFile", "`"$f`"", "-Force", "-Json", "-Csv")
+Assert-Equal 1 $script:LastExitCode "Test 13: mutual exclusion exits 1"
+
 # Summary
 Write-Host ""
 Write-Host "========================================"

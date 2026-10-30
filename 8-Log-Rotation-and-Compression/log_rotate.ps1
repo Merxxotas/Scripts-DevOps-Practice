@@ -24,7 +24,9 @@ param(
     [switch]$DryRun,
     [string]$AuditLog = "",
     [switch]$Verbose,
-    [switch]$Help
+    [switch]$Help,
+    [switch]$Json,
+    [switch]$Csv
 )
 
 $ErrorActionPreference = "Continue"
@@ -41,6 +43,7 @@ $Colors = @{
 
 $Script:Rotated = $false
 $Script:FailedCount = 0
+$Script:OutputMode = "human"
 
 function Write-AuditLog {
     param(
@@ -78,6 +81,8 @@ function Show-Help {
     Write-Host "  -AuditLog <file>      Append ISO-8601 audit log entries."
     Write-Host "  -Verbose              Enable diagnostic output."
     Write-Host "  -Help                 Show this help and usage documentation."
+    Write-Host "  -Json                 Output result as JSON."
+    Write-Host "  -Csv                  Output result as CSV."
 }
 
 function Get-FileSize {
@@ -165,6 +170,14 @@ function Invoke-LogRotate {
         exit 0
     }
 
+    if ($Json -and $Csv) {
+        Write-Host "$($Colors.Red)Error: Cannot use -Json and -Csv together.$($Colors.Reset)"
+        exit 1
+    }
+    if ($Json) { $Script:OutputMode = "json" }
+    elseif ($Csv) { $Script:OutputMode = "csv" }
+    else { $Script:OutputMode = "human" }
+
     # Compression flag resolution: default on unless -NoCompress
     $Script:DoCompress = $true
     if ($NoCompress) { $Script:DoCompress = $false }
@@ -197,61 +210,83 @@ function Invoke-LogRotate {
     $Resolved = $LogFile
     try { $Resolved = (Resolve-Path -LiteralPath $LogFile).ProviderPath } catch { $null = $_ }
 
-    Write-Host "$($Colors.Blue)$($Colors.Bold)============================================================$($Colors.Reset)"
-    Write-Host "$($Colors.Blue)$($Colors.Bold)            DevOps Log Rotation Utility                    $($Colors.Reset)"
-    Write-Host "$($Colors.Blue)$($Colors.Bold)============================================================$($Colors.Reset)"
-    Write-Host "Log File         : $($Colors.Cyan)$Resolved$($Colors.Reset)"
-    Write-Host "Current Size     : $($Colors.Cyan)$FileSize bytes$($Colors.Reset)"
-    Write-Host "Max Size         : $($Colors.Cyan)$MaxSizeMB MB ($MaxSizeBytes bytes)$($Colors.Reset)"
-    Write-Host "Backup Count     : $($Colors.Cyan)$BackupCount$($Colors.Reset)"
-    Write-Host "Compression      : $($Colors.Cyan)$Script:DoCompress$($Colors.Reset)"
-    if (-not [string]::IsNullOrWhiteSpace($AuditLog)) {
-        Write-Host "Audit Log        : $($Colors.Cyan)$AuditLog$($Colors.Reset)"
+    if ($Script:OutputMode -eq "human") {
+        Write-Host "$($Colors.Blue)$($Colors.Bold)============================================================$($Colors.Reset)"
+        Write-Host "$($Colors.Blue)$($Colors.Bold)            DevOps Log Rotation Utility                    $($Colors.Reset)"
+        Write-Host "$($Colors.Blue)$($Colors.Bold)============================================================$($Colors.Reset)"
+        Write-Host "Log File         : $($Colors.Cyan)$Resolved$($Colors.Reset)"
+        Write-Host "Current Size     : $($Colors.Cyan)$FileSize bytes$($Colors.Reset)"
+        Write-Host "Max Size         : $($Colors.Cyan)$MaxSizeMB MB ($MaxSizeBytes bytes)$($Colors.Reset)"
+        Write-Host "Backup Count     : $($Colors.Cyan)$BackupCount$($Colors.Reset)"
+        Write-Host "Compression      : $($Colors.Cyan)$Script:DoCompress$($Colors.Reset)"
+        if (-not [string]::IsNullOrWhiteSpace($AuditLog)) {
+            Write-Host "Audit Log        : $($Colors.Cyan)$AuditLog$($Colors.Reset)"
+        }
+        Write-Host ""
     }
-    Write-Host ""
 
     $NeedRotate = $false
     if ($Force) { $NeedRotate = $true }
     elseif ($FileSize -gt $MaxSizeBytes) { $NeedRotate = $true }
 
     if (-not $NeedRotate) {
-        Write-Host "$($Colors.Green)No rotation needed (size $FileSize <= threshold $MaxSizeBytes).$($Colors.Reset)"
+        if ($Script:OutputMode -eq "human") {
+            Write-Host "$($Colors.Green)No rotation needed (size $FileSize <= threshold $MaxSizeBytes).$($Colors.Reset)"
+        }
         Write-AuditLog -Level "INFO" -Message "No rotation needed for '$Resolved' (size=$FileSize, threshold=$MaxSizeBytes)."
+        if ($Script:OutputMode -eq "json") {
+            $compress = if ($Script:DoCompress) { "true" } else { "false" }
+            Write-Host "{`n  `"log_file`": `"$Resolved`",`n  `"current_size_bytes`": $FileSize,`n  `"max_size_bytes`": $MaxSizeBytes,`n  `"backup_count`": $BackupCount,`n  `"compress`": $compress,`n  `"rotated`": false,`n  `"failed_steps`": 0,`n  `"outcome`": `"no-rotation-needed`"`n}"
+        } elseif ($Script:OutputMode -eq "csv") {
+            $compress = if ($Script:DoCompress) { "true" } else { "false" }
+            Write-Host "log_file,current_size_bytes,max_size_bytes,backup_count,compress,rotated,failed_steps,outcome"
+            Write-Host "`"$Resolved`",$FileSize,$MaxSizeBytes,$BackupCount,$compress,false,0,`"no-rotation-needed`""
+        }
         exit 0
     }
 
     if ($DryRun) {
-        Write-Host "$($Colors.Yellow)[DRY RUN]$($Colors.Reset) Rotation planned for '$Resolved':"
-        for ($i = $BackupCount; $i -ge 1; $i--) {
-            $src = Get-BackupName -Index $i
-            $dst = Get-BackupName -Index ($i + 1)
-            if (Test-Path -LiteralPath $src) {
-                Write-Host "  $($Colors.Yellow)[DRY RUN]$($Colors.Reset) would move $src -> $dst"
+        if ($Script:OutputMode -eq "human") {
+            Write-Host "$($Colors.Yellow)[DRY RUN]$($Colors.Reset) Rotation planned for '$Resolved':"
+            for ($i = $BackupCount; $i -ge 1; $i--) {
+                $src = Get-BackupName -Index $i
+                $dst = Get-BackupName -Index ($i + 1)
+                if (Test-Path -LiteralPath $src) {
+                    Write-Host "  $($Colors.Yellow)[DRY RUN]$($Colors.Reset) would move $src -> $dst"
+                }
+            }
+            $slot1 = Get-BackupName -Index 1
+            Write-Host "  $($Colors.Yellow)[DRY RUN]$($Colors.Reset) would copy $LogFile -> $slot1"
+            if ($Script:DoCompress) {
+                Write-Host "  $($Colors.Yellow)[DRY RUN]$($Colors.Reset) would compress $LogFile -> $slot1"
+            }
+            Write-Host "  $($Colors.Yellow)[DRY RUN]$($Colors.Reset) would truncate $LogFile"
+            $pruneIdx = $BackupCount + 1
+            $pruneName = Get-BackupName -Index $pruneIdx
+            if (Test-Path -LiteralPath $pruneName) {
+                Write-Host "  $($Colors.Yellow)[DRY RUN]$($Colors.Reset) would remove $pruneName"
             }
         }
-        $slot1 = Get-BackupName -Index 1
-        Write-Host "  $($Colors.Yellow)[DRY RUN]$($Colors.Reset) would copy $LogFile -> $slot1"
-        if ($Script:DoCompress) {
-            Write-Host "  $($Colors.Yellow)[DRY RUN]$($Colors.Reset) would compress $LogFile -> $slot1"
-        }
-        Write-Host "  $($Colors.Yellow)[DRY RUN]$($Colors.Reset) would truncate $LogFile"
-        $pruneIdx = $BackupCount + 1
-        $pruneName = Get-BackupName -Index $pruneIdx
-        if (Test-Path -LiteralPath $pruneName) {
-            Write-Host "  $($Colors.Yellow)[DRY RUN]$($Colors.Reset) would remove $pruneName"
-        }
         Write-AuditLog -Level "INFO" -Message "[DRY RUN] Rotation planned for '$Resolved'."
+        if ($Script:OutputMode -eq "json") {
+            $compress = if ($Script:DoCompress) { "true" } else { "false" }
+            Write-Host "{`n  `"log_file`": `"$Resolved`",`n  `"current_size_bytes`": $FileSize,`n  `"max_size_bytes`": $MaxSizeBytes,`n  `"backup_count`": $BackupCount,`n  `"compress`": $compress,`n  `"rotated`": false,`n  `"failed_steps`": 0,`n  `"outcome`": `"dry-run`"`n}"
+        } elseif ($Script:OutputMode -eq "csv") {
+            $compress = if ($Script:DoCompress) { "true" } else { "false" }
+            Write-Host "log_file,current_size_bytes,max_size_bytes,backup_count,compress,rotated,failed_steps,outcome"
+            Write-Host "`"$Resolved`",$FileSize,$MaxSizeBytes,$BackupCount,$compress,false,0,`"dry-run`""
+        }
         exit 0
     }
 
-    Write-Host "$($Colors.Yellow)Rotating...$($Colors.Reset)"
+    if ($Script:OutputMode -eq "human") { Write-Host "$($Colors.Yellow)Rotating...$($Colors.Reset)" }
 
     # Shift existing backups from highest down
     for ($i = $BackupCount; $i -ge 1; $i--) {
         $src = Get-BackupName -Index $i
         $dst = Get-BackupName -Index ($i + 1)
         if (Test-Path -LiteralPath $src) {
-            if ($Verbose) { Write-Host "  shifting $src -> $dst" }
+            if ($Verbose -and $Script:OutputMode -eq "human") { Write-Host "  shifting $src -> $dst" }
             try {
                 Move-Item -LiteralPath $src -Destination $dst -Force -ErrorAction Stop
             } catch {
@@ -265,7 +300,7 @@ function Invoke-LogRotate {
     $slot1 = Get-BackupName -Index 1
     $rawSlot = "$LogFile.1"
 
-    if ($Verbose) { Write-Host "  copying $LogFile -> $rawSlot" }
+    if ($Verbose -and $Script:OutputMode -eq "human") { Write-Host "  copying $LogFile -> $rawSlot" }
     try {
         Copy-Item -LiteralPath $LogFile -Destination $rawSlot -Force -ErrorAction Stop
     } catch {
@@ -276,11 +311,11 @@ function Invoke-LogRotate {
 
     if ($Script:FailedCount -eq 0) {
         if ($Script:DoCompress) {
-            if ($Verbose) { Write-Host "  compressing $rawSlot -> $slot1" }
+            if ($Verbose -and $Script:OutputMode -eq "human") { Write-Host "  compressing $rawSlot -> $slot1" }
             try {
                 Compress-Archive -LiteralPath $rawSlot -DestinationPath $slot1 -Force -ErrorAction Stop
                 Remove-Item -LiteralPath $rawSlot -Force -ErrorAction SilentlyContinue
-                Write-Host "$($Colors.Green)✓ Rotated to $slot1$($Colors.Reset)"
+                if ($Script:OutputMode -eq "human") { Write-Host "$($Colors.Green)✓ Rotated to $slot1$($Colors.Reset)" }
                 $Script:Rotated = $true
             } catch {
                 Write-Host "$($Colors.Red)✗ Compression failed for $rawSlot$($Colors.Reset)"
@@ -297,14 +332,14 @@ function Invoke-LogRotate {
                     $Script:FailedCount++
                 }
             }
-            Write-Host "$($Colors.Green)✓ Rotated to $slot1$($Colors.Reset)"
+            if ($Script:OutputMode -eq "human") { Write-Host "$($Colors.Green)✓ Rotated to $slot1$($Colors.Reset)" }
             $Script:Rotated = $true
         }
     }
 
     # Truncate current log
     if ($Script:FailedCount -eq 0) {
-        if ($Verbose) { Write-Host "  truncating $LogFile" }
+        if ($Verbose -and $Script:OutputMode -eq "human") { Write-Host "  truncating $LogFile" }
         try {
             Clear-Content -LiteralPath $LogFile -ErrorAction Stop
         } catch {
@@ -318,10 +353,10 @@ function Invoke-LogRotate {
     $pruneIdx = $BackupCount + 1
     $pruneName = Get-BackupName -Index $pruneIdx
     if (Test-Path -LiteralPath $pruneName) {
-        if ($Verbose) { Write-Host "  pruning $pruneName" }
+        if ($Verbose -and $Script:OutputMode -eq "human") { Write-Host "  pruning $pruneName" }
         try {
             Remove-Item -LiteralPath $pruneName -Force -ErrorAction Stop
-            Write-Host "$($Colors.Yellow)✓ Removed old backup $pruneName$($Colors.Reset)"
+            if ($Script:OutputMode -eq "human") { Write-Host "$($Colors.Yellow)✓ Removed old backup $pruneName$($Colors.Reset)" }
         } catch {
             Write-Host "$($Colors.Red)✗ Failed to remove $pruneName$($Colors.Reset)"
             Write-AuditLog -Level "ERROR" -Message "Failed to remove $pruneName"
@@ -329,15 +364,31 @@ function Invoke-LogRotate {
         }
     }
 
-    Write-Host ""
-    Write-Host "$($Colors.Blue)$($Colors.Bold)============================================================$($Colors.Reset)"
-    Write-Host "$($Colors.Blue)$($Colors.Bold)                    Execution Summary                       $($Colors.Reset)"
-    Write-Host "$($Colors.Blue)$($Colors.Bold)============================================================$($Colors.Reset)"
-    Write-Host "Log File         : $($Colors.Bold)$Resolved$($Colors.Reset)"
-    Write-Host "Rotated          : $($Colors.Bold)$Script:Rotated$($Colors.Reset)"
-    Write-Host "Backup Count     : $($Colors.Bold)$BackupCount$($Colors.Reset)"
-    Write-Host "Failed Steps     : $($Colors.Red)$Script:FailedCount$($Colors.Reset)"
-    Write-Host "$($Colors.Blue)$($Colors.Bold)============================================================$($Colors.Reset)"
+    $CurrentSize = Get-FileSize -Path $LogFile
+    if ($Script:OutputMode -eq "human") {
+        Write-Host ""
+        Write-Host "$($Colors.Blue)$($Colors.Bold)============================================================$($Colors.Reset)"
+        Write-Host "$($Colors.Blue)$($Colors.Bold)                    Execution Summary                       $($Colors.Reset)"
+        Write-Host "$($Colors.Blue)$($Colors.Bold)============================================================$($Colors.Reset)"
+        Write-Host "Log File         : $($Colors.Bold)$Resolved$($Colors.Reset)"
+        Write-Host "Rotated          : $($Colors.Bold)$Script:Rotated$($Colors.Reset)"
+        Write-Host "Backup Count     : $($Colors.Bold)$BackupCount$($Colors.Reset)"
+        Write-Host "Failed Steps     : $($Colors.Red)$Script:FailedCount$($Colors.Reset)"
+        Write-Host "$($Colors.Blue)$($Colors.Bold)============================================================$($Colors.Reset)"
+    }
+
+    if ($Script:OutputMode -eq "json") {
+        $compress = if ($Script:DoCompress) { "true" } else { "false" }
+        $rotated = if ($Script:Rotated) { "true" } else { "false" }
+        $outcome = if ($Script:FailedCount -gt 0) { "failed" } else { "rotated" }
+        Write-Host "{`n  `"log_file`": `"$Resolved`",`n  `"current_size_bytes`": $CurrentSize,`n  `"max_size_bytes`": $MaxSizeBytes,`n  `"backup_count`": $BackupCount,`n  `"compress`": $compress,`n  `"rotated`": $rotated,`n  `"failed_steps`": $($Script:FailedCount),`n  `"outcome`": `"$outcome`"`n}"
+    } elseif ($Script:OutputMode -eq "csv") {
+        $compress = if ($Script:DoCompress) { "true" } else { "false" }
+        $rotated = if ($Script:Rotated) { "true" } else { "false" }
+        $outcome = if ($Script:FailedCount -gt 0) { "failed" } else { "rotated" }
+        Write-Host "log_file,current_size_bytes,max_size_bytes,backup_count,compress,rotated,failed_steps,outcome"
+        Write-Host "`"$Resolved`",$CurrentSize,$MaxSizeBytes,$BackupCount,$compress,$rotated,$($Script:FailedCount),`"$outcome`""
+    }
 
     if ($Script:FailedCount -gt 0) {
         Write-AuditLog -Level "ERROR" -Message "Rotation completed with failures for '$Resolved' (failed=$Script:FailedCount)."

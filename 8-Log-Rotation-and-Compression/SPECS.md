@@ -76,6 +76,8 @@ and the standard compression tooling (`gzip` on Bash, `Compress-Archive` on Powe
 | `--force` | `-Force` | off | Rotate regardless of size |
 | `--dry-run` | `-DryRun` | off | Preview only |
 | `--audit-log` | `-AuditLog` | (none) | ISO-8601 audit log path |
+| `--json` | `-Json` | off | Output result as JSON |
+| `--csv` | `-Csv` | off | Output result as CSV |
 | `-v, --verbose` | `-Verbose` | off | Diagnostic output |
 | `-h, --help` | `-Help` | off | Show help, exit 0 |
 
@@ -127,5 +129,5 @@ best-effort and do not change the exit code.
 ## 9. Scope Exclusions (v1)
 
 No time-based or date-stamped rotation, no copy-truncate vs. create-new choice, no post-rotation
-hook or signal (e.g. `copytruncate`/`create`), no compression of already-rotated backups, no
-`--json`/`--csv` output. One log file per invocation. Audit write is best-effort.
+hook or signal (e.g. `copytruncate`/`create`), no compression of already-rotated backups. JSON/CSV output available via
+`--json`/`--csv`. One log file per invocation. Audit write is best-effort.
