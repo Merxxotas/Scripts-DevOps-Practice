@@ -156,6 +156,8 @@ disk_monitor.sh [OPTIONS]
 | — | `--timeout` | `<seconds>` | HTTP timeout | `10` |
 | — | `--http-command` | `<cmd>` | HTTP client | `curl` |
 | `-l` | `--log-file` | `<file>` | Append an ISO-8601 audit line per run | none |
+| — | `--json` | — | Output result as JSON | off |
+| — | `--csv` | — | Output result as CSV | off |
 | — | `--config` | `<file>` | Configuration file to read | resolution chain, §5.4 |
 | — | `--doctor` | — | Report what is configured and what is missing | — |
 | `-v` | `--verbose` | — | Diagnostic output | off |

@@ -34,6 +34,9 @@ USAGE_OVERRIDE=""
 USAGE_COMMAND_OVERRIDE=""
 LOG_FILE=""
 VERBOSE=false
+OUTPUT_MODE="human"
+JSON_OUTPUT=false
+CSV_OUTPUT=false
 
 # The configuration file and the values it supplied
 CONFIG_FILE=""
@@ -142,6 +145,8 @@ Optional Arguments:
       --http-command <cmd>  HTTP client to send the request with (default: curl).
   -l, --log-file <file>     Path to append ISO-8601 audit records.
       --config <file>       Configuration file to read (default: ./.diskmonitor.conf).
+      --json                Output result as JSON.
+      --csv                 Output result as CSV.
       --doctor              Report what is configured and what is missing.
   -v, --verbose             Enable diagnostic output.
   -h, --help                Show this help and usage documentation.
@@ -1085,6 +1090,14 @@ parse_arguments() {
                 FLAG_CONFIG_SET=true
                 shift 2
                 ;;
+            --json)
+                JSON_OUTPUT=true
+                shift
+                ;;
+            --csv)
+                CSV_OUTPUT=true
+                shift
+                ;;
             --doctor)
                 DOCTOR_MODE=true
                 shift
@@ -1108,6 +1121,18 @@ parse_arguments() {
                 ;;
         esac
     done
+
+    if $JSON_OUTPUT && $CSV_OUTPUT; then
+        printf "%bError: Cannot use --json and --csv together.%b\n" "$COLOR_RED" "$COLOR_RESET" >&2
+        exit 1
+    fi
+    if $JSON_OUTPUT; then
+        OUTPUT_MODE="json"
+    elif $CSV_OUTPUT; then
+        OUTPUT_MODE="csv"
+    else
+        OUTPUT_MODE="human"
+    fi
 }
 
 # Validates the configuration and resolves the notification path.
@@ -1472,6 +1497,12 @@ main() {
     if [[ -n "$USAGE_OVERRIDE" ]]; then
         usage_source="overridden"
     fi
+    local outcome
+    if [[ "$used_percent" -gt "$THRESHOLD" ]]; then
+        if [[ "$DRY_RUN" == true ]]; then outcome="dry-run"; else outcome="alerted"; fi
+    else
+        outcome="within-threshold"
+    fi
 
     local mode_label
     if [[ "$DRY_RUN" == true ]]; then
@@ -1487,43 +1518,47 @@ main() {
         mail_label="$MAIL_COMMAND"
     fi
 
-    printf "%b============================================================%b\n" "$COLOR_BLUE" "$COLOR_RESET"
-    printf "%b                DevOps Disk Usage Monitor                  %b\n" "$COLOR_BLUE" "$COLOR_RESET"
-    printf "%b============================================================%b\n" "$COLOR_BLUE" "$COLOR_RESET"
-    printf "Partition         : %b%s%b\n" "$COLOR_CYAN" "$PARTITION" "$COLOR_RESET"
-    printf "Usage             : %b%s%%%b (%s)\n" "$COLOR_BOLD" "$used_percent" "$COLOR_RESET" "$usage_source"
-    printf "Threshold         : %b%s%%%b\n" "$COLOR_YELLOW" "$THRESHOLD" "$COLOR_RESET"
-    if [[ "$NOTIFY_MODE" == "http" ]]; then
-        printf "Endpoint          : %b%s%b\n" "$COLOR_CYAN" "$HTTP_URL" "$COLOR_RESET"
-        printf "HTTP Client       : %b%s%b\n" "$COLOR_CYAN" "$HTTP_CLIENT" "$COLOR_RESET"
-    else
-        printf "Mail Agent        : %b%s%b\n" "$COLOR_CYAN" "$mail_label" "$COLOR_RESET"
-        if [[ "$NOTIFY_MODE" == "mail" ]]; then
-            printf "Recipient         : %b%s%b\n" "$COLOR_CYAN" "$MAIL_TO" "$COLOR_RESET"
-        fi
-    fi
-    printf "Execution Mode    : %b\n" "$mode_label"
-    if [[ -n "$LOG_FILE" ]]; then
-        printf "Audit Log File    : %b%s%b\n" "$COLOR_CYAN" "$LOG_FILE" "$COLOR_RESET"
-    fi
-
-    if [[ "$VERBOSE" == true ]]; then
-        printf "%bDiagnostics        : %bpartition %s, threshold %s, notify %s, recipient %s, mail command %s, log file %s, usage command %s, usage override %s%b\n" \
-            "$COLOR_BLUE" "$COLOR_RESET" \
-            "$SOURCE_PARTITION" "$SOURCE_THRESHOLD" "$SOURCE_NOTIFY" "$SOURCE_TO" \
-            "$SOURCE_MAIL_COMMAND" "$SOURCE_LOG_FILE" "$SOURCE_USAGE_COMMAND" "$SOURCE_USAGE_OVERRIDE" \
-            "$COLOR_RESET"
+    if [[ "$OUTPUT_MODE" == "human" ]]; then
+        printf "%b============================================================%b\n" "$COLOR_BLUE" "$COLOR_RESET"
+        printf "%b                DevOps Disk Usage Monitor                  %b\n" "$COLOR_BLUE" "$COLOR_RESET"
+        printf "%b============================================================%b\n" "$COLOR_BLUE" "$COLOR_RESET"
+        printf "Partition         : %b%s%b\n" "$COLOR_CYAN" "$PARTITION" "$COLOR_RESET"
+        printf "Usage             : %b%s%%%b (%s)\n" "$COLOR_BOLD" "$used_percent" "$COLOR_RESET" "$usage_source"
+        printf "Threshold         : %b%s%%%b\n" "$COLOR_YELLOW" "$THRESHOLD" "$COLOR_RESET"
         if [[ "$NOTIFY_MODE" == "http" ]]; then
-            printf "%bTransport          : %bendpoint %s, body template %s, method %s, timeout %s, http command %s, headers %s (%s)%b\n" \
+            printf "Endpoint          : %b%s%b\n" "$COLOR_CYAN" "$HTTP_URL" "$COLOR_RESET"
+            printf "HTTP Client       : %b%s%b\n" "$COLOR_CYAN" "$HTTP_CLIENT" "$COLOR_RESET"
+        else
+            printf "Mail Agent        : %b%s%b\n" "$COLOR_CYAN" "$mail_label" "$COLOR_RESET"
+            if [[ "$NOTIFY_MODE" == "mail" ]]; then
+                printf "Recipient         : %b%s%b\n" "$COLOR_CYAN" "$MAIL_TO" "$COLOR_RESET"
+            fi
+        fi
+        printf "Execution Mode    : %b\n" "$mode_label"
+        if [[ -n "$LOG_FILE" ]]; then
+            printf "Audit Log File    : %b%s%b\n" "$COLOR_CYAN" "$LOG_FILE" "$COLOR_RESET"
+        fi
+
+        if [[ "$VERBOSE" == true ]]; then
+            printf "%bDiagnostics        : %bpartition %s, threshold %s, notify %s, recipient %s, mail command %s, log file %s, usage command %s, usage override %s%b\n" \
                 "$COLOR_BLUE" "$COLOR_RESET" \
-                "$SOURCE_URL" "$SOURCE_BODY_TEMPLATE" "$SOURCE_METHOD" "$SOURCE_TIMEOUT" \
-                "$SOURCE_HTTP_COMMAND" "${#HTTP_HEADERS[@]}" "$SOURCE_HEADER" \
+                "$SOURCE_PARTITION" "$SOURCE_THRESHOLD" "$SOURCE_NOTIFY" "$SOURCE_TO" \
+                "$SOURCE_MAIL_COMMAND" "$SOURCE_LOG_FILE" "$SOURCE_USAGE_COMMAND" "$SOURCE_USAGE_OVERRIDE" \
                 "$COLOR_RESET"
+            if [[ "$NOTIFY_MODE" == "http" ]]; then
+                printf "%bTransport          : %bendpoint %s, body template %s, method %s, timeout %s, http command %s, headers %s (%s)%b\n" \
+                    "$COLOR_BLUE" "$COLOR_RESET" \
+                    "$SOURCE_URL" "$SOURCE_BODY_TEMPLATE" "$SOURCE_METHOD" "$SOURCE_TIMEOUT" \
+                    "$SOURCE_HTTP_COMMAND" "${#HTTP_HEADERS[@]}" "$SOURCE_HEADER" \
+                    "$COLOR_RESET"
+            fi
         fi
     fi
 
     if [[ "$used_percent" -gt "$THRESHOLD" ]]; then
-        printf "%bWARNING: Disk usage exceeds the threshold.%b\n" "$COLOR_RED" "$COLOR_RESET"
+        if [[ "$OUTPUT_MODE" == "human" ]]; then
+            printf "%bWARNING: Disk usage exceeds the threshold.%b\n" "$COLOR_RED" "$COLOR_RESET"
+        fi
 
         local host
         host="$(hostname 2>/dev/null || uname -n 2>/dev/null || echo "unknown-host")"
@@ -1541,17 +1576,29 @@ main() {
         fi
 
         if [[ "$DRY_RUN" == true ]]; then
-            printf "%b[DRY RUN]%b Would send an alert to %s\n" \
-                "$COLOR_YELLOW" "$COLOR_RESET" "$notification_target"
+            if [[ "$OUTPUT_MODE" == "human" ]]; then
+                printf "%b[DRY RUN]%b Would send an alert to %s\n" \
+                    "$COLOR_YELLOW" "$COLOR_RESET" "$notification_target"
+            fi
             log_message "INFO" "[DRY RUN] Would send an alert to $notification_target (Usage: ${used_percent}%, Source: ${usage_source}, Threshold: ${THRESHOLD}%)"
         elif [[ "$NOTIFY_MODE" == "mail" ]]; then
             if send_alert "$subject" "$body"; then
-                printf "%bAlert sent to %s%b\n" "$COLOR_GREEN" "$MAIL_TO" "$COLOR_RESET"
+                if [[ "$OUTPUT_MODE" == "human" ]]; then
+                    printf "%bAlert sent to %s%b\n" "$COLOR_GREEN" "$MAIL_TO" "$COLOR_RESET"
+                fi
                 log_message "INFO" "ALERT SENT to $MAIL_TO (Usage: ${used_percent}%, Source: ${usage_source}, Threshold: ${THRESHOLD}%)"
+                outcome="alerted"
             else
                 printf "%bError: The alert could not be handed to the mail agent.%b\n" \
                     "$COLOR_RED" "$COLOR_RESET" >&2
                 log_message "ERROR" "FAILED to hand the alert to the mail agent (Usage: ${used_percent}%, Source: ${usage_source})"
+                outcome="failed"
+                if [[ "$OUTPUT_MODE" == "json" ]]; then
+                    printf '{\n  "partition": "%s",\n  "usage_percent": %s,\n  "threshold": %s,\n  "outcome": "failed"\n}\n' "$PARTITION" "$used_percent" "$THRESHOLD"
+                elif [[ "$OUTPUT_MODE" == "csv" ]]; then
+                    printf 'partition,usage_percent,threshold,outcome\n'
+                    printf '"%s",%s,%s,"failed"\n' "$PARTITION" "$used_percent" "$THRESHOLD"
+                fi
                 exit 2
             fi
         elif [[ "$NOTIFY_MODE" == "http" ]]; then
@@ -1563,21 +1610,43 @@ main() {
                 "${used_percent}%" "${THRESHOLD}%" "$HTTP_URL" "$host" "$timestamp"
 
             if send_http_alert "$HTTP_URL" "$RENDERED_BODY" "$HTTP_METHOD" "$HTTP_TIMEOUT"; then
-                printf "%bAlert sent to %s%b\n" "$COLOR_GREEN" "$HTTP_URL" "$COLOR_RESET"
+                if [[ "$OUTPUT_MODE" == "human" ]]; then
+                    printf "%bAlert sent to %s%b\n" "$COLOR_GREEN" "$HTTP_URL" "$COLOR_RESET"
+                fi
                 log_message "INFO" "ALERT SENT to $HTTP_URL (Usage: ${used_percent}%, Source: ${usage_source}, Threshold: ${THRESHOLD}%)"
+                outcome="alerted"
             else
                 printf "%bError: The alert could not be handed to the HTTP client.%b\n" \
                     "$COLOR_RED" "$COLOR_RESET" >&2
                 log_message "ERROR" "FAILED to hand the alert to the HTTP client (Usage: ${used_percent}%, Source: ${usage_source})"
+                outcome="failed"
+                if [[ "$OUTPUT_MODE" == "json" ]]; then
+                    printf '{\n  "partition": "%s",\n  "usage_percent": %s,\n  "threshold": %s,\n  "outcome": "failed"\n}\n' "$PARTITION" "$used_percent" "$THRESHOLD"
+                elif [[ "$OUTPUT_MODE" == "csv" ]]; then
+                    printf 'partition,usage_percent,threshold,outcome\n'
+                    printf '"%s",%s,%s,"failed"\n' "$PARTITION" "$used_percent" "$THRESHOLD"
+                fi
                 exit 2
             fi
         else
-            printf "%bAlert suppressed by --notify none.%b\n" "$COLOR_CYAN" "$COLOR_RESET"
+            if [[ "$OUTPUT_MODE" == "human" ]]; then
+                printf "%bAlert suppressed by --notify none.%b\n" "$COLOR_CYAN" "$COLOR_RESET"
+            fi
             log_message "INFO" "Alert suppressed by --notify none (Usage: ${used_percent}%, Source: ${usage_source})"
+            outcome="suppressed"
         fi
     else
-        printf "%bDisk usage is within the threshold.%b\n" "$COLOR_GREEN" "$COLOR_RESET"
+        if [[ "$OUTPUT_MODE" == "human" ]]; then
+            printf "%bDisk usage is within the threshold.%b\n" "$COLOR_GREEN" "$COLOR_RESET"
+        fi
         log_message "INFO" "Usage within threshold (Usage: ${used_percent}%, Source: ${usage_source}, Threshold: ${THRESHOLD}%)"
+    fi
+
+    if [[ "$OUTPUT_MODE" == "json" ]]; then
+        printf '{\n  "partition": "%s",\n  "usage_percent": %s,\n  "threshold": %s,\n  "outcome": "%s"\n}\n' "$PARTITION" "$used_percent" "$THRESHOLD" "$outcome"
+    elif [[ "$OUTPUT_MODE" == "csv" ]]; then
+        printf 'partition,usage_percent,threshold,outcome\n'
+        printf '"%s",%s,%s,"%s"\n' "$PARTITION" "$used_percent" "$THRESHOLD" "$outcome"
     fi
 
     exit 0
