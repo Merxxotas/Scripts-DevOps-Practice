@@ -599,13 +599,13 @@ Two details of that matrix are deliberate:
   PowerShell script on Linux applies here in advance.
 
 See
-[08. CI/CD Pipelines & Testing Philosophy](08-CI-CD-Pipelines.md) for the
+[08. CI/CD Pipelines & Testing Philosophy](08-CI-CD-Pipelines) for the
 monorepo-wide model.
 
 ---
 
 ## Where to go next
 
-* [13. Disk Usage Monitor — Overview & Specs](13-Disk-Monitor-Overview.md)
-* [14. Bash vs PowerShell](14-Disk-Monitor-Bash-vs-PowerShell.md)
-* [05. Log Cleanup Overview](05-Log-Cleanup-Overview.md)
+* [13. Disk Usage Monitor — Overview & Specs](13-Disk-Monitor-Overview)
+* [14. Bash vs PowerShell](14-Disk-Monitor-Bash-vs-PowerShell)
+* [05. Log Cleanup Overview](05-Log-Cleanup-Overview)

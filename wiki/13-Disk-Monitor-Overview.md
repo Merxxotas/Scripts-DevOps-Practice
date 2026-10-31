@@ -68,7 +68,7 @@ shape the other seven seeds will be converted to.
 
 Both implementations expose the same set, with the same defaults. The
 parity suite compares the two sets as set equality (see
-[page 14](14-Disk-Monitor-Bash-vs-PowerShell.md)).
+[page 14](14-Disk-Monitor-Bash-vs-PowerShell)).
 
 | Flag | PowerShell | Default | Meaning |
 | :--- | :--- | :--- | :--- |
@@ -691,7 +691,7 @@ Recorded so they are decisions rather than omissions:
 
 ## Where to go next
 
-* [14. Bash vs PowerShell](14-Disk-Monitor-Bash-vs-PowerShell.md)
-* [15. Scenarios & Interactive Labs](15-Disk-Monitor-Scenarios-and-Labs.md)
-* [05. Log Cleanup Overview](05-Log-Cleanup-Overview.md)
-* [09. Code Style & Engineering Standards](09-Code-Style-and-Standards.md)
+* [14. Bash vs PowerShell](14-Disk-Monitor-Bash-vs-PowerShell)
+* [15. Scenarios & Interactive Labs](15-Disk-Monitor-Scenarios-and-Labs)
+* [05. Log Cleanup Overview](05-Log-Cleanup-Overview)
+* [09. Code Style & Engineering Standards](09-Code-Style-and-Standards)

@@ -120,5 +120,5 @@ file, no `--json`/`--csv` output. One database per invocation. Audit write is be
 
 ## Where to go next
 
-- [17. Bash vs PowerShell](17-Database-Backup-Bash-vs-PowerShell.md)
-- [18. Scenarios & Labs](18-Database-Backup-Scenarios-and-Labs.md)
+- [17. Bash vs PowerShell](17-Database-Backup-Bash-vs-PowerShell)
+- [18. Scenarios & Labs](18-Database-Backup-Scenarios-and-Labs)

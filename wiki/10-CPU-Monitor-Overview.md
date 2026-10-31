@@ -120,7 +120,7 @@ not have. Both were fixed.
 
 ## Where to go next
 
-* [11. Bash vs PowerShell vs Python](11-CPU-Monitor-Bash-vs-PowerShell.md)
-* [12. Scenarios & Interactive Labs](12-CPU-Monitor-Scenarios-and-Labs.md)
-* [08. CI/CD Pipelines & Testing Philosophy](08-CI-CD-Pipelines.md)
-* [09. Code Style & Engineering Standards](09-Code-Style-and-Standards.md)
+* [11. Bash vs PowerShell vs Python](11-CPU-Monitor-Bash-vs-PowerShell)
+* [12. Scenarios & Interactive Labs](12-CPU-Monitor-Scenarios-and-Labs)
+* [08. CI/CD Pipelines & Testing Philosophy](08-CI-CD-Pipelines)
+* [09. Code Style & Engineering Standards](09-Code-Style-and-Standards)

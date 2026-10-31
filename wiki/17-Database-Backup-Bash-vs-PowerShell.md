@@ -29,5 +29,5 @@ so it never appears in `ps` or the audit log.
 
 ## Related
 
-- [16. Overview](16-Database-Backup-Overview.md)
-- [18. Scenarios & Labs](18-Database-Backup-Scenarios-and-Labs.md)
+- [16. Overview](16-Database-Backup-Overview)
+- [18. Scenarios & Labs](18-Database-Backup-Scenarios-and-Labs)

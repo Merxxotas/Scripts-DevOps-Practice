@@ -361,7 +361,7 @@ work.
 
 ## Where to go next
 
-* [13. Disk Usage Monitor — Overview & Specs](13-Disk-Monitor-Overview.md)
-* [15. Scenarios & Interactive Labs](15-Disk-Monitor-Scenarios-and-Labs.md)
-* [06. Log Cleanup — Bash vs PowerShell](06-Log-Cleanup-Bash-vs-PowerShell.md)
-* [09. Code Style & Engineering Standards](09-Code-Style-and-Standards.md)
+* [13. Disk Usage Monitor — Overview & Specs](13-Disk-Monitor-Overview)
+* [15. Scenarios & Interactive Labs](15-Disk-Monitor-Scenarios-and-Labs)
+* [06. Log Cleanup — Bash vs PowerShell](06-Log-Cleanup-Bash-vs-PowerShell)
+* [09. Code Style & Engineering Standards](09-Code-Style-and-Standards)
