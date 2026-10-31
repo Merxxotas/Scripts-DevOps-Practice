@@ -184,7 +184,7 @@ Verified on **2026-10-21**. These are real, current, and will bite you.
 | 4 | **`main` is unprotected** — no branch protection, rulesets or required checks. |
 | 5 | **`.gitattributes` normalizes line endings** — `.ps1` stored LF, checked out CRLF. Compare with `git show HEAD:<path>`, not the working file. |
 | 6 | **Go version drift** — CI pins Go `1.26` (matching `go.mod`); keep the pin current as Go evolves. |
-| 7 | **Private vulnerability reporting not enabled** — needs one click in GitHub UI (*Settings → Code security*). Until on, [`SECURITY.md`](SECURITY.md) directs reporters to the maintainer's email. |
+| 7 | **Private vulnerability reporting enabled** — reporters can use *Security → Report a vulnerability* (GitHub Security Advisory). Email channel remains as fallback. |
 
 ---
 
