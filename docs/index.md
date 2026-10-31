@@ -10,7 +10,7 @@ title: Scripts-DevOps-Practice
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Scripts-DevOps-Practice — DevOps Automation Monorepo</title>
 <style>
-:root {
+html {
   --bg: #ffffff;
   --fg: #1f2328;
   --muted: #57606a;
@@ -20,7 +20,7 @@ title: Scripts-DevOps-Practice
   --accent-hover: #0550ae;
   --code-bg: #f6f8fa;
 }
-[data-theme="dark"] {
+html[data-theme="dark"] {
   --bg: #0d1117;
   --fg: #c9d1d9;
   --muted: #8b949e;
@@ -91,8 +91,9 @@ th, td {
   padding: 10px 12px;
   border: 1px solid var(--border);
   text-align: left;
+  color: var(--fg);
 }
-th { background: var(--card); }
+th { background: var(--card); color: var(--fg); font-weight: 600; }
 tr:hover { background: var(--card); }
 code, pre {
   font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
@@ -125,6 +126,9 @@ footer {
 a { color: var(--accent); }
 a:hover { color: var(--accent-hover); }
 </style>
+<script>
+(function(){try{var t=localStorage.getItem('theme');if(!t){t=window.matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light';}document.documentElement.setAttribute('data-theme',t);}catch(e){}})();
+</script>
 </head>
 <body>
 <div class="container">
