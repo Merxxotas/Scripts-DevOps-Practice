@@ -15,7 +15,7 @@ Cross-platform automated deployment from a Git repository. Available in **POSIX 
 
 ## CLI
 
-See the module's [SPECS.md §3](../9-Automated-Git-Deployment/SPECS.md).
+See the module's [SPECS.md §3](https://github.com/Merxxotas/Scripts-DevOps-Practice/blob/main/9-Automated-Git-Deployment/SPECS.md).
 
 ## Wiki Navigation
 

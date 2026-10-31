@@ -14,7 +14,7 @@ Cross-platform detection and termination of runaway CPU processes. Available in 
 
 ## CLI
 
-See the module's [SPECS.md §3](../7-Find-and-Kill-High-CPU-Processes/SPECS.md).
+See the module's [SPECS.md §3](https://github.com/Merxxotas/Scripts-DevOps-Practice/blob/main/7-Find-and-Kill-High-CPU-Processes/SPECS.md).
 
 ## Wiki Navigation
 

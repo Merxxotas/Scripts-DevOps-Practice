@@ -14,7 +14,7 @@ Cross-platform HTTP health check for a single URL. Available in **POSIX Bash**
 
 ## CLI
 
-See the module's [SPECS.md §3](../6-Website-Availability-(HTTP-Health-Check)/SPECS.md).
+See the module's [SPECS.md §3](https://github.com/Merxxotas/Scripts-DevOps-Practice/blob/main/6-Website-Availability-%28HTTP-Health-Check)/SPECS.md).
 
 ## Wiki Navigation
 
