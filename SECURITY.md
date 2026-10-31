@@ -46,10 +46,6 @@ public issue.
 2. Describe the issue, the module, the affected file and line, and the impact.
 3. You will get an acknowledgement within **7 days**.
 
-> If the **Report a vulnerability** button is not shown, private vulnerability reporting is not
-> enabled on this repository yet — use **Channel 2** instead. It reaches the same person, with the
-> same discretion.
-
 ### Channel 2 — Encrypted or plain email *(always available)*
 
 Email **brayan6590@gmail.com** with the same details as below. For anything sensitive, encrypt the
