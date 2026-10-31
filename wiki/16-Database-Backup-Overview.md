@@ -103,11 +103,11 @@ database required.
 
 ## Documentation
 
-- [SPECS.md](../3-Automated-Database-Backup-with-Timestamp/SPECS.md)
-- [README.md](../3-Automated-Database-Backup-with-Timestamp/README.md)
-- [ROADMAP.md](../3-Automated-Database-Backup-with-Timestamp/ROADMAP.md)
-- [CODESTYLE.md](../3-Automated-Database-Backup-with-Timestamp/CODESTYLE.md)
-- [docs/](../3-Automated-Database-Backup-with-Timestamp/docs/) — architecture comparison, scenarios, labs.
+- [SPECS.md](https://github.com/Merxxotas/Scripts-DevOps-Practice/blob/main/3-Automated-Database-Backup-with-Timestamp/SPECS.md)
+- [README.md](https://github.com/Merxxotas/Scripts-DevOps-Practice/blob/main/3-Automated-Database-Backup-with-Timestamp/README.md)
+- [ROADMAP.md](https://github.com/Merxxotas/Scripts-DevOps-Practice/blob/main/3-Automated-Database-Backup-with-Timestamp/ROADMAP.md)
+- [CODESTYLE.md](https://github.com/Merxxotas/Scripts-DevOps-Practice/blob/main/3-Automated-Database-Backup-with-Timestamp/CODESTYLE.md)
+- [docs/](https://github.com/Merxxotas/Scripts-DevOps-Practice/blob/main/3-Automated-Database-Backup-with-Timestamp/docs) — architecture comparison, scenarios, labs.
 
 ---
 

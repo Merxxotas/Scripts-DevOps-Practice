@@ -14,7 +14,7 @@ feature parity. Requires `kubectl` and cluster access.
 
 ## CLI
 
-See the module's [SPECS.md §3](../10-Kubernetes-Pod-Monitor-and-Restart/SPECS.md).
+See the module's [SPECS.md §3](https://github.com/Merxxotas/Scripts-DevOps-Practice/blob/main/10-Kubernetes-Pod-Monitor-and-Restart/SPECS.md).
 
 ## Wiki Navigation
 

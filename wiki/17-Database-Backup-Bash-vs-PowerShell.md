@@ -1,7 +1,7 @@
 # 17. Database Backup — Bash vs PowerShell
 
 > Module 3 parity reference. Full detail in the module's
-> [ARCHITECTURE_COMPARISON.md](../3-Automated-Database-Backup-with-Timestamp/docs/ARCHITECTURE_COMPARISON.md).
+> [ARCHITECTURE_COMPARISON.md](https://github.com/Merxxotas/Scripts-DevOps-Practice/blob/main/3-Automated-Database-Backup-with-Timestamp/docs/ARCHITECTURE_COMPARISON.md).
 
 ---
 

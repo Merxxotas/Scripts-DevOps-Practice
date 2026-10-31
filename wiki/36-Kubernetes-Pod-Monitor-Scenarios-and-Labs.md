@@ -1,7 +1,7 @@
 # 36. Kubernetes Pod Monitor — Scenarios & Labs
 
-See the module's [docs/SCENARIOS.md](../10-Kubernetes-Pod-Monitor-and-Restart/docs/SCENARIOS.md)
-and [docs/labs/](../10-Kubernetes-Pod-Monitor-and-Restart/docs/labs/).
+See the module's [docs/SCENARIOS.md](https://github.com/Merxxotas/Scripts-DevOps-Practice/blob/main/10-Kubernetes-Pod-Monitor-and-Restart/docs/SCENARIOS.md)
+and [docs/labs/](https://github.com/Merxxotas/Scripts-DevOps-Practice/blob/main/10-Kubernetes-Pod-Monitor-and-Restart/docs/labs).
 
 Labs:
 - LAB1 — Discovery and Dry Run

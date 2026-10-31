@@ -1,8 +1,8 @@
 # 18. Database Backup — Scenarios & Labs
 
 > Module 3 operational reference. Full scenarios in the module's
-> [SCENARIOS.md](../3-Automated-Database-Backup-with-Timestamp/docs/SCENARIOS.md);
-> executable labs in [docs/labs/](../3-Automated-Database-Backup-with-Timestamp/docs/labs/).
+> [SCENARIOS.md](https://github.com/Merxxotas/Scripts-DevOps-Practice/blob/main/3-Automated-Database-Backup-with-Timestamp/docs/SCENARIOS.md);
+> executable labs in [docs/labs/](https://github.com/Merxxotas/Scripts-DevOps-Practice/blob/main/3-Automated-Database-Backup-with-Timestamp/docs/labs).
 
 ---
 
@@ -27,9 +27,9 @@
 
 ## Labs
 
-- [Lab 1 — Backup & Dry Run](../3-Automated-Database-Backup-with-Timestamp/docs/labs/LAB1_BACKUP_AND_DRY_RUN.md)
-- [Lab 2 — Exit Codes & Retention](../3-Automated-Database-Backup-with-Timestamp/docs/labs/LAB2_EXIT_CODES_AND_RETENTION.md)
-- [Lab 3 — Scheduling in Production](../3-Automated-Database-Backup-with-Timestamp/docs/labs/LAB3_PRODUCTION_SCHEDULING.md)
+- [Lab 1 — Backup & Dry Run](https://github.com/Merxxotas/Scripts-DevOps-Practice/blob/main/3-Automated-Database-Backup-with-Timestamp/docs/labs/LAB1_BACKUP_AND_DRY_RUN.md)
+- [Lab 2 — Exit Codes & Retention](https://github.com/Merxxotas/Scripts-DevOps-Practice/blob/main/3-Automated-Database-Backup-with-Timestamp/docs/labs/LAB2_EXIT_CODES_AND_RETENTION.md)
+- [Lab 3 — Scheduling in Production](https://github.com/Merxxotas/Scripts-DevOps-Practice/blob/main/3-Automated-Database-Backup-with-Timestamp/docs/labs/LAB3_PRODUCTION_SCHEDULING.md)
 
 ## Related
 

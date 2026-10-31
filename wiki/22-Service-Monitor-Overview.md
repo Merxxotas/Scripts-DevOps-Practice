@@ -15,7 +15,7 @@ feature parity.
 
 ## CLI
 
-See the module's [SPECS.md §3](../4-Service-Monitor-And-Auto-Restart/SPECS.md).
+See the module's [SPECS.md §3](https://github.com/Merxxotas/Scripts-DevOps-Practice/blob/main/4-Service-Monitor-And-Auto-Restart/SPECS.md).
 
 ## Wiki Navigation
 

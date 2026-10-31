@@ -15,7 +15,7 @@ feature parity.
 
 ## CLI
 
-See the module's [SPECS.md §3](../8-Log-Rotation-and-Compression/SPECS.md).
+See the module's [SPECS.md §3](https://github.com/Merxxotas/Scripts-DevOps-Practice/blob/main/8-Log-Rotation-and-Compression/SPECS.md).
 
 ## Wiki Navigation
 
