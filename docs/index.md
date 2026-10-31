@@ -30,6 +30,18 @@ html[data-theme="dark"] {
   --accent-hover: #79c0ff;
   --code-bg: #161b22;
 }
+@media (prefers-color-scheme: dark) {
+  html:not([data-theme="light"]) {
+    --bg: #0d1117;
+    --fg: #c9d1d9;
+    --muted: #8b949e;
+    --card: #161b22;
+    --border: #30363d;
+    --accent: #58a6ff;
+    --accent-hover: #79c0ff;
+    --code-bg: #161b22;
+  }
+}
 * { box-sizing: border-box; }
 body {
   margin: 0;
