@@ -120,7 +120,7 @@ ships the same code.
 
 ## Where to go next
 
-* [10. CPU & Memory Usage Monitor — Overview & Specs](10-CPU-Monitor-Overview.md)
-* [12. Scenarios & Interactive Labs](12-CPU-Monitor-Scenarios-and-Labs.md)
-* [06. Bash vs PowerShell Architecture Comparison](06-Log-Cleanup-Bash-vs-PowerShell.md)
-* [03. Python vs Go Architecture Comparison](03-EventOps-Python-vs-Go.md)
+* [10. CPU & Memory Usage Monitor — Overview & Specs](10-CPU-Monitor-Overview)
+* [12. Scenarios & Interactive Labs](12-CPU-Monitor-Scenarios-and-Labs)
+* [06. Bash vs PowerShell Architecture Comparison](06-Log-Cleanup-Bash-vs-PowerShell)
+* [03. Python vs Go Architecture Comparison](03-EventOps-Python-vs-Go)

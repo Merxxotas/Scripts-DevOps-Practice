@@ -33,5 +33,5 @@
 
 ## Related
 
-- [16. Overview](16-Database-Backup-Overview.md)
-- [17. Bash vs PowerShell](17-Database-Backup-Bash-vs-PowerShell.md)
+- [16. Overview](16-Database-Backup-Overview)
+- [17. Bash vs PowerShell](17-Database-Backup-Bash-vs-PowerShell)

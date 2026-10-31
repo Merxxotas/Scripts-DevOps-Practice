@@ -177,12 +177,12 @@ installs the package from **its own** `src/` tree, so testing Stage 2 alone
 would leave the shipped tree unverified.
 
 See
-[08. CI/CD Pipelines & Testing Philosophy](08-CI-CD-Pipelines.md) for the
+[08. CI/CD Pipelines & Testing Philosophy](08-CI-CD-Pipelines) for the
 monorepo-wide model.
 
 ---
 
 ## Where to go next
 
-* [10. CPU & Memory Usage Monitor — Overview & Specs](10-CPU-Monitor-Overview.md)
-* [11. Bash vs PowerShell vs Python](11-CPU-Monitor-Bash-vs-PowerShell.md)
+* [10. CPU & Memory Usage Monitor — Overview & Specs](10-CPU-Monitor-Overview)
+* [11. Bash vs PowerShell vs Python](11-CPU-Monitor-Bash-vs-PowerShell)
