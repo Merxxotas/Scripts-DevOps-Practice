@@ -205,6 +205,50 @@ printf "500 1 88.0 runaway\n" > "$TEST_SANDBOX/ps_output"
 run_killer --bogus
 assert_equals 1 "$LAST_EXIT_CODE" "Test 12: unknown option exits 1"
 
+# Test 13: --json outputs valid JSON (auto-kill)
+setup
+printf "500 1 88.0 runaway\n" > "$TEST_SANDBOX/ps_output"
+run_killer -t 50 --auto-kill --json
+assert_equals 0 "$LAST_EXIT_CODE" "Test 13a: --json exits 0"
+assert_contains "$LAST_STDOUT" '"outcome": "completed"' "Test 13b: json outcome completed"
+assert_contains "$LAST_STDOUT" '"pid": 500' "Test 13c: json pid"
+
+# Test 14: --json dry-run
+setup
+printf "500 1 88.0 runaway\n" > "$TEST_SANDBOX/ps_output"
+run_killer --dry-run --json
+assert_equals 0 "$LAST_EXIT_CODE" "Test 14a: --json dry-run exits 0"
+assert_contains "$LAST_STDOUT" '"outcome": "dry-run"' "Test 14b: json dry-run outcome"
+
+# Test 15: --json no candidates
+setup
+printf "1 0 1.0 init\n" > "$TEST_SANDBOX/ps_output"
+run_killer -t 50 --json
+assert_equals 0 "$LAST_EXIT_CODE" "Test 15a: --json no-candidates exits 0"
+assert_contains "$LAST_STDOUT" '"outcome": "none"' "Test 15b: json none outcome"
+
+# Test 16: --csv outputs header + row
+setup
+printf "500 1 88.0 runaway\n" > "$TEST_SANDBOX/ps_output"
+run_killer -t 50 --auto-kill --csv
+assert_equals 0 "$LAST_EXIT_CODE" "Test 16a: --csv exits 0"
+assert_contains "$LAST_STDOUT" 'pid,pcpu,comm,action' "Test 16b: csv header"
+assert_contains "$LAST_STDOUT" 'killed' "Test 16c: csv action"
+
+# Test 17: --json and --csv mutually exclusive
+setup
+printf "500 1 88.0 runaway\n" > "$TEST_SANDBOX/ps_output"
+run_killer --json --csv
+assert_equals 1 "$LAST_EXIT_CODE" "Test 17: mutual exclusion exits 1"
+
+# Test 18: --json kill failure -> partial
+setup
+printf "700 1 92.0 doomed\n" > "$TEST_SANDBOX/ps_output"
+touch "$TEST_SANDBOX/kill_fail_700"
+run_killer -t 50 --auto-kill --json
+assert_equals 2 "$LAST_EXIT_CODE" "Test 18a: failure exits 2"
+assert_contains "$LAST_STDOUT" '"outcome": "partial"' "Test 18b: json partial outcome"
+
 # Summary
 echo ""
 echo "========================================"
