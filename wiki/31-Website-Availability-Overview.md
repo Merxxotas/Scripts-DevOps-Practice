@@ -18,5 +18,5 @@ See the module's [SPECS.md §3](../6-Website-Availability-(HTTP-Health-Check)/SP
 
 ## Wiki Navigation
 
-- [[32-Website-Availability-Bash-vs-PowerShell|Bash vs PowerShell]]
-- [[33-Website-Availability-Scenarios-and-Labs|Scenarios & Labs]]
+- [Bash vs PowerShell](32-Website-Availability-Bash-vs-PowerShell)
+- [Scenarios & Labs](33-Website-Availability-Scenarios-and-Labs)

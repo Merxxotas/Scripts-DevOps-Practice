@@ -19,5 +19,5 @@ See the module's [SPECS.md §3](../8-Log-Rotation-and-Compression/SPECS.md).
 
 ## Wiki Navigation
 
-- [[20-Log-Rotation-Bash-vs-PowerShell|Bash vs PowerShell]]
-- [[21-Log-Rotation-Scenarios-and-Labs|Scenarios & Labs]]
+- [Bash vs PowerShell](20-Log-Rotation-Bash-vs-PowerShell)
+- [Scenarios & Labs](21-Log-Rotation-Scenarios-and-Labs)

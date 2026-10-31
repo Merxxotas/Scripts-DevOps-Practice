@@ -19,5 +19,5 @@ See the module's [SPECS.md §3](../4-Service-Monitor-And-Auto-Restart/SPECS.md).
 
 ## Wiki Navigation
 
-- [[23-Service-Monitor-Bash-vs-PowerShell|Bash vs PowerShell]]
-- [[24-Service-Monitor-Scenarios-and-Labs|Scenarios & Labs]]
+- [Bash vs PowerShell](23-Service-Monitor-Bash-vs-PowerShell)
+- [Scenarios & Labs](24-Service-Monitor-Scenarios-and-Labs)

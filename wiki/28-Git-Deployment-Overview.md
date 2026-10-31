@@ -19,5 +19,5 @@ See the module's [SPECS.md §3](../9-Automated-Git-Deployment/SPECS.md).
 
 ## Wiki Navigation
 
-- [[29-Git-Deployment-Bash-vs-PowerShell|Bash vs PowerShell]]
-- [[30-Git-Deployment-Scenarios-and-Labs|Scenarios & Labs]]
+- [Bash vs PowerShell](29-Git-Deployment-Bash-vs-PowerShell)
+- [Scenarios & Labs](30-Git-Deployment-Scenarios-and-Labs)
