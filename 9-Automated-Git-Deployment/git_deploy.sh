@@ -27,6 +27,9 @@ SERVICE_NAME="myapp"
 DRY_RUN=false
 AUDIT_LOG=""
 VERBOSE=false
+JSON_OUTPUT=false
+CSV_OUTPUT=false
+OUTPUT_MODE="human"
 
 # Metrics / state
 DEPLOYED=false
@@ -86,6 +89,8 @@ Optional Arguments:
       --service <name>       Service to restart (default: myapp).
       --dry-run              Preview only.
       --audit-log <file>     Append ISO-8601 audit log entries.
+      --json                 Output result as JSON.
+      --csv                  Output result as CSV.
   -v, --verbose            Enable diagnostic output.
   -h, --help               Show this help and usage documentation.
 
@@ -152,6 +157,14 @@ parse_arguments() {
                 AUDIT_LOG="$2"
                 shift 2
                 ;;
+            --json)
+                JSON_OUTPUT=true
+                shift
+                ;;
+            --csv)
+                CSV_OUTPUT=true
+                shift
+                ;;
             -v|--verbose)
                 VERBOSE=true
                 shift
@@ -200,40 +213,62 @@ parse_arguments() {
         printf "%bError: Backup directory '%s' is in a protected system directory.%b\n" "$COLOR_RED" "$BACKUP_DIR" "$COLOR_RESET" >&2
         exit 1
     fi
+
+    if $JSON_OUTPUT && $CSV_OUTPUT; then
+        printf "%bError: Cannot use --json and --csv together.%b\n" "$COLOR_RED" "$COLOR_RESET" >&2
+        exit 1
+    fi
+    if $JSON_OUTPUT; then
+        OUTPUT_MODE="json"
+    elif $CSV_OUTPUT; then
+        OUTPUT_MODE="csv"
+    else
+        OUTPUT_MODE="human"
+    fi
 }
 
 main() {
     parse_arguments "$@"
 
-    printf "%b============================================================%b\n" "$COLOR_BLUE" "$COLOR_RESET"
-    printf "%b            DevOps Git Deployment Utility                  %b\n" "$COLOR_BLUE" "$COLOR_RESET"
-    printf "%b============================================================%b\n" "$COLOR_BLUE" "$COLOR_RESET"
-    printf "App Directory    : %b%s%b\n" "$COLOR_CYAN" "$APP_DIR" "$COLOR_RESET"
-    printf "Repository       : %b%s%b\n" "$COLOR_CYAN" "$REPO_URL" "$COLOR_RESET"
-    printf "Branch           : %b%s%b\n" "$COLOR_CYAN" "$BRANCH" "$COLOR_RESET"
-    printf "Backup Directory : %b%s%b\n" "$COLOR_CYAN" "$BACKUP_DIR" "$COLOR_RESET"
-    printf "Skip Backup      : %b%s%b\n" "$COLOR_CYAN" "$SKIP_BACKUP" "$COLOR_RESET"
-    printf "Skip Post-Deploy : %b%s%b\n" "$COLOR_CYAN" "$SKIP_POST_DEPLOY" "$COLOR_RESET"
-    if [[ "$VERBOSE" == true ]]; then
-        printf "%b[VERBOSE]%b app_dir=%s branch=%s service=%s\n" "$COLOR_CYAN" "$COLOR_RESET" "$APP_DIR" "$BRANCH" "$SERVICE_NAME"
+    if [[ "$OUTPUT_MODE" == "human" ]]; then
+        printf "%b============================================================%b\n" "$COLOR_BLUE" "$COLOR_RESET"
+        printf "%b            DevOps Git Deployment Utility                  %b\n" "$COLOR_BLUE" "$COLOR_RESET"
+        printf "%b============================================================%b\n" "$COLOR_BLUE" "$COLOR_RESET"
+        printf "App Directory    : %b%s%b\n" "$COLOR_CYAN" "$APP_DIR" "$COLOR_RESET"
+        printf "Repository       : %b%s%b\n" "$COLOR_CYAN" "$REPO_URL" "$COLOR_RESET"
+        printf "Branch           : %b%s%b\n" "$COLOR_CYAN" "$BRANCH" "$COLOR_RESET"
+        printf "Backup Directory : %b%s%b\n" "$COLOR_CYAN" "$BACKUP_DIR" "$COLOR_RESET"
+        printf "Skip Backup      : %b%s%b\n" "$COLOR_CYAN" "$SKIP_BACKUP" "$COLOR_RESET"
+        printf "Skip Post-Deploy : %b%s%b\n" "$COLOR_CYAN" "$SKIP_POST_DEPLOY" "$COLOR_RESET"
+        if [[ "$VERBOSE" == true ]]; then
+            printf "%b[VERBOSE]%b app_dir=%s branch=%s service=%s\n" "$COLOR_CYAN" "$COLOR_RESET" "$APP_DIR" "$BRANCH" "$SERVICE_NAME"
+        fi
+        if [[ -n "$AUDIT_LOG" ]]; then
+            printf "Audit Log        : %b%s%b\n" "$COLOR_CYAN" "$AUDIT_LOG" "$COLOR_RESET"
+        fi
+        printf "\n"
     fi
-    if [[ -n "$AUDIT_LOG" ]]; then
-        printf "Audit Log        : %b%s%b\n" "$COLOR_CYAN" "$AUDIT_LOG" "$COLOR_RESET"
-    fi
-    printf "\n"
 
     # Dry-run
     if [[ "$DRY_RUN" == true ]]; then
-        printf "%b[DRY RUN]%b Would deploy '%s' from %s (%s).\n" "$COLOR_YELLOW" "$COLOR_RESET" "$APP_DIR" "$REPO_URL" "$BRANCH"
-        if [[ "$SKIP_BACKUP" != true ]]; then
-            printf "%b[DRY RUN]%b Would create backup in %s.\n" "$COLOR_YELLOW" "$COLOR_RESET" "$BACKUP_DIR"
-        fi
-        printf "%b[DRY RUN]%b Would git fetch origin %s.\n" "$COLOR_YELLOW" "$COLOR_RESET" "$BRANCH"
-        printf "%b[DRY RUN]%b Would git pull origin %s if behind.\n" "$COLOR_YELLOW" "$COLOR_RESET" "$BRANCH"
-        if [[ "$SKIP_POST_DEPLOY" != true ]]; then
-            printf "%b[DRY RUN]%b Would run post-deploy (npm install if package.json; restart %s).\n" "$COLOR_YELLOW" "$COLOR_RESET" "$SERVICE_NAME"
+        if [[ "$OUTPUT_MODE" == "human" ]]; then
+            printf "%b[DRY RUN]%b Would deploy '%s' from %s (%s).\n" "$COLOR_YELLOW" "$COLOR_RESET" "$APP_DIR" "$REPO_URL" "$BRANCH"
+            if [[ "$SKIP_BACKUP" != true ]]; then
+                printf "%b[DRY RUN]%b Would create backup in %s.\n" "$COLOR_YELLOW" "$COLOR_RESET" "$BACKUP_DIR"
+            fi
+            printf "%b[DRY RUN]%b Would git fetch origin %s.\n" "$COLOR_YELLOW" "$COLOR_RESET" "$BRANCH"
+            printf "%b[DRY RUN]%b Would git pull origin %s if behind.\n" "$COLOR_YELLOW" "$COLOR_RESET" "$BRANCH"
+            if [[ "$SKIP_POST_DEPLOY" != true ]]; then
+                printf "%b[DRY RUN]%b Would run post-deploy (npm install if package.json; restart %s).\n" "$COLOR_YELLOW" "$COLOR_RESET" "$SERVICE_NAME"
+            fi
         fi
         log_message "INFO" "[DRY RUN] Deploy planned for '$APP_DIR'."
+        if [[ "$OUTPUT_MODE" == "json" ]]; then
+            printf '{\n  "app_dir": "%s",\n  "repo_url": "%s",\n  "branch": "%s",\n  "result": "dry-run",\n  "failed": 0\n}\n' "$APP_DIR" "$REPO_URL" "$BRANCH"
+        elif [[ "$OUTPUT_MODE" == "csv" ]]; then
+            printf 'app_dir,repo_url,branch,result,failed\n'
+            printf '"%s","%s","%s","dry-run",0\n' "$APP_DIR" "$REPO_URL" "$BRANCH"
+        fi
         exit 0
     fi
 
@@ -241,25 +276,25 @@ main() {
 
     # Backup
     if [[ "$SKIP_BACKUP" != true ]]; then
-        printf "%bCreating backup...%b\n" "$COLOR_YELLOW" "$COLOR_RESET"
+        if [[ "$OUTPUT_MODE" == "human" ]]; then printf "%bCreating backup...%b\n" "$COLOR_YELLOW" "$COLOR_RESET"; fi
         local timestamp backup_file
         timestamp="$(date +%Y%m%d_%H%M%S)"
         backup_file="$BACKUP_DIR/backup_$timestamp.tar.gz"
         mkdir -p "$BACKUP_DIR" 2>/dev/null || true
         if tar -czf "$backup_file" -C "$APP_DIR" . 2>/dev/null; then
-            printf "%b✓ Backup created: %s%b\n" "$COLOR_GREEN" "$backup_file" "$COLOR_RESET"
+            if [[ "$OUTPUT_MODE" == "human" ]]; then printf "%b✓ Backup created: %s%b\n" "$COLOR_GREEN" "$backup_file" "$COLOR_RESET"; fi
             log_message "INFO" "Backup created: $backup_file"
         else
-            printf "%b✗ Backup failed.%b\n" "$COLOR_RED" "$COLOR_RESET" >&2
+            if [[ "$OUTPUT_MODE" == "human" ]]; then printf "%b✗ Backup failed.%b\n" "$COLOR_RED" "$COLOR_RESET" >&2; fi
             FAILED_COUNT=$((FAILED_COUNT + 1))
             log_message "ERROR" "Backup failed."
         fi
     fi
 
     # Fetch
-    printf "\n%bFetching updates...%b\n" "$COLOR_YELLOW" "$COLOR_RESET"
+    if [[ "$OUTPUT_MODE" == "human" ]]; then printf "\n%bFetching updates...%b\n" "$COLOR_YELLOW" "$COLOR_RESET"; fi
     if ! git fetch origin "$BRANCH" 2>/dev/null; then
-        printf "%b✗ Git fetch failed.%b\n" "$COLOR_RED" "$COLOR_RESET" >&2
+        if [[ "$OUTPUT_MODE" == "human" ]]; then printf "%b✗ Git fetch failed.%b\n" "$COLOR_RED" "$COLOR_RESET" >&2; fi
         FAILED_COUNT=$((FAILED_COUNT + 1))
         log_message "ERROR" "Git fetch failed."
     fi
@@ -269,37 +304,47 @@ main() {
     remote_rev="$(git rev-parse "@{u}" 2>/dev/null || echo "")"
 
     if [[ -n "$local_rev" && "$local_rev" == "$remote_rev" ]]; then
-        printf "%b✓ Already up to date%b\n" "$COLOR_GREEN" "$COLOR_RESET"
+        if [[ "$OUTPUT_MODE" == "human" ]]; then
+            if [[ "$OUTPUT_MODE" == "human" ]]; then printf "%b✓ Already up to date%b\n" "$COLOR_GREEN" "$COLOR_RESET"; fi
+        fi
         log_message "INFO" "Already up to date ($APP_DIR)."
-        # Summary
-        printf "\n%b============================================================%b\n" "$COLOR_BLUE" "$COLOR_RESET"
-        printf "%b                    Execution Summary                       %b\n" "$COLOR_BLUE" "$COLOR_RESET"
-        printf "%b============================================================%b\n" "$COLOR_BLUE" "$COLOR_RESET"
-        printf "App Directory    : %b%s%b\n" "$COLOR_BOLD" "$APP_DIR" "$COLOR_RESET"
-        printf "Result           : %balready up to date%b\n" "$COLOR_GREEN" "$COLOR_RESET"
-        printf "Failed Steps     : %b%d%b\n" "$COLOR_RED" "$FAILED_COUNT" "$COLOR_RESET"
-        printf "%b============================================================%b\n" "$COLOR_BLUE" "$COLOR_RESET"
+        if [[ "$OUTPUT_MODE" == "human" ]]; then
+            # Summary
+            printf "\n%b============================================================%b\n" "$COLOR_BLUE" "$COLOR_RESET"
+            printf "%b                    Execution Summary                       %b\n" "$COLOR_BLUE" "$COLOR_RESET"
+            printf "%b============================================================%b\n" "$COLOR_BLUE" "$COLOR_RESET"
+            printf "App Directory    : %b%s%b\n" "$COLOR_BOLD" "$APP_DIR" "$COLOR_RESET"
+            printf "Result           : %balready up to date%b\n" "$COLOR_GREEN" "$COLOR_RESET"
+            printf "Failed Steps     : %b%d%b\n" "$COLOR_RED" "$FAILED_COUNT" "$COLOR_RESET"
+            printf "%b============================================================%b\n" "$COLOR_BLUE" "$COLOR_RESET"
+        fi
+        if [[ "$OUTPUT_MODE" == "json" ]]; then
+            printf '{\n  "app_dir": "%s",\n  "repo_url": "%s",\n  "branch": "%s",\n  "result": "up-to-date",\n  "failed": %s\n}\n' "$APP_DIR" "$REPO_URL" "$BRANCH" "$FAILED_COUNT"
+        elif [[ "$OUTPUT_MODE" == "csv" ]]; then
+            printf 'app_dir,repo_url,branch,result,failed\n'
+            printf '"%s","%s","%s","up-to-date",%s\n' "$APP_DIR" "$REPO_URL" "$BRANCH" "$FAILED_COUNT"
+        fi
         if [[ "$FAILED_COUNT" -gt 0 ]]; then exit 2; fi
         exit 0
     fi
 
-    printf "%bChanges detected. Deploying...%b\n" "$COLOR_YELLOW" "$COLOR_RESET"
+    if [[ "$OUTPUT_MODE" == "human" ]]; then printf "%bChanges detected. Deploying...%b\n" "$COLOR_YELLOW" "$COLOR_RESET"; fi
 
     # Pull
     if git pull origin "$BRANCH" 2>/dev/null; then
-        printf "%b✓ Code updated%b\n" "$COLOR_GREEN" "$COLOR_RESET"
+        if [[ "$OUTPUT_MODE" == "human" ]]; then printf "%b✓ Code updated%b\n" "$COLOR_GREEN" "$COLOR_RESET"; fi
         DEPLOYED=true
         log_message "INFO" "Code updated ($APP_DIR)."
 
         # Post-deploy
         if [[ "$SKIP_POST_DEPLOY" != true ]]; then
-            printf "\n%bRunning post-deployment tasks...%b\n" "$COLOR_YELLOW" "$COLOR_RESET"
+            if [[ "$OUTPUT_MODE" == "human" ]]; then printf "\n%bRunning post-deployment tasks...%b\n" "$COLOR_YELLOW" "$COLOR_RESET"; fi
             if [[ -f "package.json" ]]; then
                 if command -v npm >/dev/null 2>&1; then
                     if npm install 2>/dev/null; then
-                        printf "%b✓ Dependencies installed%b\n" "$COLOR_GREEN" "$COLOR_RESET"
+                        if [[ "$OUTPUT_MODE" == "human" ]]; then printf "%b✓ Dependencies installed%b\n" "$COLOR_GREEN" "$COLOR_RESET"; fi
                     else
-                        printf "%b✗ npm install failed.%b\n" "$COLOR_RED" "$COLOR_RESET" >&2
+                        if [[ "$OUTPUT_MODE" == "human" ]]; then printf "%b✗ npm install failed.%b\n" "$COLOR_RED" "$COLOR_RESET" >&2; fi
                         FAILED_COUNT=$((FAILED_COUNT + 1))
                         log_message "ERROR" "npm install failed."
                     fi
@@ -310,9 +355,9 @@ main() {
             # Service restart
             if command -v systemctl >/dev/null 2>&1; then
                 if systemctl restart "$SERVICE_NAME" 2>/dev/null; then
-                    printf "%b✓ Service %s restarted%b\n" "$COLOR_GREEN" "$SERVICE_NAME" "$COLOR_RESET"
+                    if [[ "$OUTPUT_MODE" == "human" ]]; then printf "%b✓ Service %s restarted%b\n" "$COLOR_GREEN" "$SERVICE_NAME" "$COLOR_RESET"; fi
                 else
-                    printf "%b✗ Service restart failed.%b\n" "$COLOR_RED" "$COLOR_RESET" >&2
+                    if [[ "$OUTPUT_MODE" == "human" ]]; then printf "%b✗ Service restart failed.%b\n" "$COLOR_RED" "$COLOR_RESET" >&2; fi
                     FAILED_COUNT=$((FAILED_COUNT + 1))
                     log_message "ERROR" "Service restart failed ($SERVICE_NAME)."
                 fi
@@ -321,19 +366,32 @@ main() {
             fi
         fi
     else
-        printf "%b✗ Git pull failed%b\n" "$COLOR_RED" "$COLOR_RESET" >&2
+        if [[ "$OUTPUT_MODE" == "human" ]]; then printf "%b✗ Git pull failed%b\n" "$COLOR_RED" "$COLOR_RESET" >&2; fi
         FAILED_COUNT=$((FAILED_COUNT + 1))
         log_message "ERROR" "Git pull failed ($APP_DIR)."
     fi
 
     # Summary
-    printf "\n%b============================================================%b\n" "$COLOR_BLUE" "$COLOR_RESET"
-    printf "%b                    Execution Summary                       %b\n" "$COLOR_BLUE" "$COLOR_RESET"
-    printf "%b============================================================%b\n" "$COLOR_BLUE" "$COLOR_RESET"
-    printf "App Directory    : %b%s%b\n" "$COLOR_BOLD" "$APP_DIR" "$COLOR_RESET"
-    printf "Result           : %b%s%b\n" "$COLOR_BOLD" "$([[ "$DEPLOYED" == true ]] && echo deployed || echo failed)" "$COLOR_RESET"
-    printf "Failed Steps     : %b%d%b\n" "$COLOR_RED" "$FAILED_COUNT" "$COLOR_RESET"
-    printf "%b============================================================%b\n" "$COLOR_BLUE" "$COLOR_RESET"
+    if [[ "$OUTPUT_MODE" == "human" ]]; then
+        printf "\n%b============================================================%b\n" "$COLOR_BLUE" "$COLOR_RESET"
+        printf "%b                    Execution Summary                       %b\n" "$COLOR_BLUE" "$COLOR_RESET"
+        printf "%b============================================================%b\n" "$COLOR_BLUE" "$COLOR_RESET"
+        printf "App Directory    : %b%s%b\n" "$COLOR_BOLD" "$APP_DIR" "$COLOR_RESET"
+        printf "Result           : %b%s%b\n" "$COLOR_BOLD" "$([[ "$DEPLOYED" == true ]] && echo deployed || echo failed)" "$COLOR_RESET"
+        printf "Failed Steps     : %b%d%b\n" "$COLOR_RED" "$FAILED_COUNT" "$COLOR_RESET"
+        printf "%b============================================================%b\n" "$COLOR_BLUE" "$COLOR_RESET"
+    fi
+
+    if [[ "$OUTPUT_MODE" == "json" ]]; then
+        local _result
+        if [[ "$DEPLOYED" == true ]]; then _result="deployed"; else _result="failed"; fi
+        printf '{\n  "app_dir": "%s",\n  "repo_url": "%s",\n  "branch": "%s",\n  "result": "%s",\n  "failed": %s\n}\n' "$APP_DIR" "$REPO_URL" "$BRANCH" "$_result" "$FAILED_COUNT"
+    elif [[ "$OUTPUT_MODE" == "csv" ]]; then
+        local _result
+        if [[ "$DEPLOYED" == true ]]; then _result="deployed"; else _result="failed"; fi
+        printf 'app_dir,repo_url,branch,result,failed\n'
+        printf '"%s","%s","%s","%s",%s\n' "$APP_DIR" "$REPO_URL" "$BRANCH" "$_result" "$FAILED_COUNT"
+    fi
 
     if [[ "$FAILED_COUNT" -gt 0 ]]; then
         log_message "ERROR" "Completed with failures (failed=$FAILED_COUNT)."

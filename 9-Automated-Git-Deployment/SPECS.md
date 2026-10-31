@@ -76,6 +76,8 @@ guardrails. Dependencies: `git` (required), `tar`/`npm`/service manager (optiona
 | `--service` | `-Service` | `myapp` / `IIS` | Service to restart |
 | `--dry-run` | `-DryRun` | off | Preview only |
 | `--audit-log` | `-AuditLog` | (none) | ISO-8601 audit log path |
+| `--json` | `-Json` | off | Output result as JSON |
+| `--csv` | `-Csv` | off | Output result as CSV |
 | `-v, --verbose` | `-Verbose` | off | Diagnostic output |
 | `-h, --help` | `-Help` | off | Show help, exit 0 |
 

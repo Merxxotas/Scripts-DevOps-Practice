@@ -21,6 +21,8 @@ param(
     [string]$Service = "IIS",
     [switch]$DryRun,
     [string]$AuditLog = "",
+    [switch]$Json,
+    [switch]$Csv,
     [switch]$Verbose,
     [switch]$Help
 )
@@ -39,6 +41,12 @@ $Colors = @{
 
 $Script:Deployed = $false
 $Script:FailedCount = 0
+
+# Output mode
+$outputMode = "human"
+if ($Json -and $Csv) { Write-Host "$($Colors.Red)Error: Cannot use -Json and -Csv together.$($Colors.Reset)" -ForegroundColor Red; exit 1 }
+if ($Json) { $outputMode = "json" } elseif ($Csv) { $outputMode = "csv" }
+$humanMode = ($outputMode -eq "human")
 
 function Write-AuditLog {
     param([string]$Level = "INFO", [string]$Message)
@@ -68,6 +76,8 @@ function Show-Help {
     Write-Host "  -Service <name>       Service to restart (default: IIS)."
     Write-Host "  -DryRun               Preview only."
     Write-Host "  -AuditLog <file>      Append ISO-8601 audit log entries."
+    Write-Host "  -Json                 Output result as JSON."
+    Write-Host "  -Csv                  Output result as CSV."
     Write-Host "  -Verbose              Enable diagnostic output."
     Write-Host "  -Help                 Show this help and usage documentation."
 }
@@ -104,6 +114,7 @@ if (-not (Test-Path -LiteralPath $AppDir -PathType Container)) { Write-Host "$($
 if (Test-ProtectedPath $BackupDir) { Write-Host "$($Colors.Red)Error: Backup directory '$BackupDir' is in a protected system directory.$($Colors.Reset)"; exit 1 }
 
 # Header
+if ($humanMode) {
 Write-Host "============================================================" -ForegroundColor Blue
 Write-Host "            DevOps Git Deployment Utility                  " -ForegroundColor Blue
 Write-Host "============================================================" -ForegroundColor Blue
@@ -117,15 +128,30 @@ if (-not [string]::IsNullOrWhiteSpace($AuditLog)) {
     Write-Host "Audit Log        : $($Colors.Cyan)$AuditLog$($Colors.Reset)"
 }
 Write-Host ""
+}
 
 # Dry-run
 if ($DryRun) {
-    Write-Host "$($Colors.Yellow)[DRY RUN]$($Colors.Reset) Would deploy '$AppDir' from $RepoUrl ($Branch)."
-    if (-not $SkipBackup) { Write-Host "$($Colors.Yellow)[DRY RUN]$($Colors.Reset) Would create backup in $BackupDir." }
-    Write-Host "$($Colors.Yellow)[DRY RUN]$($Colors.Reset) Would git fetch origin $Branch."
-    Write-Host "$($Colors.Yellow)[DRY RUN]$($Colors.Reset) Would git pull origin $Branch if behind."
-    if (-not $SkipPostDeploy) { Write-Host "$($Colors.Yellow)[DRY RUN]$($Colors.Reset) Would run post-deploy (npm install if package.json; restart $Service)." }
+    if ($humanMode) {
+        Write-Host "$($Colors.Yellow)[DRY RUN]$($Colors.Reset) Would deploy '$AppDir' from $RepoUrl ($Branch)."
+        if (-not $SkipBackup) { Write-Host "$($Colors.Yellow)[DRY RUN]$($Colors.Reset) Would create backup in $BackupDir." }
+        Write-Host "$($Colors.Yellow)[DRY RUN]$($Colors.Reset) Would git fetch origin $Branch."
+        Write-Host "$($Colors.Yellow)[DRY RUN]$($Colors.Reset) Would git pull origin $Branch if behind."
+        if (-not $SkipPostDeploy) { Write-Host "$($Colors.Yellow)[DRY RUN]$($Colors.Reset) Would run post-deploy (npm install if package.json; restart $Service)." }
+    }
     Write-AuditLog -Level "INFO" -Message "[DRY RUN] Deploy planned for '$AppDir'."
+    if ($outputMode -eq "json") {
+        Write-Host "{"
+        Write-Host "  `"app_dir`": `"$AppDir`","
+        Write-Host "  `"repo_url`": `"$RepoUrl`","
+        Write-Host "  `"branch`": `"$Branch`","
+        Write-Host "  `"result`": `"dry-run`","
+        Write-Host "  `"failed`": 0"
+        Write-Host "}"
+    } elseif ($outputMode -eq "csv") {
+        Write-Host "app_dir,repo_url,branch,result,failed"
+        Write-Host "`"$AppDir`",`"$RepoUrl`",`"$Branch`",`"dry-run`",0"
+    }
     exit 0
 }
 
@@ -133,7 +159,7 @@ Set-Location -LiteralPath $AppDir
 
 # Backup
 if (-not $SkipBackup) {
-    Write-Host "$($Colors.Yellow)Creating backup...$($Colors.Reset)" -ForegroundColor Yellow
+    if ($humanMode) { Write-Host "$($Colors.Yellow)Creating backup...$($Colors.Reset)" -ForegroundColor Yellow }
     $Timestamp = (Get-Date).ToString("yyyyMMdd_HHmmss")
     $BackupFile = Join-Path $BackupDir "backup_$Timestamp.zip"
     try {
@@ -141,18 +167,17 @@ if (-not $SkipBackup) {
             New-Item -ItemType Directory -Path $BackupDir -Force | Out-Null
         }
         Compress-Archive -Path "$AppDir\*" -DestinationPath $BackupFile -Force -ErrorAction Stop
-        Write-Host "$($Colors.Green)✓ Backup created: $BackupFile$($Colors.Reset)" -ForegroundColor Green
+        if ($humanMode) { Write-Host "$($Colors.Green)✓ Backup created: $BackupFile$($Colors.Reset)" -ForegroundColor Green }
         Write-AuditLog -Level "INFO" -Message "Backup created: $BackupFile"
     } catch {
-        Write-Host "$($Colors.Red)✗ Backup failed: $($_.Exception.Message)$($Colors.Reset)" -ForegroundColor Red
+        if ($humanMode) { Write-Host "$($Colors.Red)✗ Backup failed: $($_.Exception.Message)$($Colors.Reset)" -ForegroundColor Red }
         $Script:FailedCount++
         Write-AuditLog -Level "ERROR" -Message "Backup failed."
     }
 }
 
 # Fetch
-Write-Host ""
-Write-Host "$($Colors.Yellow)Fetching updates...$($Colors.Reset)" -ForegroundColor Yellow
+if ($humanMode) { Write-Host ""; Write-Host "$($Colors.Yellow)Fetching updates...$($Colors.Reset)" -ForegroundColor Yellow }
 $fetchOk = $true
 try {
     & git fetch origin $Branch 2>&1 | Out-Null
@@ -160,7 +185,7 @@ try {
 } catch { $fetchOk = $false }
 
 if (-not $fetchOk) {
-    Write-Host "$($Colors.Red)✗ Git fetch failed.$($Colors.Reset)" -ForegroundColor Red
+    if ($humanMode) { Write-Host "$($Colors.Red)✗ Git fetch failed.$($Colors.Reset)" -ForegroundColor Red }
     $Script:FailedCount++
     Write-AuditLog -Level "ERROR" -Message "Git fetch failed."
 }
@@ -171,21 +196,35 @@ try { $localRev = (& git rev-parse HEAD 2>$null).Trim() } catch { $localRev = ""
 try { $remoteRev = (& git rev-parse "origin/$Branch" 2>$null).Trim() } catch { $remoteRev = "" }
 
 if (-not [string]::IsNullOrWhiteSpace($localRev) -and $localRev -eq $remoteRev) {
-    Write-Host "$($Colors.Green)✓ Already up to date$($Colors.Reset)" -ForegroundColor Green
+    if ($humanMode) { Write-Host "$($Colors.Green)✓ Already up to date$($Colors.Reset)" -ForegroundColor Green }
     Write-AuditLog -Level "INFO" -Message "Already up to date ($AppDir)."
-    Write-Host ""
-    Write-Host "============================================================" -ForegroundColor Blue
-    Write-Host "                    Execution Summary                       " -ForegroundColor Blue
-    Write-Host "============================================================" -ForegroundColor Blue
-    Write-Host "App Directory    : $($Colors.Bold)$AppDir$($Colors.Reset)"
-    Write-Host "Result           : $($Colors.Green)already up to date$($Colors.Reset)"
-    Write-Host "Failed Steps     : $($Colors.Red)$($Script:FailedCount)$($Colors.Reset)"
-    Write-Host "============================================================" -ForegroundColor Blue
+    if ($humanMode) {
+        Write-Host ""
+        Write-Host "============================================================" -ForegroundColor Blue
+        Write-Host "                    Execution Summary                       " -ForegroundColor Blue
+        Write-Host "============================================================" -ForegroundColor Blue
+        Write-Host "App Directory    : $($Colors.Bold)$AppDir$($Colors.Reset)"
+        Write-Host "Result           : $($Colors.Green)already up to date$($Colors.Reset)"
+        Write-Host "Failed Steps     : $($Colors.Red)$($Script:FailedCount)$($Colors.Reset)"
+        Write-Host "============================================================" -ForegroundColor Blue
+    }
+    if ($outputMode -eq "json") {
+        Write-Host "{"
+        Write-Host "  `"app_dir`": `"$AppDir`","
+        Write-Host "  `"repo_url`": `"$RepoUrl`","
+        Write-Host "  `"branch`": `"$Branch`","
+        Write-Host "  `"result`": `"up-to-date`","
+        Write-Host "  `"failed`": $($Script:FailedCount)"
+        Write-Host "}"
+    } elseif ($outputMode -eq "csv") {
+        Write-Host "app_dir,repo_url,branch,result,failed"
+        Write-Host "`"$AppDir`",`"$RepoUrl`",`"$Branch`",`"up-to-date`",$($Script:FailedCount)"
+    }
     if ($Script:FailedCount -gt 0) { exit 2 }
     exit 0
 }
 
-Write-Host "$($Colors.Yellow)Changes detected. Deploying...$($Colors.Reset)" -ForegroundColor Yellow
+if ($humanMode) { Write-Host "$($Colors.Yellow)Changes detected. Deploying...$($Colors.Reset)" -ForegroundColor Yellow }
 
 # Pull
 $pullOk = $false
@@ -195,26 +234,25 @@ try {
 } catch { $pullOk = $false }
 
 if ($pullOk) {
-    Write-Host "$($Colors.Green)✓ Code updated$($Colors.Reset)" -ForegroundColor Green
+    if ($humanMode) { Write-Host "$($Colors.Green)✓ Code updated$($Colors.Reset)" -ForegroundColor Green }
     $Script:Deployed = $true
     Write-AuditLog -Level "INFO" -Message "Code updated ($AppDir)."
 
     if (-not $SkipPostDeploy) {
-        Write-Host ""
-        Write-Host "$($Colors.Yellow)Running post-deployment tasks...$($Colors.Reset)" -ForegroundColor Yellow
+        if ($humanMode) { Write-Host ""; Write-Host "$($Colors.Yellow)Running post-deployment tasks...$($Colors.Reset)" -ForegroundColor Yellow }
         if (Test-Path -LiteralPath "package.json") {
             if (Get-Command npm -ErrorAction SilentlyContinue) {
                 try {
                     & npm install
                     if ($LASTEXITCODE -eq 0) {
-                        Write-Host "$($Colors.Green)✓ Dependencies installed$($Colors.Reset)" -ForegroundColor Green
+                        if ($humanMode) { Write-Host "$($Colors.Green)✓ Dependencies installed$($Colors.Reset)" -ForegroundColor Green }
                     } else {
-                        Write-Host "$($Colors.Red)✗ npm install failed.$($Colors.Reset)" -ForegroundColor Red
+                        if ($humanMode) { Write-Host "$($Colors.Red)✗ npm install failed.$($Colors.Reset)" -ForegroundColor Red }
                         $Script:FailedCount++
                         Write-AuditLog -Level "ERROR" -Message "npm install failed."
                     }
                 } catch {
-                    Write-Host "$($Colors.Red)✗ npm install failed: $($_.Exception.Message)$($Colors.Reset)" -ForegroundColor Red
+                    if ($humanMode) { Write-Host "$($Colors.Red)✗ npm install failed: $($_.Exception.Message)$($Colors.Reset)" -ForegroundColor Red }
                     $Script:FailedCount++
                     Write-AuditLog -Level "ERROR" -Message "npm install failed."
                 }
@@ -226,9 +264,9 @@ if ($pullOk) {
         if (Get-Command "iisreset" -ErrorAction SilentlyContinue) {
             try {
                 & iisreset /restart 2>&1 | Out-Null
-                Write-Host "$($Colors.Green)✓ Service $Service restarted$($Colors.Reset)" -ForegroundColor Green
+                if ($humanMode) { Write-Host "$($Colors.Green)✓ Service $Service restarted$($Colors.Reset)" -ForegroundColor Green }
             } catch {
-                Write-Host "$($Colors.Red)✗ Service restart failed.$($Colors.Reset)" -ForegroundColor Red
+                if ($humanMode) { Write-Host "$($Colors.Red)✗ Service restart failed.$($Colors.Reset)" -ForegroundColor Red }
                 $Script:FailedCount++
                 Write-AuditLog -Level "ERROR" -Message "Service restart failed ($Service)."
             }
@@ -237,21 +275,35 @@ if ($pullOk) {
         }
     }
 } else {
-    Write-Host "$($Colors.Red)✗ Git pull failed$($Colors.Reset)" -ForegroundColor Red
+    if ($humanMode) { Write-Host "$($Colors.Red)✗ Git pull failed$($Colors.Reset)" -ForegroundColor Red }
     $Script:FailedCount++
     Write-AuditLog -Level "ERROR" -Message "Git pull failed ($AppDir)."
 }
 
 # Summary
-Write-Host ""
-Write-Host "============================================================" -ForegroundColor Blue
-Write-Host "                    Execution Summary                       " -ForegroundColor Blue
-Write-Host "============================================================" -ForegroundColor Blue
-Write-Host "App Directory    : $($Colors.Bold)$AppDir$($Colors.Reset)"
 $ResultText = if ($Script:Deployed) { "deployed" } else { "failed" }
-Write-Host "Result           : $($Colors.Bold)$ResultText$($Colors.Reset)"
-Write-Host "Failed Steps     : $($Colors.Red)$($Script:FailedCount)$($Colors.Reset)"
-Write-Host "============================================================" -ForegroundColor Blue
+if ($humanMode) {
+    Write-Host ""
+    Write-Host "============================================================" -ForegroundColor Blue
+    Write-Host "                    Execution Summary                       " -ForegroundColor Blue
+    Write-Host "============================================================" -ForegroundColor Blue
+    Write-Host "App Directory    : $($Colors.Bold)$AppDir$($Colors.Reset)"
+    Write-Host "Result           : $($Colors.Bold)$ResultText$($Colors.Reset)"
+    Write-Host "Failed Steps     : $($Colors.Red)$($Script:FailedCount)$($Colors.Reset)"
+    Write-Host "============================================================" -ForegroundColor Blue
+}
+if ($outputMode -eq "json") {
+    Write-Host "{"
+    Write-Host "  `"app_dir`": `"$AppDir`","
+    Write-Host "  `"repo_url`": `"$RepoUrl`","
+    Write-Host "  `"branch`": `"$Branch`","
+    Write-Host "  `"result`": `"$ResultText`","
+    Write-Host "  `"failed`": $($Script:FailedCount)"
+    Write-Host "}"
+} elseif ($outputMode -eq "csv") {
+    Write-Host "app_dir,repo_url,branch,result,failed"
+    Write-Host "`"$AppDir`",`"$RepoUrl`",`"$Branch`",`"$ResultText`",$($Script:FailedCount)"
+}
 
 if ($Script:FailedCount -gt 0) {
     Write-AuditLog -Level "ERROR" -Message "Completed with failures (failed=$($Script:FailedCount))."

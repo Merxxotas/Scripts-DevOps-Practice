@@ -66,6 +66,8 @@ PowerShell).
 | `--force` | `-Force` | off | Use SIGKILL / Stop-Process -Force |
 | `--dry-run` | `-DryRun` | off | Preview candidates, no signaling |
 | `--audit-log` | `-AuditLog` | (none) | ISO-8601 audit log path |
+| `--json` | `-Json` | off | Output result as JSON |
+| `--csv` | `-Csv` | off | Output result as CSV |
 | `-v, --verbose` | `-Verbose` | off | Diagnostic output |
 | `-h, --help` | `-Help` | off | Show help, exit 0 |
 
@@ -99,6 +101,6 @@ outcome and the count killed. Write failures are best-effort and do not change t
 
 ## 7. Scope Exclusions (v1)
 
-No continuous monitoring/watch loop, no CPU history, no `--json`/`--csv` output, no cgroups/
-container awareness, no process-tree killing. One threshold per invocation. Audit write is
-best-effort.
+No continuous monitoring/watch loop, no CPU history, no cgroups/container awareness, no
+process-tree killing. One threshold per invocation. Audit write is best-effort.
+JSON/CSV output available via `--json`/`--csv`.
