@@ -183,7 +183,7 @@ Verified on **2026-10-21**. These are real, current, and will bite you.
 | 3 | **The wiki lives in two places** — `main:wiki/` and the GitHub Wiki (`Scripts-DevOps-Practice.wiki.git`). Verified identical 2026-10-20, nothing enforces it. Push edits to both. |
 | 4 | **`main` is unprotected** — no branch protection, rulesets or required checks. |
 | 5 | **`.gitattributes` normalizes line endings** — `.ps1` stored LF, checked out CRLF. Compare with `git show HEAD:<path>`, not the working file. |
-| 6 | **Go version drift** — CI pins Go `1.22`; newer toolchains work, but keep the pin current. |
+| 6 | **Go version drift** — CI pins Go `1.26` (matching `go.mod`); keep the pin current as Go evolves. |
 | 7 | **Private vulnerability reporting not enabled** — needs one click in GitHub UI (*Settings → Code security*). Until on, [`SECURITY.md`](SECURITY.md) directs reporters to the maintainer's email. |
 
 ---
