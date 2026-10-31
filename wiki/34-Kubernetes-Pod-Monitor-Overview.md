@@ -18,5 +18,5 @@ See the module's [SPECS.md §3](../10-Kubernetes-Pod-Monitor-and-Restart/SPECS.m
 
 ## Wiki Navigation
 
-- [[35-Kubernetes-Pod-Monitor-Bash-vs-PowerShell|Bash vs PowerShell]]
-- [[36-Kubernetes-Pod-Monitor-Scenarios-and-Labs|Scenarios & Labs]]
+- [Bash vs PowerShell](35-Kubernetes-Pod-Monitor-Bash-vs-PowerShell)
+- [Scenarios & Labs](36-Kubernetes-Pod-Monitor-Scenarios-and-Labs)

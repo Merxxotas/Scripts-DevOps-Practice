@@ -18,5 +18,5 @@ See the module's [SPECS.md §3](../7-Find-and-Kill-High-CPU-Processes/SPECS.md).
 
 ## Wiki Navigation
 
-- [[26-Kill-High-CPU-Bash-vs-PowerShell|Bash vs PowerShell]]
-- [[27-Kill-High-CPU-Scenarios-and-Labs|Scenarios & Labs]]
+- [Bash vs PowerShell](26-Kill-High-CPU-Bash-vs-PowerShell)
+- [Scenarios & Labs](27-Kill-High-CPU-Scenarios-and-Labs)
