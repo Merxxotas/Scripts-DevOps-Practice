@@ -125,7 +125,7 @@ Parameters:
 Stage1-Native-Scripts/
 ├── system_monitor.sh              # Main Bash script
 ├── system_monitor.ps1             # Main PowerShell script
-├── system_monitor - windows version.txt  # Windows-specific notes
+├── PSScriptAnalyzerSettings.psd1  # PSScriptAnalyzer gate for CI
 ├── docs/                          # Documentation
 │   ├── README-Installation.md
 │   ├── README-Basic-Monitoring.md
@@ -135,10 +135,7 @@ Stage1-Native-Scripts/
 │   ├── README-Kill-Process.md
 │   ├── README-Process-Restart.md
 │   └── README-Examples.md
-├── New-Addittions/                # Additional implementations
-│   ├── 1.Disk-IO-and-Storage-Monitoring/
-│   └── 2.Process-Kill_Restart-Capability/
-└── logs/                          # Default log directory
+└── logs/                          # Default log directory (gitignored)
 ```
 
 ---

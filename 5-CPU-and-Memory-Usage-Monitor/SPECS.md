@@ -31,7 +31,6 @@ inside the module.
 ├── SPECS.md                       # this document
 ├── ROADMAP.md                     # phased milestones
 ├── CODESTYLE.md                   # module conventions
-├── AGENTS.md                      # design decisions and the mentor's notes
 ├── tests/                         # Stage 1 suites (Bash and PowerShell)
 │   ├── test_system_monitor.sh
 │   └── test_system_monitor.ps1
@@ -264,3 +263,49 @@ cleanup.
 * Architecture comparison: [`docs/ARCHITECTURE_COMPARISON.md`](docs/ARCHITECTURE_COMPARISON.md)
 * Operational scenarios: [`docs/SCENARIOS.md`](docs/SCENARIOS.md)
 * Repository standards: [`../../AGENTS.md`](../../AGENTS.md)
+
+---
+
+## 10. Architecture Decision Records
+
+Carried from the retired module `AGENTS.md`; the decisions remain valid,
+the "mentor" commentary did not.
+
+### ADR-001: PowerShell as the Windows implementation
+
+**Decision:** PowerShell 7+ cross-platform is the primary target, keeping
+PowerShell 5.1 compatibility where feasible.
+
+**Rationale:** PowerShell 5.1 ships with Windows Server 2019/2022, and
+PowerShell 7 runs on .NET Core across Linux and macOS. Batch scripts are
+unmaintainable for non-trivial logic, and modern Windows tooling standardises
+on PowerShell. PowerShell also integrates with WMI/CIM and the Windows Event
+Log without add-on modules.
+
+### ADR-002: Alpine Linux as the container base
+
+**Decision:** The production image targets Alpine (musl libc) with a
+Debian-slim fallback for glibc-dependent workloads.
+
+**Rationale:** Alpine minimises image size and attack surface. Some Python
+wheels (pandas, numpy) require glibc; those workloads need the Debian-slim
+variant. BusyBox ash enforces POSIX compliance in any shell usage.
+
+### ADR-003: psutil for system metrics
+
+**Decision:** The Python implementation uses `psutil` for cross-platform
+system information.
+
+**Rationale:** `psutil` abstracts `/proc` on Linux, WMI on Windows and
+`sysctl` on macOS, and is widely deployed in production tooling. The cost is
+one external dependency, accepted deliberately to demonstrate dependency
+management.
+
+### ADR-004: JSON and CSV as machine-readable outputs
+
+**Decision:** Both implementations emit JSON (structured) and CSV (tabular)
+in addition to the human-readable display.
+
+**Rationale:** JSON suits log aggregation and API ingestion; CSV suits
+spreadsheet analysis. Adding structure on top of the usual text output
+(`top`, `vmstat`) enables automation without scraping.
