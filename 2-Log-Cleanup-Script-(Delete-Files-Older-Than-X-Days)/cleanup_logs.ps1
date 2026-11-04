@@ -42,7 +42,7 @@ param(
     [string]$LogDirectory,
 
     [Parameter(Mandatory = $false)]
-    [ValidateRange(0, 36500)]
+    [ValidateRange(1, 36500)]
     [int]$Days = 30,
 
     [Parameter(Mandatory = $false)]
@@ -136,7 +136,12 @@ function Format-ByteSize {
     }
 }
 
-# Validates path against critical system root directories
+# Validates path against critical system directory blacklist.
+# Two classes of protection, both matched against the given path AND its
+# resolved real path (case-insensitive, separator-normalized):
+#   1. Full-tree roots (this root and everything under it).
+#   2. Exact-match roots — these roots themselves are protected, but their
+#      children are the tool's legitimate targets (e.g. C:\Logs\App, /var/log/myapp).
 function Test-SafetyGuardrails {
     param([string]$Path)
 
@@ -146,43 +151,85 @@ function Test-SafetyGuardrails {
         $ResolvedPath = [System.IO.Path]::GetFullPath($Path)
     }
 
-    $Blacklist = @(
-        "C:\",
-        "C:\Windows",
-        "C:\Windows\System32",
-        "C:\Program Files",
-        "C:\Program Files (x86)",
-        "C:\Users",
-        "C:\ProgramData",
-        "/",
+    function ConvertTo-GuardPath {
+        param([string]$p)
+        $n = $p.TrimEnd('\', '/') -replace '\\', '/'
+        if ([string]::IsNullOrEmpty($n)) { return '/' }
+        $n = $n.TrimEnd('/')
+        if ($n -match '^[A-Za-z]:$') { return "$n/" }
+        return $n
+    }
+
+    # System-owned trees: refuse the root itself and every subtree below it.
+    # Drive roots ("C:/") are exact-only; handled by the exact-match list.
+    $FullTreeRoots = @(
         "/bin",
         "/sbin",
         "/usr",
         "/usr/bin",
+        "/usr/sbin",
         "/etc",
         "/dev",
         "/proc",
         "/sys",
         "/boot",
         "/root",
-        "/var",
-        "/home",
-        "/private",
         "/private/etc",
-        "/private/var",
-        "/private/tmp"
+        "C:/Windows"
     )
 
-    $NormalizedTarget = $Path.TrimEnd('\', '/')
-    $NormalizedResolved = $ResolvedPath.TrimEnd('\', '/')
+    # Roots whose children are legitimate log directories.
+    $ExactOnlyRoots = @(
+        "/",
+        "/var",
+        "/var/run",
+        "/var/log",
+        "/tmp",
+        "/home",
+        "/private",
+        "/private/var",
+        "/private/tmp",
+        "/Library",
+        "/System",
+        "/Applications",
+        "/Volumes",
+        "C:/",
+        "C:/Program Files",
+        "C:/Program Files (x86)",
+        "C:/ProgramData",
+        "C:/Users"
+    )
 
-    foreach ($Blocked in $Blacklist) {
-        $NormalizedBlocked = $Blocked.TrimEnd('\', '/')
-        if ([string]::Equals($NormalizedTarget, $NormalizedBlocked, [System.StringComparison]::OrdinalIgnoreCase) -or 
-            [string]::Equals($NormalizedResolved, $NormalizedBlocked, [System.StringComparison]::OrdinalIgnoreCase)) {
-            Write-Host "$($Colors.Red)Error: Safety violation! Target directory '$Path' is a protected system root.$($Colors.Reset)"
-            Write-AuditLog -Level "ERROR" -Message "Execution blocked: Target directory '$Path' is a protected system root."
-            return $false
+    $UserProfile = [Environment]::GetFolderPath("UserProfile")
+    if ([string]::IsNullOrEmpty($UserProfile)) { $UserProfile = $HOME }
+    if (-not [string]::IsNullOrEmpty($UserProfile)) {
+        $ExactOnlyRoots += (ConvertTo-GuardPath $UserProfile)
+    }
+    if (-not [string]::IsNullOrEmpty($HOME)) {
+        $ExactOnlyRoots += (ConvertTo-GuardPath $HOME)
+    }
+
+    $Target = ConvertTo-GuardPath $Path
+    $Resolved = ConvertTo-GuardPath $ResolvedPath
+
+    foreach ($Candidate in @($Target, $Resolved)) {
+        if ([string]::IsNullOrEmpty($Candidate)) { continue }
+
+        foreach ($Root in $FullTreeRoots) {
+            if ([string]::Equals($Candidate, $Root, [System.StringComparison]::OrdinalIgnoreCase) -or
+                $Candidate.StartsWith($Root + "/", [System.StringComparison]::OrdinalIgnoreCase)) {
+                Write-Host "$($Colors.Red)Error: Safety violation! Target directory '$Path' is inside the protected system tree '$Root'.$($Colors.Reset)"
+                Write-AuditLog -Level "ERROR" -Message "Execution blocked: Target directory '$Path' is inside the protected system tree '$Root'."
+                return $false
+            }
+        }
+
+        foreach ($Root in $ExactOnlyRoots) {
+            if ([string]::Equals($Candidate, $Root, [System.StringComparison]::OrdinalIgnoreCase)) {
+                Write-Host "$($Colors.Red)Error: Safety violation! Target directory '$Path' is a protected system root.$($Colors.Reset)"
+                Write-AuditLog -Level "ERROR" -Message "Execution blocked: Target directory '$Path' is a protected system root."
+                return $false
+            }
         }
     }
 
@@ -203,6 +250,22 @@ function Invoke-LogCleanup {
 
     $ResolvedDir = (Resolve-Path -LiteralPath $LogDirectory).ProviderPath
     $NormalizedRootDir = $ResolvedDir.TrimEnd('\', '/')
+
+    # Pre-flight writability check (spec section 5.2): a deletion run is refused
+    # outright when the target directory is not writable, rather than failing
+    # file-by-file midway through the batch.
+    if (-not $DryRun) {
+        $Probe = Join-Path $ResolvedDir (".cleanup_probe_" + [System.Guid]::NewGuid().ToString("N"))
+        try {
+            [System.IO.File]::WriteAllText($Probe, "")
+            Remove-Item -LiteralPath $Probe -Force -ErrorAction SilentlyContinue
+        } catch {
+            Write-Host "$($Colors.Red)Error: Target directory '$LogDirectory' is not writable by the current user.$($Colors.Reset)"
+            Write-AuditLog -Level "ERROR" -Message "Target directory is not writable: $LogDirectory"
+            exit 1
+        }
+    }
+
     $CutoffDate = (Get-Date).AddDays(-$Days)
     $MinSizeBytes = [long]($MinSizeMB * 1MB)
 

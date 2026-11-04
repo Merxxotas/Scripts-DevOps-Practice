@@ -8,7 +8,8 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 CLEANUP_SCRIPT="$SCRIPT_DIR/cleanup_logs.sh"
-TEST_SANDBOX="/tmp/test_log_cleanup_$$"
+TEST_SANDBOX="$(mktemp -d /tmp/test_log_cleanup.XXXXXX)"
+trap 'rm -rf "$TEST_SANDBOX"' EXIT
 
 # ANSI colors
 readonly RED='\033[0;31m'
@@ -185,6 +186,160 @@ test_audit_logging() {
     teardown
 }
 
+# Test 8: -t 0 must be rejected (spec: retention days must be a positive integer)
+test_retention_zero_rejected() {
+    setup
+    local old_file="$TEST_SANDBOX/purge_me.log"
+    echo "purgeable log" > "$old_file"
+    if date -d "45 days ago" +%s >/dev/null 2>&1; then
+        local past_date
+        past_date=$(date -d "45 days ago" +"%Y%m%d%H%M")
+        touch -t "$past_date" "$old_file"
+    elif date -v-45d +%s >/dev/null 2>&1; then
+        local past_date
+        past_date=$(date -v-45d +"%Y%m%d%H%M")
+        touch -t "$past_date" "$old_file"
+    fi
+
+    local exit_code=0
+    "$CLEANUP_SCRIPT" -d "$TEST_SANDBOX" -t 0 >/dev/null 2>&1 || exit_code=$?
+
+    local file_exists="no"
+    [[ -f "$old_file" ]] && file_exists="yes"
+
+    assert_equals "1" "$exit_code" "Test 8a: -t 0 is rejected with exit code 1"
+    assert_equals "yes" "$file_exists" "Test 8b: -t 0 leaves files untouched"
+    teardown
+}
+
+# Test 9: -m must reject non-numeric garbage like "1a5" (unescaped dot regression)
+test_min_size_garbage_rejected() {
+    setup
+    local exit_code=0
+    "$CLEANUP_SCRIPT" -d "$TEST_SANDBOX" -t 30 -m "1a5" >/dev/null 2>&1 || exit_code=$?
+    assert_equals "1" "$exit_code" "Test 9: -m '1a5' is rejected with exit code 1"
+    teardown
+}
+
+# Test 10: a directory under a critical root (e.g. /etc/ssh) must be refused too
+test_guardrail_subtree() {
+    local guard_target="/etc/ssh"
+    if [[ ! -d "$guard_target" ]]; then
+        printf "%b[SKIP]%b Test 10: %s does not exist on this host\n" "$CYAN" "$RESET" "$guard_target"
+        return 0
+    fi
+
+    local exit_code=0
+    "$CLEANUP_SCRIPT" -d "$guard_target" -n >/dev/null 2>&1 || exit_code=$?
+    assert_equals "1" "$exit_code" "Test 10: Safety guardrail blocks /etc/ssh even with -n (subtree of protected root)"
+}
+
+# Test 11: $HOME itself must be refused (children of it remain allowed)
+test_guardrail_home_root() {
+    local exit_code=0
+    "$CLEANUP_SCRIPT" -d "$HOME" -n >/dev/null 2>&1 || exit_code=$?
+    assert_equals "1" "$exit_code" "Test 11: Safety guardrail blocks \$HOME itself"
+}
+
+# Test 12: when mtime cannot be determined, the file must NOT be deleted (fail closed)
+test_fail_closed_on_mtime_failure() {
+    setup
+    local old_file="$TEST_SANDBOX/purge_me.log"
+    echo "purgeable log" > "$old_file"
+    if date -d "45 days ago" +%s >/dev/null 2>&1; then
+        local past_date
+        past_date=$(date -d "45 days ago" +"%Y%m%d%H%M")
+        touch -t "$past_date" "$old_file"
+    elif date -v-45d +%s >/dev/null 2>&1; then
+        local past_date
+        past_date=$(date -v-45d +"%Y%m%d%H%M")
+        touch -t "$past_date" "$old_file"
+    fi
+
+    # Stub PATH so every mtime source fails: stat always exits 1, and
+    # `date -r` exits 1 (everything else defers to the real date).
+    local real_date stub_dir
+    real_date="$(command -v date)"
+    stub_dir="$TEST_SANDBOX/stubbin"
+    mkdir -p "$stub_dir"
+
+    printf '#!/bin/bash\nexit 1\n' > "$stub_dir/stat"
+    chmod +x "$stub_dir/stat"
+
+    cat > "$stub_dir/date" <<EOF
+#!/bin/bash
+if [[ "\${1:-}" == "-r" ]]; then
+    exit 1
+fi
+exec "$real_date" "\$@"
+EOF
+    chmod +x "$stub_dir/date"
+
+    local exit_code=0
+    PATH="$stub_dir:$PATH" "$CLEANUP_SCRIPT" -d "$TEST_SANDBOX" -t 30 >/dev/null 2>&1 || exit_code=$?
+
+    local file_exists="no"
+    [[ -f "$old_file" ]] && file_exists="yes"
+
+    assert_equals "2" "$exit_code" "Test 12a: Uninspectable file yields exit code 2 (partial failure)"
+    assert_equals "yes" "$file_exists" "Test 12b: Uninspectable file is NOT deleted (fail closed)"
+    teardown
+}
+
+# Test 13: /var/log itself is protected (spec section 5.1); subfolders remain usable
+test_guardrail_var_log_exact() {
+    local exit_code=0
+    "$CLEANUP_SCRIPT" -d "/var/log" -n >/dev/null 2>&1 || exit_code=$?
+    assert_equals "1" "$exit_code" "Test 13: Safety guardrail blocks /var/log exact match"
+}
+
+# Test 14: when size cannot be determined, the file must NOT be deleted (fail closed)
+test_fail_closed_on_size_failure() {
+    setup
+    local old_file="$TEST_SANDBOX/purge_me.log"
+    echo "purgeable log" > "$old_file"
+    if date -d "45 days ago" +%s >/dev/null 2>&1; then
+        local past_date
+        past_date=$(date -d "45 days ago" +"%Y%m%d%H%M")
+        touch -t "$past_date" "$old_file"
+    elif date -v-45d +%s >/dev/null 2>&1; then
+        local past_date
+        past_date=$(date -v-45d +"%Y%m%d%H%M")
+        touch -t "$past_date" "$old_file"
+    fi
+
+    # Stub PATH so the size lookup fails but mtime works: `stat` passes the
+    # %Y query to the real stat and fails the %s query; `wc` always fails.
+    local real_stat real_date stub_dir
+    real_stat="$(command -v stat)"
+    real_date="$(command -v date)"
+    stub_dir="$TEST_SANDBOX/stubbin"
+    mkdir -p "$stub_dir"
+
+    cat > "$stub_dir/stat" <<EOF
+#!/bin/bash
+for arg in "\$@"; do
+    if [[ "\$arg" == "%s" || "\$arg" == "%z" ]]; then
+        exit 1
+    fi
+done
+exec "$real_stat" "\$@"
+EOF
+    chmod +x "$stub_dir/stat"
+    printf '#!/bin/bash\nexit 1\n' > "$stub_dir/wc"
+    chmod +x "$stub_dir/wc"
+
+    local exit_code=0
+    PATH="$stub_dir:$PATH" "$CLEANUP_SCRIPT" -d "$TEST_SANDBOX" -t 30 >/dev/null 2>&1 || exit_code=$?
+
+    local file_exists="no"
+    [[ -f "$old_file" ]] && file_exists="yes"
+
+    assert_equals "2" "$exit_code" "Test 14a: Unreadable size yields exit code 2 (partial failure)"
+    assert_equals "yes" "$file_exists" "Test 14b: Unreadable size is NOT deleted (fail closed)"
+    teardown
+}
+
 # Run all tests
 printf "%bStarting Bash Log Cleanup Test Suite...%b\n" "$CYAN" "$RESET"
 test_json_dry_run() {
@@ -253,6 +408,13 @@ test_audit_logging
 test_json_dry_run
 test_csv_dry_run
 test_json_csv_mutual
+test_retention_zero_rejected
+test_min_size_garbage_rejected
+test_guardrail_subtree
+test_guardrail_home_root
+test_fail_closed_on_mtime_failure
+test_guardrail_var_log_exact
+test_fail_closed_on_size_failure
 
 printf "============================================================\n"
 printf "Tests Summary: %b%d Passed%b, %b%d Failed%b\n" "$GREEN" "$PASSED_TESTS" "$RESET" "$RED" "$FAILED_TESTS" "$RESET"

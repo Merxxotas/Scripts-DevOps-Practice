@@ -61,6 +61,31 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   which had left those rules with no home; the direction is now one-way: `AGENTS.md` §7 holds the
   must-know summary and points here for the rest.
 
+### Fixed
+
+- **Log Cleanup (`2-Log-Cleanup-Script-(Delete-Files-Older-Than-X-Days)`) — safety guardrails now
+  fail closed.** When a file's modification time or size cannot be determined by any source
+  (`stat` GNU/BSD, `date`, `wc`), the file is skipped, logged as `UNINSPECTABLE` and counted in a new
+  `uninspectable` metric (surfaced in the summary, the JSON output and the audit log); the process
+  exits with code `2`. It is no longer treated as "ancient" and deleted on metadata failure.
+- **Log Cleanup — retention and size arguments are now validated strictly.** `-t 0` is rejected on
+  both implementations (Bash required ≥ 1; PowerShell `[ValidateRange]` now starts at 1); the `-m`
+  minimum-size regex no longer accepts values such as `1a5` (the decimal separator is escaped).
+- **Log Cleanup — the protected-path guard is two-tier and covers subtrees.** System-owned trees
+  (`/etc`, `/usr`, `/bin`, `/sbin`, `/boot`, `/root`, `/sys`, `/dev`, `/proc`, `/private/etc`,
+  `C:\Windows`) refuse the root and everything under it, on both the given path and its resolved real
+  path; exact-match roots (`/`, `/var`, `/var/log`, `/tmp`, `/home`, `C:\`, `C:\Program Files`,
+  `C:\ProgramData`, `C:\Users`, and the current user's profile root) keep their children usable
+  (`/var/log/myapp`, `C:\Logs\App`). The blacklists are now
+  identical across Bash and PowerShell, `/var/log` is protected per SPECS §5.1, and the user's home /
+  profile root is refused.
+- **Log Cleanup — pre-flight writability probe.** Deletion runs are refused with exit code `1` when a
+  hidden probe file cannot be created in the target directory, instead of failing file-by-file (spec
+  §5.2). Dry-run mode never probes.
+- **Log Cleanup — the PowerShell suite no longer hard-codes a passing assertion** (`Assert-Equal
+  -Expected 1 -Actual 1`); guardrail tests were extended for subtree protection and `Days = 0`, and the
+  Bash suite now uses a `mktemp -d` sandbox with a `trap`-based cleanup.
+
 ---
 
 ## 2026-10-29/30 — v1.1: JSON/CSV output for the script modules

@@ -36,6 +36,7 @@ TOTAL_SCANNED=0
 ELIGIBLE_COUNT=0
 DELETED_COUNT=0
 FAILED_COUNT=0
+UNINSPECTABLE_COUNT=0
 TOTAL_RECLAIMED_BYTES=0
 
 # Prints usage and help message
@@ -93,26 +94,26 @@ format_bytes() {
     fi
 }
 
-# Queries file modification time in epoch seconds (cross-platform Linux/macOS)
+# Queries file modification time in epoch seconds (cross-platform Linux/macOS).
+# Returns 1 when every source fails — callers must fail closed (skip, never delete).
 get_file_mtime() {
     local file="$1"
-    # GNU stat
-    stat -c %Y "$file" 2>/dev/null || \
-    # BSD stat (macOS)
-    stat -f %m "$file" 2>/dev/null || \
-    # Fallback to date
-    date -r "$file" +%s 2>/dev/null || echo 0
+    local mtime
+    if mtime="$(stat -c %Y "$file" 2>/dev/null)"; then printf '%s\n' "$mtime"; return 0; fi
+    if mtime="$(stat -f %m "$file" 2>/dev/null)"; then printf '%s\n' "$mtime"; return 0; fi
+    if mtime="$(date -r "$file" +%s 2>/dev/null)"; then printf '%s\n' "$mtime"; return 0; fi
+    return 1
 }
 
-# Queries file size in bytes (cross-platform Linux/macOS)
+# Queries file size in bytes (cross-platform Linux/macOS).
+# Returns 1 when every source fails — callers must fail closed (skip, never delete).
 get_file_size() {
     local file="$1"
-    # GNU stat
-    stat -c %s "$file" 2>/dev/null || \
-    # BSD stat (macOS)
-    stat -f %z "$file" 2>/dev/null || \
-    # Fallback to wc
-    wc -c < "$file" 2>/dev/null || echo 0
+    local size
+    if size="$(stat -c %s "$file" 2>/dev/null)"; then printf '%s\n' "$size"; return 0; fi
+    if size="$(stat -f %z "$file" 2>/dev/null)"; then printf '%s\n' "$size"; return 0; fi
+    if size="$(wc -c < "$file" 2>/dev/null)"; then printf '%s\n' "$size"; return 0; fi
+    return 1
 }
 
 # Resolves canonical real path
@@ -127,7 +128,13 @@ get_realpath() {
     fi
 }
 
-# Validates path against critical system directory blacklist
+# Validates path against critical system directory blacklist.
+# Two classes of protection, both matched against the given path AND its
+# resolved real path:
+#   1. Full-tree roots (this root and everything under it) — system-owned
+#      trees where log cleanup is never legitimate.
+#   2. Exact-match roots — these roots themselves are protected, but their
+#      children are the tool's legitimate targets (e.g. /var/log/myapp).
 validate_safety_guardrails() {
     local target="$1"
     local resolved
@@ -144,8 +151,9 @@ validate_safety_guardrails() {
         norm_resolved="${norm_resolved%/}"
     fi
 
-    local -a protected_paths=(
-        "/"
+    # System-owned trees: refuse the root itself and every subtree below it.
+    # "/" is exact-only; every other entry blocks root + children.
+    local -a full_tree_roots=(
         "/bin"
         "/sbin"
         "/usr"
@@ -157,12 +165,18 @@ validate_safety_guardrails() {
         "/sys"
         "/boot"
         "/root"
+        "/private/etc"
+    )
+
+    # Roots whose children are legitimate log directories.
+    local -a exact_only_roots=(
+        "/"
         "/var"
         "/var/run"
+        "/var/log"
         "/tmp"
         "/home"
         "/private"
-        "/private/etc"
         "/private/var"
         "/private/tmp"
         "/Library"
@@ -171,12 +185,29 @@ validate_safety_guardrails() {
         "/Volumes"
     )
 
-    for protected in "${protected_paths[@]}"; do
-        if [[ "$norm_target" == "$protected" || "$norm_resolved" == "$protected" ]]; then
-            printf "%bError: Safety violation! Target directory '%s' is a protected system root.%b\n" "$COLOR_RED" "$target" "$COLOR_RESET" >&2
-            log_message "ERROR" "Execution blocked: Target directory '$target' is a protected system root."
-            return 1
-        fi
+    local home_real=""
+    if [[ -n "${HOME:-}" ]]; then
+        home_real="$(get_realpath "$HOME")"
+        exact_only_roots+=("${HOME%/}" "${home_real%/}")
+    fi
+
+    local path candidate
+    for path in "$norm_target" "$norm_resolved"; do
+        [[ -n "$path" ]] || continue
+        for root in "${full_tree_roots[@]}"; do
+            if [[ "$path" == "$root" || "$path" == "$root"/* ]]; then
+                printf "%bError: Safety violation! Target directory '%s' is inside the protected system tree '%s'.%b\n" "$COLOR_RED" "$target" "$root" "$COLOR_RESET" >&2
+                log_message "ERROR" "Execution blocked: Target directory '$target' is inside the protected system tree '$root'."
+                return 1
+            fi
+        done
+        for root in "${exact_only_roots[@]}"; do
+            if [[ "$path" == "$root" ]]; then
+                printf "%bError: Safety violation! Target directory '%s' is a protected system root.%b\n" "$COLOR_RED" "$target" "$COLOR_RESET" >&2
+                log_message "ERROR" "Execution blocked: Target directory '$target' is a protected system root."
+                return 1
+            fi
+        done
     done
     return 0
 }
@@ -190,8 +221,8 @@ parse_arguments() {
                 LOG_DIR="$2"; shift 2 ;;
             -t)
                 [[ $# -ge 2 ]] || { err "Option -t requires a value."; exit 1; }
-                if ! [[ "$2" =~ ^[0-9]+$ ]]; then
-                    err "Retention days must be a positive integer."
+                if ! [[ "$2" =~ ^[0-9]+$ ]] || (( 10#$2 < 1 )); then
+                    err "Retention days must be a positive integer (1 or more)."
                     exit 1
                 fi
                 RETENTION_DAYS="$2"; shift 2 ;;
@@ -200,8 +231,8 @@ parse_arguments() {
                 FILE_PATTERN="$2"; shift 2 ;;
             -m)
                 [[ $# -ge 2 ]] || { err "Option -m requires a value."; exit 1; }
-                if ! [[ "$2" =~ ^[0-9]+(.[0-9]+)?$ ]]; then
-                    err "Minimum size must be a numeric value."
+                if ! [[ "$2" =~ ^[0-9]+(\.[0-9]+)?$ ]]; then
+                    err "Minimum size must be a numeric value (e.g. 0, 1.5, 250)."
                     exit 1
                 fi
                 MIN_SIZE_MB="$2"; shift 2 ;;
@@ -259,6 +290,18 @@ main() {
     local resolved_dir
     resolved_dir="$(get_realpath "$LOG_DIR")"
 
+    # Pre-flight writability check (spec section 5.2): a deletion run is refused
+    # outright when the target directory is not writable, rather than failing
+    # file-by-file midway through the batch.
+    if [[ "$DRY_RUN" != true ]]; then
+        local probe="${resolved_dir%/}/.cleanup_probe_$$"
+        if ! ( : > "$probe" ) 2>/dev/null; then
+            printf "%bError: Target directory '%s' is not writable by the current user.%b\n" "$COLOR_RED" "$LOG_DIR" "$COLOR_RESET" >&2
+            log_message "ERROR" "Target directory is not writable: $LOG_DIR"
+            exit 1
+        fi
+        rm -f "$probe" 2>/dev/null || true
+    fi
     # Setup audit log header
     if [[ -n "$LOG_FILE" ]]; then
         local log_dir_parent
@@ -315,9 +358,23 @@ main() {
         ((TOTAL_SCANNED++)) || true
 
         local file_mtime
-        file_mtime="$(get_file_mtime "$file_path")"
+        if ! file_mtime="$(get_file_mtime "$file_path")"; then
+            if [[ "$OUTPUT_MODE" == "human" ]]; then
+                printf "%b✗ Uninspectable:%b %s (could not determine modification time)\n" "$COLOR_RED" "$COLOR_RESET" "$file_path" >&2
+            fi
+            log_message "ERROR" "UNINSPECTABLE (mtime): $file_path — file skipped, no action taken."
+            ((UNINSPECTABLE_COUNT++)) || true
+            continue
+        fi
         local file_size
-        file_size="$(get_file_size "$file_path")"
+        if ! file_size="$(get_file_size "$file_path")"; then
+            if [[ "$OUTPUT_MODE" == "human" ]]; then
+                printf "%b✗ Uninspectable:%b %s (could not determine file size)\n" "$COLOR_RED" "$COLOR_RESET" "$file_path" >&2
+            fi
+            log_message "ERROR" "UNINSPECTABLE (size): $file_path — file skipped, no action taken."
+            ((UNINSPECTABLE_COUNT++)) || true
+            continue
+        fi
 
         # Check age threshold
         if [[ "$file_mtime" -le "$cutoff_epoch" ]]; then
@@ -377,6 +434,7 @@ main() {
         printf "Eligible for Purge  : %b%d%b\n" "$COLOR_BOLD" "$ELIGIBLE_COUNT" "$COLOR_RESET"
         printf "Files Processed     : %b%d%b\n" "$COLOR_GREEN" "$DELETED_COUNT" "$COLOR_RESET"
         printf "Failed Deletions    : %b%d%b\n" "$COLOR_RED" "$FAILED_COUNT" "$COLOR_RESET"
+        printf "Uninspectable Files : %b%d%b\n" "$COLOR_RED" "$UNINSPECTABLE_COUNT" "$COLOR_RESET"
         printf "Storage Reclaimed   : %b%b%s%b\n" "$COLOR_BOLD" "$COLOR_GREEN" "$total_space_formatted" "$COLOR_RESET"
         printf "%b============================================================%b\n" "$COLOR_BLUE" "$COLOR_RESET"
     fi
@@ -389,8 +447,8 @@ main() {
             files_json="${files_json}{\"path\": \"${DELETED_PATHS[$i]}\", \"size_bytes\": ${DELETED_SIZES[$i]}}"
         done
         local outcome
-        if [[ "$DRY_RUN" == true ]]; then outcome="dry-run"; elif [[ "$FAILED_COUNT" -gt 0 ]]; then outcome="failed"; else outcome="success"; fi
-        printf '{\n  "scanned": %s,\n  "eligible": %s,\n  "deleted": %s,\n  "failed": %s,\n  "reclaimed_bytes": %s,\n  "outcome": "%s",\n  "files": [%s]\n}\n' "$TOTAL_SCANNED" "$ELIGIBLE_COUNT" "$DELETED_COUNT" "$FAILED_COUNT" "$TOTAL_RECLAIMED_BYTES" "$outcome" "$files_json"
+        if [[ "$DRY_RUN" == true ]]; then outcome="dry-run"; elif [[ "$FAILED_COUNT" -gt 0 || "$UNINSPECTABLE_COUNT" -gt 0 ]]; then outcome="failed"; else outcome="success"; fi
+        printf '{\n  "scanned": %s,\n  "eligible": %s,\n  "deleted": %s,\n  "failed": %s,\n  "uninspectable": %s,\n  "reclaimed_bytes": %s,\n  "outcome": "%s",\n  "files": [%s]\n}\n' "$TOTAL_SCANNED" "$ELIGIBLE_COUNT" "$DELETED_COUNT" "$FAILED_COUNT" "$UNINSPECTABLE_COUNT" "$TOTAL_RECLAIMED_BYTES" "$outcome" "$files_json"
     elif [[ "$OUTPUT_MODE" == "csv" ]]; then
         printf 'path,size_bytes\n'
         local i
@@ -399,9 +457,9 @@ main() {
         done
     fi
 
-    log_message "INFO" "Cleanup completed: Scanned=$TOTAL_SCANNED, Eligible=$ELIGIBLE_COUNT, Processed=$DELETED_COUNT, Failed=$FAILED_COUNT, Reclaimed=$total_space_formatted"
+    log_message "INFO" "Cleanup completed: Scanned=$TOTAL_SCANNED, Eligible=$ELIGIBLE_COUNT, Processed=$DELETED_COUNT, Failed=$FAILED_COUNT, Uninspectable=$UNINSPECTABLE_COUNT, Reclaimed=$total_space_formatted"
 
-    if [[ "$FAILED_COUNT" -gt 0 ]]; then
+    if [[ "$FAILED_COUNT" -gt 0 || "$UNINSPECTABLE_COUNT" -gt 0 ]]; then
         exit 2
     fi
 

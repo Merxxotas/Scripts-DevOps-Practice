@@ -92,7 +92,7 @@ Usage: ./cleanup_logs.sh -d <path> [-t <days>] [-p <pattern>] [-m <min_size_mb>]
 | Flag | Long Option Equivalent | Description | Default Value | Required |
 | :--- | :--- | :--- | :--- | :--- |
 | `-d <path>` | `--dir <path>` | Target directory to clean | None | **Yes** |
-| `-t <days>` | `--days <days>` | Retention threshold in days (files older than X days) | `30` | No |
+| `-t <days>` | `--days <days>` | Retention threshold in days; must be `1` or more (`0` is rejected) | `30` | No |
 | `-p <pattern>` | `--pattern <pattern>`| File matching glob pattern | `*.log` | No |
 | `-m <mb>` | `--min-size <mb>` | Minimum file size threshold in Megabytes | `0` (any size) | No |
 | `-r` | `--recursive` | Scan directory and all subdirectories recursively | `false` (flat) | No |
@@ -131,18 +131,22 @@ Syntax:
 
 To prevent accidental data loss or catastrophic operating system corruption, both scripts enforce the following safety checks before executing any scan or deletion:
 
-1. **Root Directory Protection (Blacklist)**:
-   The script refuses execution and exits immediately with code `1` if the target directory is:
-   - **Linux / macOS**: `/`, `/bin`, `/sbin`, `/usr`, `/usr/bin`, `/etc`, `/dev`, `/proc`, `/sys`, `/boot`, `/root`, `/var` (root level), `/var/log` without subfolder or explicit override.
-   - **Windows**: `C:\`, `C:\Windows`, `C:\Windows\System32`, `C:\Program Files`, `C:\Program Files (x86)`, `C:\Users`, `C:\ProgramData` (root level).
+1. **Root Directory Protection (two-tier blacklist)**:
+   The script refuses execution and exits immediately with code `1` if the target directory — or its resolved real path — matches one of these tiers:
+   - **Full-tree roots** (the root itself *and everything under it*): `/bin`, `/sbin`, `/usr` (including `/usr/bin`, `/usr/sbin`), `/etc`, `/dev`, `/proc`, `/sys`, `/boot`, `/root`, `/private/etc`, and `C:\Windows` on Windows. These trees are system-owned; log cleanup is never legitimate inside them, and `realpath`-based resolution is checked too so symlinks cannot smuggle a protected target past the guard.
+   - **Exact-match roots** (the root itself is refused; children remain valid log directories): `/`, `/var`, `/var/run`, `/var/log` (per this spec), `/tmp`, `/home`, `/private`, `/private/var`, `/private/tmp`, `/Library`, `/System`, `/Applications`, `/Volumes`, `C:\`, `C:\Program Files`, `C:\Program Files (x86)`, `C:\ProgramData`, `C:\Users`, and the user's home / profile directory (`$HOME` / `UserProfile`).
+   - Legitimate targets such as `/var/log/myapp` or `C:\Logs\App` remain valid; `/etc/nginx` does not.
 
 2. **Existence & Directory Type Check**:
    - The path must exist and resolve to a valid directory (not a regular file or broken block device).
-   - Read and write permissions are tested before initiating file deletion.
+
+   **Pre-flight writability probe** (this module implements it): before the first deletion, the script creates and removes a hidden probe file inside the target directory; if the probe fails, the run is refused with exit code `1` rather than failing file-by-file midway. Dry-run mode does not probe (it never mutates).
 
 3. **Symbolic Link Policy**:
    - Symbolic links pointing to directories outside the target tree will NOT be traversed during recursive mode.
    - Only regular files (`-type f` / `[System.IO.FileInfo]`) matching the age criteria are targeted.
+
+4. **Fail-closed metadata (Bash)**: if a file's modification time or size cannot be determined by *any* available source (`stat` GNU/BSD, `date`, `wc`), the file is skipped, logged as `UNINSPECTABLE`, counted in the `uninspectable` metric, and the process exits with code `2`. It is never treated as "ancient" and never deleted.
 
 ---
 
@@ -191,8 +195,8 @@ Standardized exit codes ensure seamless integration with CI/CD runners, cron dae
 | Exit Code | Meaning | Condition |
 | :---: | :--- | :--- |
 | `0` | **Success** | Cleanup finished with 0 errors (including clean dry-run runs). |
-| `1` | **Configuration / Safety Error** | Invalid arguments, non-existent path, permission denied, or target is a protected system directory. |
-| `2` | **Partial Failure** | One or more eligible files could not be deleted (e.g., file lock, transient permission error). |
+| `1` | **Configuration / Safety Error** | Invalid arguments (`-t` below 1, non-numeric `-m`), non-existent path, unreadable/unwritable target directory (failed pre-flight probe), or target inside a protected system tree / protected root. |
+| `2` | **Partial Failure** | One or more files could not be inspected (metadata unavailable — the file is left untouched) or deleted (e.g., file lock, transient permission error). |
 
 ---
 
