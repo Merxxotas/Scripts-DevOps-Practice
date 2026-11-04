@@ -63,6 +63,26 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
 
+## 2026-10-29/30 — v1.1: JSON/CSV output for the script modules
+
+**Every script-based module gains machine-readable output.** A global convention now applies across
+Bash and PowerShell: `--json`/`--csv` (Bash) and `-Json`/`-Csv` (PowerShell), mutually exclusive;
+passing both is a configuration error (exit 1). The flags are available in modules **1** (Disk Usage),
+**2** (Log Cleanup), **3** (Database Backup), **4** (Service Monitor), **6** (Website Availability),
+**7** (Kill High-CPU), **8** (Log Rotation), **9** (Git Deployment) and **10** (Kubernetes Pod
+Monitor). Module 5 already supported the convention, and module 11 (EventOps) is a daemon and is not
+applicable.
+
+- Emitted objects are additive only — no existing field, flag or exit code changed.
+- PowerShell and Bash emit the same key names for the shared module contracts.
+- Documentation claims of "no `--json`/`--csv` output" were removed from the module gap lists and
+  specs to match the implementation.
+
+Pull requests: #15 (module 6), #16 (module 10), #17 (module 4), #18 (module 8), #19 (module 2),
+#20 (module 3), #21 (module 1), #22 (modules 7 and 9).
+
+---
+
 ## 2026-10-22 — Disk Usage Monitoring module: universal transport
 
 **Module 1 — Disk Usage Monitoring with Email Alert** gains a transport that works on any Linux

@@ -676,8 +676,8 @@ Recorded so they are decisions rather than omissions:
 
 * one partition per invocation — a host with a busy data volume and a busy
   log volume runs the tool twice
-* no `--json` or `--csv` output — the report is meant to be read by a human
-  and by an exit code, not parsed
+* `--json` and `--csv` output is available — meant for pipelines and log aggregation; the default
+  report stays human-readable
 * no SMTP transport — it needs an account, a domain and a credential
   lifecycle in every module, and a header on a free HTTP endpoint covers the
   same need

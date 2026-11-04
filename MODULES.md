@@ -1,7 +1,7 @@
 # Modules
 
 > Inventory, status and build order for every numbered module in this monorepo.
-> **Last reviewed: 2026-10-21.**
+> **Last reviewed: 2026-11-04.**
 
 Each module is a self-contained DevOps automation utility with its own spec, implementation, tests, CI
 pipeline and documentation. See [`AGENTS.md`](AGENTS.md) for the module contract and methodology.
@@ -120,8 +120,8 @@ expiry. Full Bash + PowerShell parity.
 - CI: `.github/workflows/ci-website-availability.yml` — ShellCheck, Bash on ubuntu + macOS, PowerShell on Windows + Ubuntu
 - Wiki: [31](wiki/31-Website-Availability-Overview.md) · [32](wiki/32-Website-Availability-Bash-vs-PowerShell.md) · [33](wiki/33-Website-Availability-Scenarios-and-Labs.md)
 
-**Known gaps**, recorded rather than hidden: no redirect following, no continuous watch loop, no
-`--json`/`--csv` output, no authentication or custom headers, no other HTTP methods. One URL per
+**Known gaps**, recorded rather than hidden: no redirect following, no continuous watch loop;
+`--json`/`--csv` output is available. No authentication or custom headers, no other HTTP methods. One URL per
 invocation. Audit write is best-effort. SSL expiry requires `openssl` (best-effort).
 
 ---
@@ -134,7 +134,8 @@ Detection and termination of runaway CPU processes. Full Bash + PowerShell parit
 - CI: `.github/workflows/ci-kill-high-cpu.yml` — ShellCheck, Bash on ubuntu + macOS, PowerShell on Windows + Ubuntu
 - Wiki: [25](wiki/25-Kill-High-CPU-Overview.md) · [26](wiki/26-Kill-High-CPU-Bash-vs-PowerShell.md) · [27](wiki/27-Kill-High-CPU-Scenarios-and-Labs.md)
 
-**Known gaps**, recorded rather than hidden: no continuous watch loop, no `--top` limit, no `--json`/`--csv` output, no process-tree killing, no cgroups/container awareness. One threshold per invocation. Interactive mode is the default; auto-kill requires an explicit flag. CPU metric differs between platforms (instantaneous vs cumulative). Audit write is best-effort.
+**Known gaps**, recorded rather than hidden: no continuous watch loop, no `--top` limit,
+no process-tree killing, no cgroups/container awareness. `--json`/`--csv` output is available. One threshold per invocation. Interactive mode is the default; auto-kill requires an explicit flag. CPU metric differs between platforms (instantaneous vs cumulative). Audit write is best-effort.
 
 ### ✅ 8 — Log Rotation and Compression *(Shipped)*
 
@@ -158,7 +159,7 @@ Git-based application deployment with backup, fetch, pull and post-deploy tasks.
 - CI: `.github/workflows/ci-git-deployment.yml` — ShellCheck, Bash on ubuntu + macOS, PowerShell on Windows + Ubuntu
 - Wiki: [28](wiki/28-Git-Deployment-Overview.md) · [29](wiki/29-Git-Deployment-Bash-vs-PowerShell.md) · [30](wiki/30-Git-Deployment-Scenarios-and-Labs.md)
 
-**Known gaps**, recorded rather than hidden: no rollback, no multi-environment config, no webhook, no `--json`/`--csv` output, no container orchestration. One app per invocation. Post-deploy (npm/service) failures are recorded but do not abort. Audit write is best-effort.
+**Known gaps**, recorded rather than hidden: no rollback, no multi-environment config, no webhook, no container orchestration. `--json`/`--csv` output is available. One app per invocation. Post-deploy (npm/service) failures are recorded but do not abort. Audit write is best-effort.
 
 ### ✅ 11 — Scheduling and Automation / EventOps *(Shipped)*
 
@@ -216,7 +217,7 @@ threshold. Full Bash + PowerShell parity.
 - Wiki: [34](wiki/34-Kubernetes-Pod-Monitor-Overview.md) · [35](wiki/35-Kubernetes-Pod-Monitor-Bash-vs-PowerShell.md) · [36](wiki/36-Kubernetes-Pod-Monitor-Scenarios-and-Labs.md)
 
 **Known gaps**, recorded rather than hidden: no continuous watch loop, no multi-namespace, no
-deployment/replicaset management, no `--json`/`--csv` output. One namespace + selector per
+deployment/replicaset management. `--json`/`--csv` output is available. One namespace + selector per
 invocation. Graceful delete by default; hard delete only with `--force`. Audit write is best-effort.
 Requires `kubectl` and cluster access.
 
@@ -230,15 +231,15 @@ All eleven modules are now shipped. No seed modules remain.
 
 ## Build Order
 
-**Recommended sequence**, balancing "finish what exists" against "keep the numbering meaningful".
-Module 1 shipped on **2026-10-21** and set the template; the sequence now starts at module 3.
+**Historical sequence**, kept for the record. All eleven modules are shipped; there are no
+priorities left to work through. Module 1 shipped on **2026-10-21** and set the template.
 
 | Priority | Module | Rationale |
 | :-- | :--- | :-- |
 | — | **5 — CPU and Memory Usage Monitor** | **Shipped.** Completed. |
 | — | **1 — Disk Usage Monitoring** | **Shipped.** Completed, and the template for the remaining seeds. |
 | — | **3 — Automated Database Backup** | **Shipped.** Complements module 2 — backup creation feeding retention pruning. |
-| 2 | **8 — Log Rotation and Compression** | Shares the log-lifecycle domain with modules 2 and 3. |
+| — | **8 — Log Rotation and Compression** | **Shipped.** Shares the log-lifecycle domain with modules 2 and 3. |
 | — | **4 — Service Monitor and Auto-Restart** | **Shipped.** Completed. |
 | — | **7 — Find and Kill High-CPU Processes** | **Shipped.** Completed. |
 | — | **9 — Automated Git Deployment** | **Shipped.** Completed. |
