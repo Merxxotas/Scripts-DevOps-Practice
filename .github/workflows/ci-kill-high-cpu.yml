@@ -12,13 +12,17 @@ on:
       - '7-Find-and-Kill-High-CPU-Processes/**'
       - '.github/workflows/ci-kill-high-cpu.yml'
 
+permissions:
+  contents: read
+
 jobs:
   lint-bash:
     name: Lint Bash (ShellCheck)
+    timeout-minutes: 15
     runs-on: ubuntu-24.04
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - name: Run ShellCheck
         run: |
           shellcheck -x "7-Find-and-Kill-High-CPU-Processes/kill_high_cpu.sh"
@@ -26,6 +30,7 @@ jobs:
 
   test-bash:
     name: Test Bash on ${{ matrix.os }}
+    timeout-minutes: 15
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -33,7 +38,7 @@ jobs:
         os: [ubuntu-24.04, macos-14]
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - name: Make scripts executable
         run: |
           chmod +x "7-Find-and-Kill-High-CPU-Processes/kill_high_cpu.sh"
@@ -44,10 +49,11 @@ jobs:
 
   lint-powershell:
     name: Lint PowerShell (PSScriptAnalyzer)
+    timeout-minutes: 15
     runs-on: ubuntu-24.04
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - name: Install PSScriptAnalyzer
         shell: pwsh
         run: |
@@ -72,6 +78,7 @@ jobs:
 
   test-powershell:
     name: Test PowerShell on ${{ matrix.os }}
+    timeout-minutes: 15
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -79,7 +86,7 @@ jobs:
         os: [windows-2022, ubuntu-24.04]
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - name: Run PowerShell Test Suite
         shell: pwsh
         run: |
