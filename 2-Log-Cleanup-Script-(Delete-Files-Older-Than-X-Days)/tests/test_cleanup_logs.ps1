@@ -65,7 +65,68 @@ function Test-SafetyGuardrails {
     } catch {
         $ExitCode = 1
     }
-    Assert-Equal -Expected 1 -Actual 1 -TestName "Test 2: Safety guardrail blocks protected root"
+    Assert-Equal -Expected 1 -Actual $ExitCode -TestName "Test 2: Safety guardrail blocks protected root"
+}
+
+# Test 2b: a directory under a critical root is refused too (subtree guard)
+function Test-SafetyGuardrailSubtree {
+    $TestPath = if ($env:OS -like "*Windows*" -or $IsWindows) { "C:\Windows\System32\drivers" } else { "/etc/ssh" }
+    if (-not (Test-Path -LiteralPath $TestPath)) {
+        Write-Host "$([char]27)[0;36m[SKIP]$([char]27)[0m Test 2b: $TestPath does not exist on this host"
+        return
+    }
+    $ExitCode = 0
+    try {
+        & $CleanupScript -LogDirectory $TestPath -DryRun -ErrorAction Stop *>$null
+        $ExitCode = $LASTEXITCODE
+    } catch {
+        $ExitCode = 1
+    }
+    Assert-Equal -Expected 1 -Actual $ExitCode -TestName "Test 2b: Safety guardrail blocks subtree of protected root"
+}
+
+# Test 2c: the user profile root itself is refused
+function Test-SafetyGuardrailHome {
+    $ExitCode = 0
+    $HomeDir = [Environment]::GetFolderPath("UserProfile")
+    if ([string]::IsNullOrEmpty($HomeDir)) { $HomeDir = $HOME }
+    try {
+        & $CleanupScript -LogDirectory $HomeDir -DryRun -ErrorAction Stop *>$null
+        $ExitCode = $LASTEXITCODE
+    } catch {
+        $ExitCode = 1
+    }
+    Assert-Equal -Expected 1 -Actual $ExitCode -TestName "Test 2c: Safety guardrail blocks the user profile root"
+}
+
+# Test 2d: Days = 0 must not delete anything (parameter validation rejects it)
+function Test-DaysZeroRejected {
+    Setup-TestEnv
+    $OldFile = Join-Path $TestSandbox "purge_me.log"
+    Set-Content -Path $OldFile -Value "purgeable content"
+    (Get-Item $OldFile).LastWriteTime = (Get-Date).AddDays(-45)
+
+    & $CleanupScript -LogDirectory $TestSandbox -Days 0 *>$null
+
+    $FileExists = Test-Path -LiteralPath $OldFile
+    Assert-Equal -Expected $true -Actual $FileExists -TestName "Test 2d: Days = 0 leaves files untouched"
+    Teardown-TestEnv
+}
+
+# Test 2e: Windows drive root itself is refused (normalization regression guard)
+function Test-DriveRootGuard {
+    if (-not ($env:OS -like "*Windows*" -or $IsWindows)) {
+        Write-Host "$([char]27)[0;36m[SKIP]$([char]27)[0m Test 2e: Windows-only drive root check"
+        return
+    }
+    $ExitCode = 0
+    try {
+        & $CleanupScript -LogDirectory "C:\" -DryRun -ErrorAction Stop *>$null
+        $ExitCode = $LASTEXITCODE
+    } catch {
+        $ExitCode = 1
+    }
+    Assert-Equal -Expected 1 -Actual $ExitCode -TestName "Test 2e: Safety guardrail blocks the drive root 'C:\'"
 }
 
 # Test 3: DryRun mode does not delete files
@@ -140,6 +201,10 @@ function Test-AuditLogging {
 Write-Host "$([char]27)[0;36mStarting PowerShell Log Cleanup Test Suite...$([char]27)[0m"
 Test-MissingDirectory
 Test-SafetyGuardrails
+Test-SafetyGuardrailSubtree
+Test-SafetyGuardrailHome
+Test-DaysZeroRejected
+Test-DriveRootGuard
 Test-DryRunMode
 Test-RetentionDeletion
 Test-RecursiveCleanup

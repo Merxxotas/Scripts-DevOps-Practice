@@ -7,13 +7,13 @@
 
 An enterprise-grade, zero-dependency DevOps automation utility to safely prune stale log files, reclaim disk space, and prevent server outages caused by unmanaged log growth.
 
-Available in **POSIX Bash** for Linux / macOS and **PowerShell** for Windows, with 100% feature parity.
+Available in **Bash** for Linux / macOS and **PowerShell** for Windows, with flag parity between the two implementations.
 
 ---
 
 ## 🚀 Key Features
 
-- 🛡️ **Safety Guardrails**: Built-in blacklist preventing accidental deletion of root and critical operating system directories (`/`, `/etc`, `C:\`, `C:\Windows`, etc.).
+- 🛡️ **Safety Guardrails**: Built-in blacklist preventing accidental deletion of root and critical operating system directories — this covers the protected roots **and everything under them** (e.g. `/etc`, `/etc/nginx`, `C:\Windows\System32\drivers`), matched against both the given path and its resolved real path. `/var/log` itself and the user profile root are protected; log directories *under* them (e.g. `/var/log/myapp`, `C:\Logs\App`) remain valid targets. When a file's metadata cannot be determined, the file is skipped and counted as uninspectable (exit code `2`) — never deleted.
 - 🔍 **Flexible Discovery**: Filter by file age in days (`-t / -Days`), glob patterns (`-p / -Pattern`), and minimum file size (`-m / -MinSizeMB`).
 - 📁 **Recursion Support**: Choose between single-folder cleanup or deep recursive directory traversal (`-r / -Recursive`).
 - 🧪 **Dry-Run Simulation**: Preview exactly which files would be deleted and see projected storage savings without making any modifications (`-n / -DryRun`).
@@ -27,7 +27,7 @@ Available in **POSIX Bash** for Linux / macOS and **PowerShell** for Windows, wi
 
 ```
 2-Log-Cleanup-Script-(Delete-Files-Older-Than-X-Days)/
-├── cleanup_logs.sh    # Enterprise POSIX Bash script (Linux/macOS)
+├── cleanup_logs.sh    # Production-grade Bash script (Linux/macOS)
 ├── cleanup_logs.ps1   # Enterprise PowerShell script (Windows/Cross-platform)
 ├── README.md          # Comprehensive module documentation
 ├── SPECS.md           # Technical specification & architecture document
@@ -124,8 +124,8 @@ Register-ScheduledTask -Action $Action -Trigger $Trigger -TaskName "DailyLogClea
 | Exit Code | Status | Meaning |
 | :---: | :--- | :--- |
 | `0` | **Success** | All operations completed without errors. |
-| `1` | **Configuration Error** | Invalid arguments, non-existent directory, or protected system path targeted. |
-| `2` | **Partial Failure** | One or more eligible files could not be removed due to OS file locks or permission issues. |
+| `1` | **Configuration Error** | Invalid arguments (e.g. `-t 0`, or a non-numeric `-m`), non-existent directory, unreadable/unwritable target directory, or a protected system path targeted. |
+| `2` | **Partial Failure** | One or more files could not be inspected (e.g. `stat`/`wc` failed — the file is left untouched) or removed due to OS file locks or permission issues. |
 
 ---
 
