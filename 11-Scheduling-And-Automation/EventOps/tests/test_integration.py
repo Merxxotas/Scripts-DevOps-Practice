@@ -67,10 +67,18 @@ def test_full_daemon_integration(tmp_path):
         with open(watched_file, "a") as f:
             f.write("modified state\n")
 
-        time.sleep(0.8)
+        # The file-watch debounce is 2s and Windows runners report events
+        # with extra latency, so poll instead of guessing a fixed delay.
+        deadline = time.time() + 6.0
+        content = ""
+        while time.time() < deadline:
+            if output_log_file.exists():
+                content = output_log_file.read_text()
+                if "webhook ok" in content and "file ok" in content:
+                    break
+            time.sleep(0.1)
 
         # Verify output log file created by executed actions
-        assert output_log_file.exists()
         content = output_log_file.read_text()
         assert "webhook ok" in content
         assert "file ok" in content

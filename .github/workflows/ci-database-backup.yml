@@ -12,13 +12,17 @@ on:
       - '3-Automated-Database-Backup-with-Timestamp/**'
       - '.github/workflows/ci-database-backup.yml'
 
+permissions:
+  contents: read
+
 jobs:
   lint-bash:
     name: Lint Bash (ShellCheck)
+    timeout-minutes: 15
     runs-on: ubuntu-24.04
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
       - name: Run ShellCheck
         run: |
@@ -27,6 +31,7 @@ jobs:
 
   test-bash:
     name: Test Bash on ${{ matrix.os }}
+    timeout-minutes: 15
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -34,7 +39,7 @@ jobs:
         os: [ubuntu-24.04, macos-14]
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
       - name: Make scripts executable
         run: |
@@ -47,10 +52,11 @@ jobs:
 
   lint-powershell:
     name: Lint PowerShell (PSScriptAnalyzer)
+    timeout-minutes: 15
     runs-on: ubuntu-24.04
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
       - name: Install PSScriptAnalyzer
         shell: pwsh
@@ -72,10 +78,18 @@ jobs:
       - name: Run PSScriptAnalyzer
         shell: pwsh
         run: |
-          Invoke-ScriptAnalyzer -Path "3-Automated-Database-Backup-with-Timestamp/db_backup.ps1" -Settings "3-Automated-Database-Backup-with-Timestamp/PSScriptAnalyzerSettings.psd1"
+          $results = @()
+          $results += @(Invoke-ScriptAnalyzer -Path "3-Automated-Database-Backup-with-Timestamp/db_backup.ps1" -Settings "3-Automated-Database-Backup-with-Timestamp/PSScriptAnalyzerSettings.psd1")
+          if ($results) {
+            $results | Format-Table -AutoSize
+            Write-Host "PSScriptAnalyzer found $($results.Count) issue(s)"
+            exit 1
+          }
+          Write-Host "PSScriptAnalyzer found no issues"
 
   test-powershell:
     name: Test PowerShell on ${{ matrix.os }}
+    timeout-minutes: 15
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -83,7 +97,7 @@ jobs:
         os: [windows-2022, ubuntu-24.04]
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
       - name: Run PowerShell Test Suite
         shell: pwsh

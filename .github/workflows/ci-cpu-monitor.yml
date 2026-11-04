@@ -12,13 +12,17 @@ on:
       - '5-CPU-and-Memory-Usage-Monitor/**'
       - '.github/workflows/ci-cpu-monitor.yml'
 
+permissions:
+  contents: read
+
 jobs:
   lint-bash:
     name: Lint Bash (ShellCheck)
+    timeout-minutes: 15
     runs-on: ubuntu-24.04
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
       - name: Run ShellCheck
         run: |
@@ -29,6 +33,7 @@ jobs:
 
   test-bash:
     name: Test Bash on ${{ matrix.os }}
+    timeout-minutes: 15
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -36,7 +41,7 @@ jobs:
         os: [ubuntu-24.04, macos-14]
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
       - name: Make the script executable
         run: chmod +x "5-CPU-and-Memory-Usage-Monitor/Stage1-Native-Scripts/system_monitor.sh"
@@ -46,10 +51,11 @@ jobs:
 
   lint-powershell:
     name: Lint PowerShell (PSScriptAnalyzer)
+    timeout-minutes: 15
     runs-on: windows-2022
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
       - name: Install PSScriptAnalyzer
         shell: pwsh
@@ -73,6 +79,7 @@ jobs:
 
   test-powershell:
     name: Test PowerShell on ${{ matrix.os }}
+    timeout-minutes: 15
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -80,7 +87,7 @@ jobs:
         os: [windows-2022, ubuntu-24.04]
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
       - name: Run PowerShell Test Suite
         shell: pwsh
@@ -88,6 +95,7 @@ jobs:
 
   test-python:
     name: Test Python ${{ matrix.python-version }} on ${{ matrix.os }}
+    timeout-minutes: 15
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -98,15 +106,15 @@ jobs:
         python-version: ['3.10', '3.12', '3.14']
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
       - name: Set up Python ${{ matrix.python-version }}
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
           python-version: ${{ matrix.python-version }}
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v5
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5
 
       - name: Lint and test Stage 2 (Python Unified)
         run: |
@@ -128,13 +136,14 @@ jobs:
 
   build-docker:
     name: Build and smoke test the container image
+    timeout-minutes: 20
     runs-on: ubuntu-24.04
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
 
       - name: Build the image
         working-directory: 5-CPU-and-Memory-Usage-Monitor/Stage3-Containerization
