@@ -191,7 +191,7 @@ validate_safety_guardrails() {
         exact_only_roots+=("${HOME%/}" "${home_real%/}")
     fi
 
-    local path candidate
+    local path
     for path in "$norm_target" "$norm_resolved"; do
         [[ -n "$path" ]] || continue
         for root in "${full_tree_roots[@]}"; do
