@@ -73,8 +73,15 @@ jobs:
       - name: Run PSScriptAnalyzer
         shell: pwsh
         run: |
-          Invoke-ScriptAnalyzer -Path "7-Find-and-Kill-High-CPU-Processes/kill_high_cpu.ps1" -Settings "7-Find-and-Kill-High-CPU-Processes/PSScriptAnalyzerSettings.psd1"
-          Invoke-ScriptAnalyzer -Path "7-Find-and-Kill-High-CPU-Processes/tests/test_kill_high_cpu.ps1" -Settings "7-Find-and-Kill-High-CPU-Processes/PSScriptAnalyzerSettings.psd1"
+          $results = @()
+          $results += @(Invoke-ScriptAnalyzer -Path "7-Find-and-Kill-High-CPU-Processes/kill_high_cpu.ps1" -Settings "7-Find-and-Kill-High-CPU-Processes/PSScriptAnalyzerSettings.psd1")
+          $results += @(Invoke-ScriptAnalyzer -Path "7-Find-and-Kill-High-CPU-Processes/tests/test_kill_high_cpu.ps1" -Settings "7-Find-and-Kill-High-CPU-Processes/PSScriptAnalyzerSettings.psd1")
+          if ($results) {
+            $results | Format-Table -AutoSize
+            Write-Host "PSScriptAnalyzer found $($results.Count) issue(s)"
+            exit 1
+          }
+          Write-Host "PSScriptAnalyzer found no issues"
 
   test-powershell:
     name: Test PowerShell on ${{ matrix.os }}

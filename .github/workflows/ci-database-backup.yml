@@ -78,7 +78,14 @@ jobs:
       - name: Run PSScriptAnalyzer
         shell: pwsh
         run: |
-          Invoke-ScriptAnalyzer -Path "3-Automated-Database-Backup-with-Timestamp/db_backup.ps1" -Settings "3-Automated-Database-Backup-with-Timestamp/PSScriptAnalyzerSettings.psd1"
+          $results = @()
+          $results += @(Invoke-ScriptAnalyzer -Path "3-Automated-Database-Backup-with-Timestamp/db_backup.ps1" -Settings "3-Automated-Database-Backup-with-Timestamp/PSScriptAnalyzerSettings.psd1")
+          if ($results) {
+            $results | Format-Table -AutoSize
+            Write-Host "PSScriptAnalyzer found $($results.Count) issue(s)"
+            exit 1
+          }
+          Write-Host "PSScriptAnalyzer found no issues"
 
   test-powershell:
     name: Test PowerShell on ${{ matrix.os }}

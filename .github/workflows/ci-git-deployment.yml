@@ -73,8 +73,15 @@ jobs:
       - name: Run PSScriptAnalyzer
         shell: pwsh
         run: |
-          Invoke-ScriptAnalyzer -Path "9-Automated-Git-Deployment/git_deploy.ps1" -Settings "9-Automated-Git-Deployment/PSScriptAnalyzerSettings.psd1"
-          Invoke-ScriptAnalyzer -Path "9-Automated-Git-Deployment/tests/test_git_deploy.ps1" -Settings "9-Automated-Git-Deployment/PSScriptAnalyzerSettings.psd1"
+          $results = @()
+          $results += @(Invoke-ScriptAnalyzer -Path "9-Automated-Git-Deployment/git_deploy.ps1" -Settings "9-Automated-Git-Deployment/PSScriptAnalyzerSettings.psd1")
+          $results += @(Invoke-ScriptAnalyzer -Path "9-Automated-Git-Deployment/tests/test_git_deploy.ps1" -Settings "9-Automated-Git-Deployment/PSScriptAnalyzerSettings.psd1")
+          if ($results) {
+            $results | Format-Table -AutoSize
+            Write-Host "PSScriptAnalyzer found $($results.Count) issue(s)"
+            exit 1
+          }
+          Write-Host "PSScriptAnalyzer found no issues"
 
   test-powershell:
     name: Test PowerShell on ${{ matrix.os }}

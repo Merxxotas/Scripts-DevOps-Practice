@@ -78,8 +78,15 @@ jobs:
       - name: Run PSScriptAnalyzer
         shell: pwsh
         run: |
-          Invoke-ScriptAnalyzer -Path "8-Log-Rotation-and-Compression/log_rotate.ps1" -Settings "8-Log-Rotation-and-Compression/PSScriptAnalyzerSettings.psd1"
-          Invoke-ScriptAnalyzer -Path "8-Log-Rotation-and-Compression/tests/test_log_rotate.ps1" -Settings "8-Log-Rotation-and-Compression/PSScriptAnalyzerSettings.psd1"
+          $results = @()
+          $results += @(Invoke-ScriptAnalyzer -Path "8-Log-Rotation-and-Compression/log_rotate.ps1" -Settings "8-Log-Rotation-and-Compression/PSScriptAnalyzerSettings.psd1")
+          $results += @(Invoke-ScriptAnalyzer -Path "8-Log-Rotation-and-Compression/tests/test_log_rotate.ps1" -Settings "8-Log-Rotation-and-Compression/PSScriptAnalyzerSettings.psd1")
+          if ($results) {
+            $results | Format-Table -AutoSize
+            Write-Host "PSScriptAnalyzer found $($results.Count) issue(s)"
+            exit 1
+          }
+          Write-Host "PSScriptAnalyzer found no issues"
 
   test-powershell:
     name: Test PowerShell on ${{ matrix.os }}

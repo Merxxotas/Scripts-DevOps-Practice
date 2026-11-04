@@ -73,8 +73,15 @@ jobs:
       - name: Run PSScriptAnalyzer
         shell: pwsh
         run: |
-          Invoke-ScriptAnalyzer -Path "10-Kubernetes-Pod-Monitor-and-Restart/k8s_monitor.ps1" -Settings "10-Kubernetes-Pod-Monitor-and-Restart/PSScriptAnalyzerSettings.psd1"
-          Invoke-ScriptAnalyzer -Path "10-Kubernetes-Pod-Monitor-and-Restart/tests/test_k8s_monitor.ps1" -Settings "10-Kubernetes-Pod-Monitor-and-Restart/PSScriptAnalyzerSettings.psd1"
+          $results = @()
+          $results += @(Invoke-ScriptAnalyzer -Path "10-Kubernetes-Pod-Monitor-and-Restart/k8s_monitor.ps1" -Settings "10-Kubernetes-Pod-Monitor-and-Restart/PSScriptAnalyzerSettings.psd1")
+          $results += @(Invoke-ScriptAnalyzer -Path "10-Kubernetes-Pod-Monitor-and-Restart/tests/test_k8s_monitor.ps1" -Settings "10-Kubernetes-Pod-Monitor-and-Restart/PSScriptAnalyzerSettings.psd1")
+          if ($results) {
+            $results | Format-Table -AutoSize
+            Write-Host "PSScriptAnalyzer found $($results.Count) issue(s)"
+            exit 1
+          }
+          Write-Host "PSScriptAnalyzer found no issues"
 
   test-powershell:
     name: Test PowerShell on ${{ matrix.os }}

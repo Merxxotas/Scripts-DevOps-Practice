@@ -50,6 +50,44 @@ jobs:
         run: |
           ./2-Log-Cleanup-Script-\(Delete-Files-Older-Than-X-Days\)/tests/test_cleanup_logs.sh
 
+  lint-powershell:
+    name: Lint PowerShell (PSScriptAnalyzer)
+    timeout-minutes: 15
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Install PSScriptAnalyzer
+        shell: pwsh
+        run: |
+          Set-PSRepository -Name PSGallery -InstallationPolicy Trusted
+          $attempts = 0
+          while ($attempts -lt 3) {
+            $attempts++
+            try {
+              Install-Module -Name PSScriptAnalyzer -Force -Scope CurrentUser -ErrorAction Stop
+              break
+            } catch {
+              if ($attempts -ge 3) { throw }
+              Start-Sleep -Seconds 10
+            }
+          }
+          (Get-Module -ListAvailable PSScriptAnalyzer).Version
+
+      - name: Run PSScriptAnalyzer
+        shell: pwsh
+        run: |
+          $results = @()
+          $results += @(Invoke-ScriptAnalyzer -Path "2-Log-Cleanup-Script-(Delete-Files-Older-Than-X-Days)/cleanup_logs.ps1" -Settings "2-Log-Cleanup-Script-(Delete-Files-Older-Than-X-Days)/PSScriptAnalyzerSettings.psd1")
+          $results += @(Invoke-ScriptAnalyzer -Path "2-Log-Cleanup-Script-(Delete-Files-Older-Than-X-Days)/tests/test_cleanup_logs.ps1" -Settings "2-Log-Cleanup-Script-(Delete-Files-Older-Than-X-Days)/PSScriptAnalyzerSettings.psd1")
+          if ($results) {
+            $results | Format-Table -AutoSize
+            Write-Host "PSScriptAnalyzer found $($results.Count) issue(s)"
+            exit 1
+          }
+          Write-Host "PSScriptAnalyzer found no issues"
+
   test-powershell:
     name: Test PowerShell on ${{ matrix.os }}
     timeout-minutes: 15
