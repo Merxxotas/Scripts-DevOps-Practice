@@ -56,42 +56,40 @@ Push to `main` branch triggers automated testing and Docker image publishing.
 ## Repository Structure
 
 ```
-.gitignore/                          # Git ignore rules (empty folder for user configuration)
+5-CPU-and-Memory-Usage-Monitor/
 ├── Stage1-Native-Scripts/           # Bash & PowerShell implementations
-│   ├── system_monitor.sh            # Main Bash script (v1.3.0)
+│   ├── system_monitor.sh            # Bash script (v1.3.0)
 │   ├── system_monitor.ps1           # PowerShell script (v1.3.0)
-│   ├── docs/                        # Detailed documentation
-│   │   ├── README-Installation.md
-│   │   ├── README-Basic-Monitoring.md
-│   │   ├── README-Disk-Usage.md
-│   │   ├── README-Export-Formats.md
-│   │   ├── README-Watch-Mode.md
-│   │   ├── README-Kill-Process.md
-│   │   ├── README-Process-Restart.md
-│   │   └── README-Examples.md
-│   ├── New-Addittions/              # Additional capabilities
-│   └── logs/                        # Default log directory
+│   ├── PSScriptAnalyzerSettings.psd1
+│   ├── docs/                        # Usage guides per topic
+│   └── README.md
 ├── Stage2-Python-Unified/           # Python implementation
-│   ├── src/system_monitor/          # Source code (~1,800 lines)
-│   ├── tests/                       # pytest suite (~700 lines)
-│   ├── pyproject.toml               # UV/pip configuration
+│   ├── src/system_monitor/          # Package source
+│   ├── tests/                       # pytest suite
+│   ├── pyproject.toml
 │   ├── README.md
-│   └── README-Use-Cases.md          # Detailed use cases
+│   └── README-Use-Cases.md
 ├── Stage3-Containerization/         # Docker deployment
-│   ├── Dockerfile                   # Multi-stage build (~60MB final)
-│   ├── docker-compose.yml           # 5 deployment profiles
+│   ├── Dockerfile                   # Multi-stage build, non-root runtime
+│   ├── docker-compose.yml           # Deployment profiles
 │   ├── .dockerignore
+│   ├── src/system_monitor/          # Same package as Stage 2
 │   ├── README.md
-│   └── README-Use-Cases.md          # Docker scenarios
-├── Stage4-CI-CD-Pipeline/           # GitHub Actions
-│   ├── .github/workflows/           # 3 workflow files
-│   │   ├── ci-cd-pipeline.yml       # Main pipeline
-│   │   ├── pr-validation.yml        # PR checks
-│   │   └── release.yml              # Release automation
-│   ├── README.md
-│   └── README-Pipelines.md          # Pipeline documentation
-└── AGENTS.md                        # Technical reference
+│   └── README-Use-Cases.md
+├── Stage4-CI-CD-Pipeline/           # CI/CD documentation
+│   ├── README.md                    # How the root workflow is wired
+│   └── setup.sh
+├── tests/                           # Stage 1 suites (Bash and PowerShell)
+├── docs/                            # ARCHITECTURE_COMPARISON, SCENARIOS, labs
+├── README.md
+├── SPECS.md                         # Module contract and architecture decisions
+├── ROADMAP.md
+├── CODESTYLE.md
+└── .gitignore
 ```
+
+The repository CI for this module lives at the repository root in
+`.github/workflows/ci-cpu-monitor.yml`; it is not duplicated here.
 
 ---
 
@@ -154,8 +152,7 @@ Push to `main` branch triggers automated testing and Docker image publishing.
 | **Deploy with Docker** | [Stage3-Containerization/README.md](Stage3-Containerization/README.md) |
 | **Docker scenarios** | [Stage3-Containerization/README-Use-Cases.md](Stage3-Containerization/README-Use-Cases.md) |
 | **Set up CI/CD** | [Stage4-CI-CD-Pipeline/README.md](Stage4-CI-CD-Pipeline/README.md) |
-| **Understand pipelines** | [Stage4-CI-CD-Pipeline/README-Pipelines.md](Stage4-CI-CD-Pipeline/README-Pipelines.md) |
-| **Technical deep dive** | [AGENTS.md](AGENTS.md) |
+| **Module contract and ADRs** | [SPECS.md](SPECS.md) |
 
 ---
 
@@ -208,6 +205,6 @@ This project is part of a DevOps learning curriculum. See individual files for l
 - [Stage 2: Python Unified →](Stage2-Python-Unified/)
 - [Stage 3: Containerization →](Stage3-Containerization/)
 - [Stage 4: CI/CD Pipeline →](Stage4-CI-CD-Pipeline/)
-- [Technical Reference (AGENTS.md) →](AGENTS.md)
+- [Module contract and ADRs (SPECS.md) →](SPECS.md)
 
 ---
