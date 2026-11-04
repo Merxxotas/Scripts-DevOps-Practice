@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
     Find and Kill High-CPU Processes.
 .DESCRIPTION
@@ -57,14 +57,14 @@ function Test-GuardedPid {
     try { $parent=(Get-CimInstance Win32_Process -Filter "ProcessId=$PID" -ErrorAction Stop).ParentProcessId; if ($Id -eq $parent) { return $true } } catch { $null=$_ }
     return $false
 }
-function Get-Candidates {
+function Get-Candidate {
     $now = Get-Date; $list = @()
     try { $procs = Get-Process -ErrorAction Stop } catch { $procs = @() }
     foreach ($p in $procs) {
         if (Test-GuardedPid -Id $p.Id) { continue }
         if ([string]::IsNullOrWhiteSpace($p.ProcessName)) { continue }
         $cpuPercent = 0.0
-        try { if ($p.StartTime -ne $null) { $elapsed = ($now - $p.StartTime).TotalSeconds; if ($elapsed -gt 0) { $cpuPercent = [math]::Round(($p.CPU / $elapsed) * 100, 2) } } } catch { $cpuPercent = 0.0 }
+        try { if ($null -ne $p.StartTime) { $elapsed = ($now - $p.StartTime).TotalSeconds; if ($elapsed -gt 0) { $cpuPercent = [math]::Round(($p.CPU / $elapsed) * 100, 2) } } } catch { $cpuPercent = 0.0 }
         if ($cpuPercent -gt $CpuThreshold) { $list += [pscustomobject]@{ Id=$p.Id; ProcessName=$p.ProcessName; CpuPercent=$cpuPercent } }
     }
     return $list
@@ -80,7 +80,7 @@ if ($humanMode) {
     if (-not [string]::IsNullOrWhiteSpace($AuditLog)) { Write-Host "Audit Log        : $($Colors.Cyan)$AuditLog$($Colors.Reset)" }
     Write-Host ""
 }
-$candidates = Get-Candidates
+$candidates = Get-Candidate
 $candidateCount = $candidates.Count
 if ($humanMode) { Write-Host "$($Colors.Yellow)Found $candidateCount candidate(s).$($Colors.Reset)" -ForegroundColor Yellow; Write-Host "" }
 if ($DryRun) {

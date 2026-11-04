@@ -11,10 +11,10 @@ $ScriptDir = $PSScriptRoot
 $CleanupScript = Join-Path (Split-Path -Parent $ScriptDir) "cleanup_logs.ps1"
 $TestSandbox = Join-Path ([System.IO.Path]::GetTempPath()) ("test_ps1_cleanup_" + [System.Guid]::NewGuid().ToString("N"))
 
-$Global:PassedCount = 0
-$Global:FailedCount = 0
+$Script:PassedCount = 0
+$Script:FailedCount = 0
 
-function Setup-TestEnv {
+function Enter-TestEnvironment {
     if (Test-Path -LiteralPath $TestSandbox) {
         Remove-Item -LiteralPath $TestSandbox -Recurse -Force -ErrorAction SilentlyContinue
     }
@@ -22,7 +22,7 @@ function Setup-TestEnv {
     New-Item -ItemType Directory -Path (Join-Path $TestSandbox "sub2") -Force | Out-Null
 }
 
-function Teardown-TestEnv {
+function Exit-TestEnvironment {
     if (Test-Path -LiteralPath $TestSandbox) {
         Remove-Item -LiteralPath $TestSandbox -Recurse -Force -ErrorAction SilentlyContinue
     }
@@ -37,10 +37,10 @@ function Assert-Equal {
 
     if ($Expected -eq $Actual) {
         Write-Host "$([char]27)[0;32m[PASS]$([char]27)[0m $TestName"
-        $Global:PassedCount++
+        $Script:PassedCount++
     } else {
         Write-Host "$([char]27)[0;31m[FAIL]$([char]27)[0m $TestName (Expected: '$Expected', Got: '$Actual')"
-        $Global:FailedCount++
+        $Script:FailedCount++
     }
 }
 
@@ -56,7 +56,7 @@ function Test-MissingDirectory {
 }
 
 # Test 2: Safety guardrail blocks protected system directories
-function Test-SafetyGuardrails {
+function Test-SafetyGuardrail {
     $TestPath = if ($env:OS -like "*Windows*" -or $IsWindows) { "C:\Windows" } else { "/etc" }
     $ExitCode = 0
     try {
@@ -101,7 +101,7 @@ function Test-SafetyGuardrailHome {
 
 # Test 2d: Days = 0 must not delete anything (parameter validation rejects it)
 function Test-DaysZeroRejected {
-    Setup-TestEnv
+    Enter-TestEnvironment
     $OldFile = Join-Path $TestSandbox "purge_me.log"
     Set-Content -Path $OldFile -Value "purgeable content"
     (Get-Item $OldFile).LastWriteTime = (Get-Date).AddDays(-45)
@@ -110,7 +110,7 @@ function Test-DaysZeroRejected {
 
     $FileExists = Test-Path -LiteralPath $OldFile
     Assert-Equal -Expected $true -Actual $FileExists -TestName "Test 2d: Days = 0 leaves files untouched"
-    Teardown-TestEnv
+    Exit-TestEnvironment
 }
 
 # Test 2e: Windows drive root itself is refused (normalization regression guard)
@@ -131,7 +131,7 @@ function Test-DriveRootGuard {
 
 # Test 3: DryRun mode does not delete files
 function Test-DryRunMode {
-    Setup-TestEnv
+    Enter-TestEnvironment
     $OldFile = Join-Path $TestSandbox "old_app.log"
     Set-Content -Path $OldFile -Value "test content"
     (Get-Item $OldFile).LastWriteTime = (Get-Date).AddDays(-40)
@@ -140,12 +140,12 @@ function Test-DryRunMode {
 
     $FileExists = Test-Path -LiteralPath $OldFile
     Assert-Equal -Expected $true -Actual $FileExists -TestName "Test 3: DryRun preserves file on disk"
-    Teardown-TestEnv
+    Exit-TestEnvironment
 }
 
 # Test 4: Live execution deletes files exceeding retention age
 function Test-RetentionDeletion {
-    Setup-TestEnv
+    Enter-TestEnvironment
     $OldFile = Join-Path $TestSandbox "purge_me.log"
     $NewFile = Join-Path $TestSandbox "keep_me.log"
 
@@ -162,12 +162,12 @@ function Test-RetentionDeletion {
 
     Assert-Equal -Expected $false -Actual $OldExists -TestName "Test 4a: Stale file deleted"
     Assert-Equal -Expected $true -Actual $NewExists -TestName "Test 4b: Recent file retained"
-    Teardown-TestEnv
+    Exit-TestEnvironment
 }
 
 # Test 5: Recursive scan cleans subdirectories
 function Test-RecursiveCleanup {
-    Setup-TestEnv
+    Enter-TestEnvironment
     $SubDir = Join-Path $TestSandbox "sub1"
     $SubOldFile = Join-Path $SubDir "sub_old.log"
     Set-Content -Path $SubOldFile -Value "sub content"
@@ -182,25 +182,25 @@ function Test-RecursiveCleanup {
     & $CleanupScript -LogDirectory $TestSandbox -Days 30 -Recursive *>$null
     $RecExists = Test-Path -LiteralPath $SubOldFile
     Assert-Equal -Expected $false -Actual $RecExists -TestName "Test 5b: Recursive scan purges subdirectory files"
-    Teardown-TestEnv
+    Exit-TestEnvironment
 }
 
 # Test 6: Audit logging
 function Test-AuditLogging {
-    Setup-TestEnv
+    Enter-TestEnvironment
     $LogParent = Join-Path $TestSandbox "logs"
     $LogFilePath = Join-Path $LogParent "audit.log"
     & $CleanupScript -LogDirectory $TestSandbox -Days 30 -LogFile $LogFilePath *>$null
 
     $LogExists = Test-Path -LiteralPath $LogFilePath
     Assert-Equal -Expected $true -Actual $LogExists -TestName "Test 6: Audit log file created"
-    Teardown-TestEnv
+    Exit-TestEnvironment
 }
 
 # Execution
 Write-Host "$([char]27)[0;36mStarting PowerShell Log Cleanup Test Suite...$([char]27)[0m"
 Test-MissingDirectory
-Test-SafetyGuardrails
+Test-SafetyGuardrail
 Test-SafetyGuardrailSubtree
 Test-SafetyGuardrailHome
 Test-DaysZeroRejected
@@ -211,10 +211,10 @@ Test-RecursiveCleanup
 Test-AuditLogging
 
 Write-Host "============================================================"
-Write-Host "Tests Summary: $([char]27)[0;32m$Global:PassedCount Passed$([char]27)[0m, $([char]27)[0;31m$Global:FailedCount Failed$([char]27)[0m"
+Write-Host "Tests Summary: $([char]27)[0;32m$Script:PassedCount Passed$([char]27)[0m, $([char]27)[0;31m$Script:FailedCount Failed$([char]27)[0m"
 Write-Host "============================================================"
 
-if ($Global:FailedCount -gt 0) {
+if ($Script:FailedCount -gt 0) {
     exit 1
 }
 exit 0

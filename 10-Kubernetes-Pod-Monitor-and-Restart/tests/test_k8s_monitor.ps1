@@ -13,7 +13,7 @@ $script:LastStdout = ""
 $script:LastStderr = ""
 $script:LastExitCode = 0
 
-function Invoke-K8s {
+function Invoke-Monitor {
     param([string[]]$ScriptArgs, [string]$MockPods = "", [string]$MockDeleteExit = "")
     $psi = New-Object System.Diagnostics.ProcessStartInfo
     $psi.FileName = "pwsh"
@@ -53,7 +53,7 @@ function Assert-Equal {
     }
 }
 
-function Assert-Contains {
+function Assert-Match {
     param([string]$Haystack, [string]$Needle, [string]$Label)
     if ($Haystack -like "*$Needle*") {
         Write-Host "[PASS] $Label" -ForegroundColor Green; $script:PassedCount++
@@ -62,7 +62,7 @@ function Assert-Contains {
     }
 }
 
-function Assert-FileExists {
+function Assert-Path {
     param([string]$Path, [string]$Label)
     if (Test-Path -LiteralPath $Path) {
         Write-Host "[PASS] $Label" -ForegroundColor Green; $script:PassedCount++
@@ -72,104 +72,104 @@ function Assert-FileExists {
 }
 
 # Test 1: help
-Invoke-K8s -ScriptArgs @("-Help")
+Invoke-Monitor -ScriptArgs @("-Help")
 Assert-Equal 0 $script:LastExitCode "Test 1a: -Help exits 0"
-Assert-Contains $script:LastStdout "Usage" "Test 1b: help shows usage"
+Assert-Match $script:LastStdout "Usage" "Test 1b: help shows usage"
 
 # Test 2: invalid namespace (empty)
-Invoke-K8s -ScriptArgs @("-Namespace", "")
+Invoke-Monitor -ScriptArgs @("-Namespace", "")
 Assert-Equal 1 $script:LastExitCode "Test 2: empty namespace exits 1"
 
 # Test 3: invalid namespace (bad chars)
-Invoke-K8s -ScriptArgs @("-Namespace", "Bad!Name")
+Invoke-Monitor -ScriptArgs @("-Namespace", "Bad!Name")
 Assert-Equal 1 $script:LastExitCode "Test 3: bad namespace exits 1"
 
 # Test 4: invalid label (empty)
-Invoke-K8s -ScriptArgs @("-LabelSelector", "")
+Invoke-Monitor -ScriptArgs @("-LabelSelector", "")
 Assert-Equal 1 $script:LastExitCode "Test 4: empty label exits 1"
 
 # Test 5: invalid threshold (negative)
-Invoke-K8s -ScriptArgs @("-RestartThreshold", "-1")
+Invoke-Monitor -ScriptArgs @("-RestartThreshold", "-1")
 Assert-Equal 1 $script:LastExitCode "Test 5: negative threshold exits 1"
 
 # Test 6: kubectl missing (no mock) -> exit 1 unless kubectl installed; skip if kubectl present
 if (Get-Command kubectl -ErrorAction SilentlyContinue) {
     Write-Host "[SKIP] Test 6: kubectl present, skipping missing test" -ForegroundColor Yellow
 } else {
-    Invoke-K8s -ScriptArgs @()
+    Invoke-Monitor -ScriptArgs @()
     Assert-Equal 1 $script:LastExitCode "Test 6: kubectl missing exits 1"
 }
 
 # Test 7: dry-run exits 0, no deletion
 $mockPods = "pod-a|Running|5,`npod-b|Running|1,"
-Invoke-K8s -ScriptArgs @("-DryRun") -MockPods $mockPods
+Invoke-Monitor -ScriptArgs @("-DryRun") -MockPods $mockPods
 Assert-Equal 0 $script:LastExitCode "Test 7a: dry-run exits 0"
-Assert-Contains $script:LastStdout "Dry run" "Test 7b: dry-run label"
-Assert-Contains $script:LastStdout "would delete" "Test 7c: would delete shown"
+Assert-Match $script:LastStdout "Dry run" "Test 7b: dry-run label"
+Assert-Match $script:LastStdout "would delete" "Test 7c: would delete shown"
 
 # Test 8: no pods found -> exit 0
-Invoke-K8s -ScriptArgs @() -MockPods ""
+Invoke-Monitor -ScriptArgs @() -MockPods ""
 Assert-Equal 0 $script:LastExitCode "Test 8a: no pods exits 0"
-Assert-Contains $script:LastStdout "No pods found" "Test 8b: no pods message"
+Assert-Match $script:LastStdout "No pods found" "Test 8b: no pods message"
 
 # Test 9: healthy (below threshold) -> exit 0
 $mockPods = "pod-a|Running|1,`npod-b|Running|2,"
-Invoke-K8s -ScriptArgs @("-RestartThreshold", "3") -MockPods $mockPods -MockDeleteExit "0"
+Invoke-Monitor -ScriptArgs @("-RestartThreshold", "3") -MockPods $mockPods -MockDeleteExit "0"
 Assert-Equal 0 $script:LastExitCode "Test 9a: below threshold exits 0"
-Assert-Contains $script:LastStdout "kept (below threshold)" "Test 9b: kept message"
+Assert-Match $script:LastStdout "kept (below threshold)" "Test 9b: kept message"
 
 # Test 10: threshold exceeded -> delete, exit 0
 $mockPods = "pod-a|Running|5,`npod-b|Running|1,"
-Invoke-K8s -ScriptArgs @("-RestartThreshold", "3") -MockPods $mockPods -MockDeleteExit "0"
+Invoke-Monitor -ScriptArgs @("-RestartThreshold", "3") -MockPods $mockPods -MockDeleteExit "0"
 Assert-Equal 0 $script:LastExitCode "Test 10a: delete success exits 0"
-Assert-Contains $script:LastStdout "-> deleted" "Test 10b: deleted message"
-Assert-Contains $script:LastStdout "Deleted: 1" "Test 10c: deleted count"
+Assert-Match $script:LastStdout "-> deleted" "Test 10b: deleted message"
+Assert-Match $script:LastStdout "Deleted: 1" "Test 10c: deleted count"
 
 # Test 11: multi-container restart sum (3+2=5 > 3 -> delete)
 $mockPods = "pod-a|Running|3,2,"
-Invoke-K8s -ScriptArgs @("-RestartThreshold", "3") -MockPods $mockPods -MockDeleteExit "0"
+Invoke-Monitor -ScriptArgs @("-RestartThreshold", "3") -MockPods $mockPods -MockDeleteExit "0"
 Assert-Equal 0 $script:LastExitCode "Test 11a: multi-container sum exits 0"
-Assert-Contains $script:LastStdout "-> deleted" "Test 11b: deleted (sum 5 > 3)"
+Assert-Match $script:LastStdout "-> deleted" "Test 11b: deleted (sum 5 > 3)"
 
 # Test 12: delete failure -> exit 2
 $mockPods = "pod-a|Running|5,"
-Invoke-K8s -ScriptArgs @() -MockPods $mockPods -MockDeleteExit "1"
+Invoke-Monitor -ScriptArgs @() -MockPods $mockPods -MockDeleteExit "1"
 Assert-Equal 2 $script:LastExitCode "Test 12a: delete failure exits 2"
-Assert-Contains $script:LastStdout "delete FAILED" "Test 12b: failed message"
+Assert-Match $script:LastStdout "delete FAILED" "Test 12b: failed message"
 
 # Test 13: audit log
 $audit = Join-Path $TestSandbox "audit.log"
 $mockPods = "pod-a|Running|5,"
-Invoke-K8s -ScriptArgs @("-AuditLog", $audit) -MockPods $mockPods -MockDeleteExit "0"
+Invoke-Monitor -ScriptArgs @("-AuditLog", $audit) -MockPods $mockPods -MockDeleteExit "0"
 Assert-Equal 0 $script:LastExitCode "Test 13a: audit run exits 0"
-Assert-FileExists $audit "Test 13b: audit file created"
+Assert-Path $audit "Test 13b: audit file created"
 $auditContent = Get-Content -Raw -LiteralPath $audit
-Assert-Contains $auditContent "outcome=success" "Test 13c: audit outcome success"
+Assert-Match $auditContent "outcome=success" "Test 13c: audit outcome success"
 
 # Test 14: audit log dry-run
 $audit2 = Join-Path $TestSandbox "audit2.log"
 $mockPods = "pod-a|Running|5,"
-Invoke-K8s -ScriptArgs @("-DryRun", "-AuditLog", $audit2) -MockPods $mockPods
+Invoke-Monitor -ScriptArgs @("-DryRun", "-AuditLog", $audit2) -MockPods $mockPods
 Assert-Equal 0 $script:LastExitCode "Test 14a: audit dry-run exits 0"
-Assert-FileExists $audit2 "Test 14b: audit file created on dry-run"
+Assert-Path $audit2 "Test 14b: audit file created on dry-run"
 $auditContent2 = Get-Content -Raw -LiteralPath $audit2
-Assert-Contains $auditContent2 "outcome=dry-run" "Test 14c: audit outcome dry-run"
+Assert-Match $auditContent2 "outcome=dry-run" "Test 14c: audit outcome dry-run"
 
 # Test 15: force flag
 $mockPods = "pod-a|Running|5,"
-Invoke-K8s -ScriptArgs @("-Force") -MockPods $mockPods -MockDeleteExit "0"
+Invoke-Monitor -ScriptArgs @("-Force") -MockPods $mockPods -MockDeleteExit "0"
 Assert-Equal 0 $script:LastExitCode "Test 15a: force run exits 0"
-Assert-Contains $script:LastStdout "hard (--force)" "Test 15b: force label"
+Assert-Match $script:LastStdout "hard (--force)" "Test 15b: force label"
 
 # Test 16: verbose prints diagnostic
 $mockPods = "pod-a|Running|5,"
-Invoke-K8s -ScriptArgs @("-Verbose") -MockPods $mockPods -MockDeleteExit "0"
+Invoke-Monitor -ScriptArgs @("-Verbose") -MockPods $mockPods -MockDeleteExit "0"
 Assert-Equal 0 $script:LastExitCode "Test 16a: verbose exits 0"
-Assert-Contains $script:LastStdout "Querying pods" "Test 16b: verbose diagnostic"
+Assert-Match $script:LastStdout "Querying pods" "Test 16b: verbose diagnostic"
 
 # Test 17: custom namespace/selector
 $mockPods = "pod-a|Running|5,"
-Invoke-K8s -ScriptArgs @("-Namespace", "kube-system", "-LabelSelector", "app=api", "-RestartThreshold", "2") -MockPods $mockPods -MockDeleteExit "0"
+Invoke-Monitor -ScriptArgs @("-Namespace", "kube-system", "-LabelSelector", "app=api", "-RestartThreshold", "2") -MockPods $mockPods -MockDeleteExit "0"
 Assert-Equal 0 $script:LastExitCode "Test 17: custom flags exit 0"
 
 # ---------- summary ----------

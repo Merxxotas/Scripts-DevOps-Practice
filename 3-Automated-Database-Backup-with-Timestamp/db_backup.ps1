@@ -19,6 +19,8 @@ param(
     [string]$DbType = "mysql",
     [string]$DbName = "mydatabase",
     [string]$DbUser = "backup_user",
+    [Diagnostics.CodeAnalysis.SuppressMessage("PSAvoidUsingPlainTextForPassword", "DbPassword",
+        Justification = "Backwards-compatible CLI contract. The recommended channel is the DB_BACKUP_PASSWORD environment variable; a SecureString migration is a separate, deliberate change.")]
     [string]$DbPassword = "",
     [string]$BackupDir = "C:\Backups\Database",
     [ValidateRange(0, 3650)]
@@ -125,7 +127,7 @@ function Test-BlockedPath {
 
 # ---------- validation ----------
 
-function Normalize-DbType {
+function Get-DbTypeNormalized {
     param([string]$Type)
     $t = $Type.ToLowerInvariant()
     if ($t -eq "postgres") { return "postgresql" }
@@ -150,7 +152,7 @@ function Write-AuditLine {
         $timestamp = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
         try {
             Add-Content -Path $LogFile -Value "$timestamp [$Level] $Message" -ErrorAction SilentlyContinue
-        } catch { }
+        } catch { Write-Verbose "Audit write failed: $_" }
     }
     if ($Verbose -or $Level -eq "ERROR" -or $Level -eq "WARNING") {
         [Console]::Error.WriteLine($Message)
@@ -169,7 +171,7 @@ function Get-DumpTool {
 
 # ---------- main ----------
 
-$DbType = Normalize-DbType $DbType
+$DbType = Get-DbTypeNormalized $DbType
 $CompressEnabled = $true
 if ($NoCompress) { $CompressEnabled = $false }
 if ($Compress) { $CompressEnabled = $true }

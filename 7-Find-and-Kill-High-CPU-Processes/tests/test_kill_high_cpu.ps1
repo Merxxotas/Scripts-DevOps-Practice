@@ -43,7 +43,7 @@ function Assert-Equal {
     }
 }
 
-function Assert-Contains {
+function Assert-Match {
     param([string]$Haystack, [string]$Needle, [string]$Label)
     if ($Haystack -like "*$Needle*") {
         Write-Host "[PASS] $Label" -ForegroundColor Green; $script:PassedCount++
@@ -52,7 +52,7 @@ function Assert-Contains {
     }
 }
 
-function Assert-FileExists {
+function Assert-Path {
     param([string]$Path, [string]$Label)
     if (Test-Path -LiteralPath $Path) {
         Write-Host "[PASS] $Label" -ForegroundColor Green; $script:PassedCount++
@@ -64,7 +64,7 @@ function Assert-FileExists {
 # Test 1: help
 Invoke-Killer -ScriptArgs @("-Help")
 Assert-Equal 0 $script:LastExitCode "Test 1a: -Help exits 0"
-Assert-Contains $script:LastStdout "Usage" "Test 1b: help shows usage"
+Assert-Match $script:LastStdout "Usage" "Test 1b: help shows usage"
 
 # Test 2: invalid threshold (negative)
 Invoke-Killer -ScriptArgs @("-CpuThreshold", "-5")
@@ -77,13 +77,13 @@ Assert-Equal 1 $script:LastExitCode "Test 3: non-numeric threshold exits 1"
 # Test 4: dry-run (no kills) exits 0
 Invoke-Killer -ScriptArgs @("-DryRun")
 Assert-Equal 0 $script:LastExitCode "Test 4a: dry-run exits 0"
-Assert-Contains $script:LastStdout "DRY RUN" "Test 4b: dry-run label"
+Assert-Match $script:LastStdout "DRY RUN" "Test 4b: dry-run label"
 
 # Test 5: audit log with dry-run
 $audit = Join-Path $TestSandbox "audit.log"
 Invoke-Killer -ScriptArgs @("-DryRun", "-AuditLog", $audit)
 Assert-Equal 0 $script:LastExitCode "Test 5a: audit dry-run exits 0"
-Assert-FileExists $audit "Test 5b: audit file created"
+Assert-Path $audit "Test 5b: audit file created"
 
 # Test 6: verbose dry-run
 Invoke-Killer -ScriptArgs @("-DryRun", "-Verbose")

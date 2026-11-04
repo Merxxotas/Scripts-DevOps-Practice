@@ -20,7 +20,7 @@ $script:LastStdout = ""
 $script:LastStderr = ""
 $script:LastExitCode = 0
 
-function New-Sandbox {
+function Enter-Sandbox {
     if (Test-Path -LiteralPath $TestSandbox) {
         Remove-Item -LiteralPath $TestSandbox -Recurse -Force -ErrorAction SilentlyContinue
     }
@@ -57,7 +57,7 @@ function Assert-Equal {
     }
 }
 
-function Assert-Contains {
+function Assert-Match {
     param([string]$Haystack, [string]$Needle, [string]$Label)
     if ($Haystack -like "*$Needle*") {
         Write-Host "[PASS] $Label" -ForegroundColor Green
@@ -68,7 +68,7 @@ function Assert-Contains {
     }
 }
 
-function Assert-FileExists {
+function Assert-Path {
     param([string]$Path, [string]$Label)
     if (Test-Path -LiteralPath $Path) {
         Write-Host "[PASS] $Label" -ForegroundColor Green
@@ -79,7 +79,7 @@ function Assert-FileExists {
     }
 }
 
-function Assert-FileNotExists {
+function Assert-Absent {
     param([string]$Path, [string]$Label)
     if (-not (Test-Path -LiteralPath $Path)) {
         Write-Host "[PASS] $Label" -ForegroundColor Green
@@ -92,12 +92,12 @@ function Assert-FileNotExists {
 
 # ---------- tests ----------
 
-New-Sandbox
+Enter-Sandbox
 
 # Test 1: help
 Invoke-Rotate -ScriptArgs @("-Help")
 Assert-Equal 0 $script:LastExitCode "Test 1a: -Help exits 0"
-Assert-Contains $script:LastStdout "Usage" "Test 1b: help shows usage"
+Assert-Match $script:LastStdout "Usage" "Test 1b: help shows usage"
 
 # Test 2: missing file
 $f = Join-Path $TestSandbox "nope.log"
@@ -109,36 +109,36 @@ $f = Join-Path $TestSandbox "small.log"
 "small" | Set-Content -LiteralPath $f -NoNewline
 Invoke-Rotate -ScriptArgs @("-LogFile", "`"$f`"", "-MaxSizeMB", "10")
 Assert-Equal 0 $script:LastExitCode "Test 3a: no-op exits 0"
-Assert-Contains $script:LastStdout "No rotation needed" "Test 3b: no-op message"
+Assert-Match $script:LastStdout "No rotation needed" "Test 3b: no-op message"
 
 # Test 4: rotation basic
 $f = Join-Path $TestSandbox "f.log"
 ("line`n" * 100) | Set-Content -LiteralPath $f -NoNewline
 Invoke-Rotate -ScriptArgs @("-LogFile", "`"$f`"", "-MaxSizeMB", "0")
 Assert-Equal 0 $script:LastExitCode "Test 4a: rotation exits 0"
-Assert-FileExists "$f.1.zip" "Test 4b: backup created"
+Assert-Path "$f.1.zip" "Test 4b: backup created"
 
 # Test 5: dry-run
 $f = Join-Path $TestSandbox "g.log"
 ("line`n" * 100) | Set-Content -LiteralPath $f -NoNewline
 Invoke-Rotate -ScriptArgs @("-LogFile", "`"$f`"", "-MaxSizeMB", "0", "-DryRun")
 Assert-Equal 0 $script:LastExitCode "Test 5a: dry-run exits 0"
-Assert-Contains $script:LastStdout "DRY RUN" "Test 5b: dry-run label"
-Assert-FileNotExists "$f.1.zip" "Test 5c: no backup created"
+Assert-Match $script:LastStdout "DRY RUN" "Test 5b: dry-run label"
+Assert-Absent "$f.1.zip" "Test 5c: no backup created"
 
 # Test 6: force
 $f = Join-Path $TestSandbox "h.log"
 "tiny" | Set-Content -LiteralPath $f -NoNewline
 Invoke-Rotate -ScriptArgs @("-LogFile", "`"$f`"", "-Force")
 Assert-Equal 0 $script:LastExitCode "Test 6a: force exits 0"
-Assert-FileExists "$f.1.zip" "Test 6b: backup created"
+Assert-Path "$f.1.zip" "Test 6b: backup created"
 
 # Test 7: no-compress
 $f = Join-Path $TestSandbox "i.log"
 ("line`n" * 100) | Set-Content -LiteralPath $f -NoNewline
 Invoke-Rotate -ScriptArgs @("-LogFile", "`"$f`"", "-MaxSizeMB", "0", "-NoCompress")
 Assert-Equal 0 $script:LastExitCode "Test 7a: no-compress exits 0"
-Assert-FileExists "$f.1" "Test 7b: raw backup created"
+Assert-Path "$f.1" "Test 7b: raw backup created"
 
 # Test 8: bad max-size (negative via invalid? ValidateRange 0.. prevents negative)
 $f = Join-Path $TestSandbox "j.log"
@@ -158,21 +158,21 @@ $f = Join-Path $TestSandbox "l.log"
 $audit = Join-Path $TestSandbox "audit.log"
 Invoke-Rotate -ScriptArgs @("-LogFile", "`"$f`"", "-Force", "-AuditLog", "`"$audit`"")
 Assert-Equal 0 $script:LastExitCode "Test 10a: audit run exits 0"
-Assert-FileExists $audit "Test 10b: audit file created"
+Assert-Path $audit "Test 10b: audit file created"
 
 # Test 11: -Json dry-run outputs JSON
 $f = Join-Path $TestSandbox "j.log"
 "line" | Set-Content -LiteralPath $f -NoNewline
 Invoke-Rotate -ScriptArgs @("-LogFile", "`"$f`"", "-Force", "-DryRun", "-Json")
 Assert-Equal 0 $script:LastExitCode "Test 11a: -Json dry-run exits 0"
-Assert-Contains $script:LastStdout '"outcome": "dry-run"' "Test 11b: json dry-run outcome"
+Assert-Match $script:LastStdout '"outcome": "dry-run"' "Test 11b: json dry-run outcome"
 
 # Test 12: -Csv dry-run outputs header + row
 $f = Join-Path $TestSandbox "c.log"
 "line" | Set-Content -LiteralPath $f -NoNewline
 Invoke-Rotate -ScriptArgs @("-LogFile", "`"$f`"", "-Force", "-DryRun", "-Csv")
 Assert-Equal 0 $script:LastExitCode "Test 12a: -Csv dry-run exits 0"
-Assert-Contains $script:LastStdout "log_file,current_size_bytes" "Test 12b: csv header"
+Assert-Match $script:LastStdout "log_file,current_size_bytes" "Test 12b: csv header"
 
 # Test 13: -Json and -Csv mutually exclusive
 $f = Join-Path $TestSandbox "m.log"

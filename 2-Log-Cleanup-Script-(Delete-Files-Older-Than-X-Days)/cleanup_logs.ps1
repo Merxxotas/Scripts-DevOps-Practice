@@ -1,4 +1,4 @@
-#Requires -Version 5.1
+﻿#Requires -Version 5.1
 <#
 .SYNOPSIS
     Enterprise-grade log cleanup and retention utility.
@@ -115,9 +115,7 @@ function Write-AuditLog {
                 New-Item -ItemType Directory -Path $LogParent -Force | Out-Null
             }
             Add-Content -LiteralPath $LogFile -Value $LogEntry -ErrorAction SilentlyContinue
-        } catch {
-            # Non-blocking logging failure
-        }
+        } catch { Write-Verbose "Audit write failed: $_" }
     }
 }
 
@@ -142,7 +140,7 @@ function Format-ByteSize {
 #   1. Full-tree roots (this root and everything under it).
 #   2. Exact-match roots — these roots themselves are protected, but their
 #      children are the tool's legitimate targets (e.g. C:\Logs\App, /var/log/myapp).
-function Test-SafetyGuardrails {
+function Test-SafetyGuardrail {
     param([string]$Path)
 
     try {
@@ -244,7 +242,7 @@ function Invoke-LogCleanup {
         exit 1
     }
 
-    if (-not (Test-SafetyGuardrails -Path $LogDirectory)) {
+    if (-not (Test-SafetyGuardrail -Path $LogDirectory)) {
         exit 1
     }
 

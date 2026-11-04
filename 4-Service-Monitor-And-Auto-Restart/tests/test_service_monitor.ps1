@@ -49,7 +49,7 @@ function Assert-Equal {
     }
 }
 
-function Assert-Contains {
+function Assert-Match {
     param([string]$Haystack, [string]$Needle, [string]$Label)
     if ($Haystack -like "*$Needle*") {
         Write-Host "[PASS] $Label" -ForegroundColor Green
@@ -60,7 +60,7 @@ function Assert-Contains {
     }
 }
 
-function Assert-FileExists {
+function Assert-Path {
     param([string]$Path, [string]$Label)
     if (Test-Path -LiteralPath $Path) {
         Write-Host "[PASS] $Label" -ForegroundColor Green
@@ -85,7 +85,7 @@ try {
 # Test 1: help
 Invoke-Monitor -ScriptArgs @("-Help")
 Assert-Equal 0 $script:LastExitCode "Test 1a: -Help exits 0"
-Assert-Contains $script:LastStdout "Usage" "Test 1b: help shows usage"
+Assert-Match $script:LastStdout "Usage" "Test 1b: help shows usage"
 
 # Test 2: invalid service name
 Invoke-Monitor -ScriptArgs @("-ServiceName", "bad/name")
@@ -113,7 +113,7 @@ $drSvc = if ($stoppedService) { $stoppedService } else { $existingService }
 if ($drSvc) {
     Invoke-Monitor -ScriptArgs @("-ServiceName", $drSvc, "-DryRun")
     Assert-Equal 0 $script:LastExitCode "Test 5a: dry-run exits 0"
-    Assert-Contains $script:LastStdout "DRY RUN" "Test 5b: dry-run label"
+    Assert-Match $script:LastStdout "DRY RUN" "Test 5b: dry-run label"
 }
 
 # Test 6: bad max-retries (0) - ValidateRange blocks 0? range starts 1, so 0 invalid -> error exit 1
@@ -129,7 +129,7 @@ if ($existingService) {
     $audit = Join-Path $TestSandbox "audit.log"
     Invoke-Monitor -ScriptArgs @("-ServiceName", $existingService, "-AuditLog", $audit, "-DryRun")
     Assert-Equal 0 $script:LastExitCode "Test 8a: audit run exits 0"
-    Assert-FileExists $audit "Test 8b: audit file created"
+    Assert-Path $audit "Test 8b: audit file created"
 }
 
 # Test 9: verbose
@@ -144,15 +144,15 @@ if ($existingService) {
 if ($existingService) {
     Invoke-Monitor -ScriptArgs @("-ServiceName", $existingService, "-DryRun", "-Json")
     Assert-Equal 0 $script:LastExitCode "Test 11a: -Json dry-run exits 0"
-    Assert-Contains $script:LastStdout '"outcome": "dry-run"' "Test 11b: json dry-run outcome"
+    Assert-Match $script:LastStdout '"outcome": "dry-run"' "Test 11b: json dry-run outcome"
 }
 
 # Test 12: -Csv dry-run outputs header + row
 if ($existingService) {
     Invoke-Monitor -ScriptArgs @("-ServiceName", $existingService, "-DryRun", "-Csv")
     Assert-Equal 0 $script:LastExitCode "Test 12a: -Csv dry-run exits 0"
-    Assert-Contains $script:LastStdout "service,max_retries,retry_delay" "Test 12b: csv header"
-    Assert-Contains $script:LastStdout "dry-run" "Test 12c: csv outcome"
+    Assert-Match $script:LastStdout "service,max_retries,retry_delay" "Test 12b: csv header"
+    Assert-Match $script:LastStdout "dry-run" "Test 12c: csv outcome"
 }
 
 # Test 13: -Json and -Csv mutually exclusive

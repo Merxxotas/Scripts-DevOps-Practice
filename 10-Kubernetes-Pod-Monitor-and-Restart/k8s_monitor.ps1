@@ -33,7 +33,6 @@ $CGreen   = "`e[32m"
 $CYellow  = "`e[33m"
 $CBlue    = "`e[34m"
 $CCyan    = "`e[36m"
-$CMagenta = "`e[35m"
 
 function Write-Err {
     param([string]$Message)

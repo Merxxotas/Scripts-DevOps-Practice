@@ -38,13 +38,13 @@ function Assert-Equal {
     else { Write-Host "[FAIL] $Label (expected '$Expected', got '$Actual')" -ForegroundColor Red; $script:FailedCount++ }
 }
 
-function Assert-Contains {
+function Assert-Match {
     param([string]$Haystack, [string]$Needle, [string]$Label)
     if ($Haystack -like "*$Needle*") { Write-Host "[PASS] $Label" -ForegroundColor Green; $script:PassedCount++ }
     else { Write-Host "[FAIL] $Label (missing '$Needle')" -ForegroundColor Red; $script:FailedCount++ }
 }
 
-function Assert-FileExists {
+function Assert-Path {
     param([string]$Path, [string]$Label)
     if (Test-Path -LiteralPath $Path) { Write-Host "[PASS] $Label" -ForegroundColor Green; $script:PassedCount++ }
     else { Write-Host "[FAIL] $Label (file missing: $Path)" -ForegroundColor Red; $script:FailedCount++ }
@@ -53,7 +53,7 @@ function Assert-FileExists {
 # Test 1: help
 Invoke-Deploy -ScriptArgs @("-Help")
 Assert-Equal 0 $script:LastExitCode "Test 1a: -Help exits 0"
-Assert-Contains $script:LastStdout "Usage" "Test 1b: help shows usage"
+Assert-Match $script:LastStdout "Usage" "Test 1b: help shows usage"
 
 # Test 2: missing app dir
 Invoke-Deploy -ScriptArgs @("-AppDir", (Join-Path $TestSandbox "nope"))
@@ -70,13 +70,13 @@ Assert-Equal 1 $script:LastExitCode "Test 4: invalid branch exits 1"
 # Test 5: dry-run
 Invoke-Deploy -ScriptArgs @("-AppDir", $AppDir, "-DryRun")
 Assert-Equal 0 $script:LastExitCode "Test 5a: dry-run exits 0"
-Assert-Contains $script:LastStdout "DRY RUN" "Test 5b: dry-run label"
+Assert-Match $script:LastStdout "DRY RUN" "Test 5b: dry-run label"
 
 # Test 6: audit log with dry-run
 $audit = Join-Path $TestSandbox "audit.log"
 Invoke-Deploy -ScriptArgs @("-AppDir", $AppDir, "-DryRun", "-AuditLog", $audit)
 Assert-Equal 0 $script:LastExitCode "Test 6a: audit dry-run exits 0"
-Assert-FileExists $audit "Test 6b: audit file created"
+Assert-Path $audit "Test 6b: audit file created"
 
 # Test 7: verbose dry-run
 Invoke-Deploy -ScriptArgs @("-AppDir", $AppDir, "-DryRun", "-Verbose")
