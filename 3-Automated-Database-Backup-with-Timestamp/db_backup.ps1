@@ -19,8 +19,6 @@ param(
     [string]$DbType = "mysql",
     [string]$DbName = "mydatabase",
     [string]$DbUser = "backup_user",
-    [Diagnostics.CodeAnalysis.SuppressMessage("PSAvoidUsingPlainTextForPassword", "DbPassword",
-        Justification = "Backwards-compatible CLI contract. The recommended channel is the DB_BACKUP_PASSWORD environment variable; a SecureString migration is a separate, deliberate change.")]
     [string]$DbPassword = "",
     [string]$BackupDir = "C:\Backups\Database",
     [ValidateRange(0, 3650)]
