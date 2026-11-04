@@ -111,5 +111,5 @@ outcome. Write failures are best-effort and do not change the exit code.
 
 ## 7. Scope Exclusions (v1)
 
-No rollback, no multi-environment config, no webhook, no `--json`/`--csv` output, no
+No rollback, no multi-environment config, no webhook; `--json`/`--csv` output is available; no
 container orchestration. One app per invocation. Audit write is best-effort.

@@ -114,7 +114,7 @@ database required.
 ## Scope exclusions (v1)
 
 No incremental/differential backups, no cloud streaming, no MSSQL, no encryption of the backup
-file, no `--json`/`--csv` output. One database per invocation. Audit write is best-effort.
+file. One database per invocation. Audit write is best-effort. `--json`/`--csv` output is available.
 
 ---
 

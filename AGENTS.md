@@ -18,16 +18,15 @@ repository** — the code doubles as a reference implementation.
 | :--- | :--- |
 | Repository | `Merxxotas/Scripts-DevOps-Practice` (public) · `main` · MIT |
 | Layout | One folder per numbered module · Bash, PowerShell, Python, Go · one path-filtered CI workflow each |
-| Knowledge base / Methodology | [`wiki/`](wiki/) (9 pages) · ODD (§2) |
+| Knowledge base / Methodology | [`wiki/`](wiki/) (39 pages) · ODD (§2) |
 
 **Monorepo philosophy.** No single monolithic pipeline: each module owns its code, tests, spec and CI
 workflow; `paths:` filters guarantee changing module 2 never triggers module 11's pipeline. Polyglot by
 intent: Bash (Unix admin), PowerShell (Windows/.NET), Python (orchestration), Go (compiled daemons). →
 [`wiki/01`](wiki/01-Monorepo-Architecture.md)
 
-**Module status — check before assuming anything exists.** Shipped: **1** (Disk Usage), **2** (Log Cleanup), **3** (Database Backup), **4** (Service Monitor and Auto-Restart), **5** (CPU/Memory Monitor), **7** (Find and Kill High-CPU Processes), **8** (Log Rotation and Compression), **9** (Automated Git Deployment), **11** (EventOps).
-Seed, on disk only: **6, 10**. →
-[`MODULES.md`](MODULES.md)
+**Module status — all eleven modules are shipped.** No seed modules remain on disk. Check
+[`MODULES.md`](MODULES.md) for per-module detail, known gaps and advisories.
 
 ---
 
