@@ -54,6 +54,40 @@ is_number() {
     [[ "${1:-}" =~ ^[0-9]+(\.[0-9]+)?$ ]]
 }
 
+# Escape a string for embedding in a JSON string literal.
+# The control-character sweep is byte-oriented so raw bytes below 0x20
+# cannot produce invalid JSON.
+json_escape() {
+    local s="${1-}"
+    s="${s//\\/\\\\}"
+    s="${s//\"/\\\"}"
+    s="${s//$'\b'/\\b}"
+    s="${s//$'\f'/\\f}"
+    s="${s//$'\n'/\\n}"
+    s="${s//$'\r'/\\r}"
+    s="${s//$'\t'/\\t}"
+    printf '%s' "$s" | LC_ALL=C awk '
+        BEGIN { for (i = 0; i < 256; i++) byte[sprintf("%c", i)] = i }
+        {
+            out = ""
+            for (i = 1; i <= length($0); i++) {
+                c = substr($0, i, 1)
+                if (byte[c] < 32) {
+                    out = out sprintf("\\u%04x", byte[c])
+                } else {
+                    out = out c
+                }
+            }
+            printf "%s", out
+        }'
+}
+
+# Double embedded quotes for a quoted CSV field (RFC 4180).
+csv_escape() {
+    local s="${1-}"
+    printf '%s' "${s//\"/\"\"}"
+}
+
 show_help() {
     cat <<EOF
 Find and Kill High-CPU Processes Utility (Bash)
@@ -166,7 +200,7 @@ parse_arguments() {
         exit 1
     fi
     # non-negative check
-    if awk "BEGIN{exit !($THRESHOLD >= 0)}"; then
+    if awk -v t="$THRESHOLD" 'BEGIN{exit !(t >= 0)}'; then
         :
     else
         printf "%bError: Threshold must be a non-negative number.%b\n" "$COLOR_RED" "$COLOR_RESET" >&2
@@ -196,8 +230,12 @@ discover_candidates() {
         fi
         # numeric pid check
         [[ "$pid" =~ ^[0-9]+$ ]] || continue
-        # threshold compare
-        if awk "BEGIN{exit !($pcpu > $THRESHOLD)}"; then
+        # unparseable cpu values are not killable: skip (fail-closed)
+        if ! is_number "$pcpu"; then
+            continue
+        fi
+        # threshold compare (values passed via -v, never interpolated)
+        if awk -v p="$pcpu" -v t="$THRESHOLD" 'BEGIN{exit !(p > t)}'; then
             printf "%s %s %s\n" "$pid" "$pcpu" "$comm"
         fi
     done
@@ -270,14 +308,14 @@ main() {
             local i
             for ((i=0; i<${#CAND_PIDS[@]}; i++)); do
                 if [[ -n "$cands" ]]; then cands="${cands}, "; fi
-                cands="${cands}{\"pid\": ${CAND_PIDS[$i]}, \"pcpu\": ${CAND_PCPUS[$i]}, \"comm\": \"${CAND_COMMS[$i]}\", \"action\": \"would-kill\"}"
+                cands="${cands}{\"pid\": ${CAND_PIDS[$i]}, \"pcpu\": ${CAND_PCPUS[$i]}, \"comm\": \"$(json_escape "${CAND_COMMS[$i]}")\", \"action\": \"would-kill\"}"
             done
             printf '{\n  "threshold": %s,\n  "candidates": [%s],\n  "killed": 0,\n  "failed": 0,\n  "outcome": "dry-run"\n}\n' "$THRESHOLD" "$cands"
         elif [[ "$OUTPUT_MODE" == "csv" ]]; then
             printf 'pid,pcpu,comm,action\n'
             local i
             for ((i=0; i<${#CAND_PIDS[@]}; i++)); do
-                printf '%s,%s,"%s","would-kill"\n' "${CAND_PIDS[$i]}" "${CAND_PCPUS[$i]}" "${CAND_COMMS[$i]}"
+                printf '%s,%s,"%s","would-kill"\n' "${CAND_PIDS[$i]}" "${CAND_PCPUS[$i]}" "$(csv_escape "${CAND_COMMS[$i]}")"
             done
         fi
         rm -f "$tmpfile"
@@ -401,7 +439,7 @@ main() {
         local i
         for ((i=0; i<CANDIDATE_COUNT; i++)); do
             if [[ -n "$cands" ]]; then cands="${cands}, "; fi
-            cands="${cands}{\"pid\": ${CAND_PIDS[$i]}, \"pcpu\": ${CAND_PCPUS[$i]}, \"comm\": \"${CAND_COMMS[$i]}\", \"action\": \"${CAND_ACTIONS[$i]}\"}"
+            cands="${cands}{\"pid\": ${CAND_PIDS[$i]}, \"pcpu\": ${CAND_PCPUS[$i]}, \"comm\": \"$(json_escape "${CAND_COMMS[$i]}")\", \"action\": \"${CAND_ACTIONS[$i]}\"}"
         done
         local outcome="completed"
         if [[ "$FAILED_COUNT" -gt 0 ]]; then
@@ -412,7 +450,7 @@ main() {
         printf 'pid,pcpu,comm,action\n'
         local i
         for ((i=0; i<CANDIDATE_COUNT; i++)); do
-            printf '%s,%s,"%s","%s"\n' "${CAND_PIDS[$i]}" "${CAND_PCPUS[$i]}" "${CAND_COMMS[$i]}" "${CAND_ACTIONS[$i]}"
+            printf '%s,%s,"%s","%s"\n' "${CAND_PIDS[$i]}" "${CAND_PCPUS[$i]}" "$(csv_escape "${CAND_COMMS[$i]}")" "${CAND_ACTIONS[$i]}"
         done
     fi
 

@@ -101,6 +101,19 @@ assert_file_exists() {
     fi
 }
 
+assert_valid_json() {
+    local label="$1"
+    if ! command -v python3 >/dev/null 2>&1; then
+        printf "%b[SKIP]%b %s (python3 unavailable)\n" "$GREEN" "$RESET" "$label"
+        return 0
+    fi
+    if printf '%s' "$LAST_STDOUT" | python3 -c 'import json,sys; json.load(sys.stdin)' >/dev/null 2>&1; then
+        printf "%b[PASS]%b %s\n" "$GREEN" "$RESET" "$label"; ((PASSED_TESTS++)) || true
+    else
+        printf "%b[FAIL]%b %s (stdout is not valid JSON)\n" "$RED" "$RESET" "$label" >&2; ((FAILED_TESTS++)) || true
+    fi
+}
+
 # ---------- tests ----------
 
 # Test 1: help
@@ -248,6 +261,91 @@ touch "$TEST_SANDBOX/kill_fail_700"
 run_killer -t 50 --auto-kill --json
 assert_equals 2 "$LAST_EXIT_CODE" "Test 18a: failure exits 2"
 assert_contains "$LAST_STDOUT" '"outcome": "partial"' "Test 18b: json partial outcome"
+
+# Test 19: pcpu that is not a plain non-negative number is skipped (fail-closed)
+setup
+printf '600 1 abc runaway\n610 1 12,3 commaproc\n620 1\n700 1 88.0 validproc\n' > "$TEST_SANDBOX/ps_output"
+run_killer -t 50 --auto-kill
+assert_equals 0 "$LAST_EXIT_CODE" "Test 19a: non-numeric pcpu run exits 0"
+if [[ -f "$TEST_SANDBOX/killed_pids" ]]; then
+    if grep -Eq '^(600|610|620)$' "$TEST_SANDBOX/killed_pids"; then
+        printf "%b[FAIL]%b Test 19b: unparseable pcpu candidate was killed\n" "$RED" "$RESET" >&2; ((FAILED_TESTS++)) || true
+    else
+        printf "%b[PASS]%b Test 19b: unparseable pcpu candidates skipped\n" "$GREEN" "$RESET"; ((PASSED_TESTS++)) || true
+    fi
+    if grep -qx "700" "$TEST_SANDBOX/killed_pids"; then
+        printf "%b[PASS]%b Test 19c: valid candidate still processed\n" "$GREEN" "$RESET"; ((PASSED_TESTS++)) || true
+    else
+        printf "%b[FAIL]%b Test 19c: valid candidate was not killed\n" "$RED" "$RESET" >&2; ((FAILED_TESTS++)) || true
+    fi
+else
+    printf "%b[FAIL]%b Test 19b: no kill recorded\n" "$RED" "$RESET" >&2; ((FAILED_TESTS++)) || true
+    printf "%b[FAIL]%b Test 19c: valid candidate was not killed\n" "$RED" "$RESET" >&2; ((FAILED_TESTS++)) || true
+fi
+
+# Test 20: pcpu carrying awk code must not execute (program injection attempt)
+setup
+# SC2016: ${IFS} must stay literal — sh expands it inside awk's system()
+# shellcheck disable=SC2016
+printf '600 1 0)+system("touch${IFS}%s/awk_pwned")+(0 injected\n700 1 88.0 validproc\n' "$TEST_SANDBOX" > "$TEST_SANDBOX/ps_output"
+run_killer -t 50 --auto-kill
+assert_equals 0 "$LAST_EXIT_CODE" "Test 20a: injection run exits 0"
+if [[ -e "$TEST_SANDBOX/awk_pwned" ]]; then
+    printf "%b[FAIL]%b Test 20b: awk program injection executed (marker created)\n" "$RED" "$RESET" >&2; ((FAILED_TESTS++)) || true
+else
+    printf "%b[PASS]%b Test 20b: awk program injection did not execute\n" "$GREEN" "$RESET"; ((PASSED_TESTS++)) || true
+fi
+if [[ -f "$TEST_SANDBOX/killed_pids" ]] && grep -qx "600" "$TEST_SANDBOX/killed_pids"; then
+    printf "%b[FAIL]%b Test 20c: injected candidate was treated as killable\n" "$RED" "$RESET" >&2; ((FAILED_TESTS++)) || true
+else
+    printf "%b[PASS]%b Test 20c: injected candidate skipped\n" "$GREEN" "$RESET"; ((PASSED_TESTS++)) || true
+fi
+
+# Test 21: --json escapes quotes/backslashes in comm (auto-kill path)
+setup
+printf '%s\n' '600 1 88.0 we"ird\name' > "$TEST_SANDBOX/ps_output"
+run_killer -t 50 --auto-kill --json
+assert_equals 0 "$LAST_EXIT_CODE" "Test 21a: --json exits 0"
+assert_contains "$LAST_STDOUT" '"comm": "we\"ird\\name"' "Test 21b: comm JSON-escaped"
+assert_valid_json "Test 21c: --json output parses"
+
+# Test 22: --dry-run --json escapes quotes/backslashes in comm (dry-run path)
+setup
+printf '%s\n' '600 1 88.0 we"ird\name' > "$TEST_SANDBOX/ps_output"
+run_killer --dry-run --json
+assert_equals 0 "$LAST_EXIT_CODE" "Test 22a: --dry-run --json exits 0"
+assert_contains "$LAST_STDOUT" '"comm": "we\"ird\\name"' "Test 22b: comm JSON-escaped"
+assert_valid_json "Test 22c: --dry-run --json output parses"
+
+# Test 23: --csv doubles embedded quotes in comm (auto-kill path)
+setup
+printf '%s\n' '600 1 88.0 we"ird' > "$TEST_SANDBOX/ps_output"
+run_killer -t 50 --auto-kill --csv
+assert_equals 0 "$LAST_EXIT_CODE" "Test 23a: --csv exits 0"
+assert_contains "$LAST_STDOUT" '"we""ird"' "Test 23b: embedded quote doubled in CSV"
+
+# Test 24: --dry-run --csv doubles embedded quotes in comm (dry-run path)
+setup
+printf '%s\n' '600 1 88.0 we"ird' > "$TEST_SANDBOX/ps_output"
+run_killer --dry-run --csv
+assert_equals 0 "$LAST_EXIT_CODE" "Test 24a: --dry-run --csv exits 0"
+assert_contains "$LAST_STDOUT" '"we""ird"' "Test 24b: embedded quote doubled in CSV"
+
+# Test 25: comm with spaces is preserved in --json (pin)
+setup
+printf '%s\n' '600 1 88.0 Web Content' > "$TEST_SANDBOX/ps_output"
+run_killer -t 50 --auto-kill --json
+assert_equals 0 "$LAST_EXIT_CODE" "Test 25a: spaces-in-comm run exits 0"
+assert_contains "$LAST_STDOUT" '"comm": "Web Content"' "Test 25b: spaces preserved"
+assert_valid_json "Test 25c: output parses"
+
+# Test 26: comm with a control character is \u00XX-escaped in --json
+setup
+printf '600 1 88.0 we\001ctrl\n' > "$TEST_SANDBOX/ps_output"
+run_killer -t 50 --auto-kill --json
+assert_equals 0 "$LAST_EXIT_CODE" "Test 26a: control-char comm exits 0"
+assert_contains "$LAST_STDOUT" '"comm": "we\u0001ctrl"' "Test 26b: control char escaped"
+assert_valid_json "Test 26c: output parses"
 
 # Summary
 echo ""
