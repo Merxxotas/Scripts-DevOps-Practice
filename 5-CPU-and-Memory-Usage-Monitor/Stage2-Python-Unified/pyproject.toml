@@ -28,7 +28,7 @@ classifiers = [
 dependencies = [
     "click>=8.5.0",
     "psutil>=7.2.2",
-    "colorama>=0.4.4; platform_system=='Windows'",
+    "colorama>=0.4.6; platform_system=='Windows'",
 ]
 
 [project.optional-dependencies]
