@@ -39,3 +39,20 @@ def test_action_executor_class():
         "echo 'Sync Class'", rule_name="SyncClass", async_exec=False
     )
     assert sync_result.returncode == 0
+
+
+def test_execute_sync_timeout_returns_promptly(caplog):
+    import sys
+
+    caplog.set_level(logging.ERROR)
+    action = f'{sys.executable} -c "import time; time.sleep(5)"'
+
+    import time
+
+    start = time.monotonic()
+    result = execute_sync(action, rule_name="TimeoutRule", timeout=0.5)
+    elapsed = time.monotonic() - start
+
+    assert elapsed < 4.0
+    assert result.returncode != 0
+    assert "TimeoutRule" in caplog.text

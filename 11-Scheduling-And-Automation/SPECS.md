@@ -8,7 +8,7 @@ EventOps is a cross-platform, event-driven automation daemon written in Python. 
 - **Rule Engine**: Parses the `rules.json` configuration file, validates the schema, and routes incoming events to their corresponding executable actions.
 - **Triggers**:
   - `file_watcher.py`: A filesystem monitor using `watchdog` to detect file modifications, creations, or deletions.
-  - `webhook_server.py`: A lightweight HTTP server using the built-in `http.server` that listens for incoming HTTP POST requests.
+  - `webhook_server.py`: A lightweight HTTP server using the built-in `http.server` that listens for HMAC-authenticated incoming HTTP POST requests.
 - **Executor**: A handler that safely spawns sub-processes (via `subprocess.run`) to execute the defined shell scripts or commands when a rule is triggered.
 
 ## 3. Technology Stack
@@ -48,13 +48,16 @@ The system is entirely configured via a single JSON file. This allows for progra
 
 ### 5.2 Webhook Server (`triggers/webhook_server.py`)
 - Inherits from `http.server.BaseHTTPRequestHandler`.
-- Binds to `0.0.0.0:8080` (port can be made configurable in the future).
+- Binds to `127.0.0.1:8080` by default; `--host` changes the interface. Pass `0.0.0.0` only behind a firewall or reverse proxy.
+- **Authentication (fail-closed)**: every POST must carry a valid `X-Hub-Signature-256: sha256=<hex>` header — HMAC-SHA256 of the raw request body keyed by the `EVENTOPS_WEBHOOK_SECRET` environment variable. When the secret is not set, the daemon refuses to start the webhook listener. Signatures are compared in constant time.
+- Request bodies are capped at 1 MB and socket reads time out after 30 seconds, so oversized payloads and idle clients are rejected instead of pinning worker threads.
 - **Request Handling (`do_POST`)**:
-  1. Extracts the URI path from the incoming request.
-  2. Queries the Rule Engine to see if the path matches any rule with `type="webhook"`.
-  3. If a match is found, invokes the `action` via the Executor in a non-blocking thread.
-  4. Returns `200 OK` with a JSON success payload.
-  5. If no match is found, returns `404 Not Found`.
+  1. Enforces the body size cap and verifies the HMAC signature (`401 Unauthorized` on failure).
+  2. Extracts the URI path from the incoming request.
+  3. Queries the Rule Engine to see if the path matches any rule with `type="webhook"`.
+  4. If a match is found, invokes the `action` via the Executor in a non-blocking thread.
+  5. Returns `200 OK` with a JSON success payload.
+  6. If no match is found, returns `404 Not Found`.
 
 ### 5.3 File Watcher (`triggers/file_watcher.py`)
 - Inherits from `watchdog.events.FileSystemEventHandler`.
@@ -74,8 +77,8 @@ The system is entirely configured via a single JSON file. This allows for progra
 2. `eventops.py` reads `rules.json`.
 3. Rule 1 is a webhook on `/deploy`. The `WebhookServer` registers this path.
 4. Rule 2 is a file watcher on `/etc/config.ini`. The `watchdog.Observer` begins monitoring this file.
-5. GitHub sends an automated POST request to `http://localhost:8080/deploy`.
-6. `WebhookServer` catches the request, verifies the endpoint, and spawns a thread to run `bash ../9-Automated-Git-Deployment/git_deploy.sh`.
+5. GitHub sends an automated POST request to `http://localhost:8080/deploy`, with an `X-Hub-Signature-256` header computed with the same webhook secret configured on both sides.
+6. `WebhookServer` catches the request, verifies the HMAC signature and the endpoint, and spawns a thread to run `bash ../9-Automated-Git-Deployment/git_deploy.sh`.
 7. The deployment script executes, outputting progress. The Executor captures this output and writes it to `eventops.log`.
 
 ## 7. CI/CD Pipeline (Monorepo Segregation)

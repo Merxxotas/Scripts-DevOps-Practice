@@ -3,15 +3,20 @@ package executor
 
 import (
 	"bufio"
+	"context"
 	"fmt"
 	"io"
 	"os/exec"
 	"runtime"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/Merxxotas/Scripts-DevOps-Practice/11-Scheduling-And-Automation/EventOps-Go/pkg/logger"
 )
+
+// DefaultActionTimeout bounds how long an action may run before it is killed.
+const DefaultActionTimeout = 300 * time.Second
 
 // Result holds the execution outcome of a shell command.
 type Result struct {
@@ -21,8 +26,19 @@ type Result struct {
 	Err      error
 }
 
-// ExecuteSync runs a shell command synchronously and logs output.
+// ExecuteSync runs a shell command synchronously with DefaultActionTimeout.
 func ExecuteSync(action string, ruleName string) Result {
+	return ExecuteSyncTimeout(action, ruleName, DefaultActionTimeout)
+}
+
+// ExecuteSyncTimeout runs a shell command synchronously, killing it after timeout.
+func ExecuteSyncTimeout(action string, ruleName string, timeout time.Duration) Result {
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+	return executeSyncContext(ctx, action, ruleName)
+}
+
+func executeSyncContext(ctx context.Context, action string, ruleName string) Result {
 	tag := ""
 	if ruleName != "" {
 		tag = fmt.Sprintf("[%s]", ruleName)
@@ -32,9 +48,9 @@ func ExecuteSync(action string, ruleName string) Result {
 
 	var cmd *exec.Cmd
 	if runtime.GOOS == "windows" {
-		cmd = exec.Command("cmd.exe", "/C", action)
+		cmd = exec.CommandContext(ctx, "cmd.exe", "/C", action)
 	} else {
-		cmd = exec.Command("sh", "-c", action)
+		cmd = exec.CommandContext(ctx, "sh", "-c", action)
 	}
 
 	stdoutPipe, err := cmd.StdoutPipe()
@@ -78,6 +94,16 @@ func ExecuteSync(action string, ruleName string) Result {
 	// Standard Go exec.Cmd closes pipes inside cmd.Wait(), which causes race conditions if called first.
 	wg.Wait()
 	err = cmd.Wait()
+
+	if ctx.Err() == context.DeadlineExceeded {
+		logger.Error("Executor", "Action %s timed out and was killed: %s", tag, action)
+		return Result{
+			ExitCode: -1,
+			Stdout:   stdoutBuf.String(),
+			Stderr:   stderrBuf.String(),
+			Err:      fmt.Errorf("action timed out: %w", ctx.Err()),
+		}
+	}
 
 	exitCode := 0
 	if err != nil {
