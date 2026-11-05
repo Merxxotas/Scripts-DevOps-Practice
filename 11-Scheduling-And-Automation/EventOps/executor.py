@@ -1,12 +1,39 @@
 """Executor module for running shell commands asynchronously with output logging."""
 
 import logging
+import os
+import signal
 import subprocess
 import threading
 
 logger = logging.getLogger("eventops.executor")
 
 DEFAULT_ACTION_TIMEOUT = 300  # seconds; runaway actions must not hang forever
+
+
+def _kill_process_tree(process: subprocess.Popen) -> None:
+    """Kills the action and every child it spawned.
+
+    `subprocess` only kills the direct child; grandchildren keep inherited
+    pipes open and would otherwise outlive the timeout. POSIX uses the process
+    group (the child is started in its own session); Windows uses taskkill.
+    """
+    if os.name == "posix":
+        try:
+            os.killpg(process.pid, signal.SIGKILL)
+            return
+        except (ProcessLookupError, PermissionError, OSError):
+            pass
+    else:
+        subprocess.run(
+            ["taskkill", "/F", "/T", "/PID", str(process.pid)],
+            capture_output=True,
+            check=False,
+        )
+    try:
+        process.kill()
+    except OSError:
+        pass
 
 
 def execute_sync(
@@ -20,8 +47,8 @@ def execute_sync(
         action: The shell command line to run.
         rule_name: Optional name of the triggering rule for logging context.
         timeout: Maximum seconds to wait for the command. On timeout the
-            process is killed and a CompletedProcess with returncode -1 is
-            returned. None disables the timeout (not recommended).
+            process tree is killed and a CompletedProcess with returncode -1
+            is returned. None disables the timeout (not recommended).
 
     Returns:
         subprocess.CompletedProcess instance containing execution results.
@@ -30,51 +57,61 @@ def execute_sync(
     logger.info("Executing action%s: %s", tag, action)
 
     try:
-        process = subprocess.run(
+        popen_kwargs: dict = (
+            {"start_new_session": True}
+            if os.name == "posix"
+            else {"creationflags": getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)}
+        )
+        process = subprocess.Popen(
             action,
             shell=True,
-            capture_output=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
             text=True,
-            check=False,
-            timeout=timeout,
+            **popen_kwargs,
         )
 
-        if process.stdout and process.stdout.strip():
-            for line in process.stdout.strip().splitlines():
+        try:
+            stdout, stderr = process.communicate(timeout=timeout)
+        except subprocess.TimeoutExpired:
+            _kill_process_tree(process)
+            stdout, stderr = process.communicate()
+            logger.error(
+                "Action%s timed out after %ss and was killed: %s", tag, timeout, action
+            )
+            return subprocess.CompletedProcess(
+                args=action,
+                returncode=-1,
+                stdout=stdout or "",
+                stderr=(stderr or "") + f"\nTimed out after {timeout}s",
+            )
+
+        completed = subprocess.CompletedProcess(
+            args=action,
+            returncode=process.returncode,
+            stdout=stdout,
+            stderr=stderr,
+        )
+
+        if completed.stdout and completed.stdout.strip():
+            for line in completed.stdout.strip().splitlines():
                 logger.info("[stdout%s] %s", tag, line)
 
-        if process.stderr and process.stderr.strip():
-            for line in process.stderr.strip().splitlines():
+        if completed.stderr and completed.stderr.strip():
+            for line in completed.stderr.strip().splitlines():
                 logger.warning("[stderr%s] %s", tag, line)
 
-        if process.returncode != 0:
+        if completed.returncode != 0:
             logger.error(
                 "Action%s failed with exit code %d: %s",
                 tag,
-                process.returncode,
+                completed.returncode,
                 action,
             )
         else:
             logger.info("Action%s completed successfully.", tag)
 
-        return process
-
-    except subprocess.TimeoutExpired as e:
-        stdout = e.stdout or ""
-        stderr = e.stderr or ""
-        if isinstance(stdout, bytes):
-            stdout = stdout.decode("utf-8", errors="replace")
-        if isinstance(stderr, bytes):
-            stderr = stderr.decode("utf-8", errors="replace")
-        logger.error(
-            "Action%s timed out after %ss and was killed: %s", tag, timeout, action
-        )
-        return subprocess.CompletedProcess(
-            args=action,
-            returncode=-1,
-            stdout=stdout,
-            stderr=stderr or f"Timed out after {timeout}s",
-        )
+        return completed
 
     except (subprocess.SubprocessError, OSError) as e:
         logger.error("Error occurred while executing action%s: %s", tag, e)
