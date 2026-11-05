@@ -36,9 +36,13 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   within a readable size while remaining the entry point.
 - **`5-CPU-and-Memory-Usage-Monitor/sync-stage3.sh`** — mirrors Stage 2's shared files
   (`pyproject.toml`, `src/system_monitor/`, `tests/`) into Stage 3 so the two stages stay
-  byte-identical without manual copying. `--check` verifies the mirror without copying; the new
-  `Stage 2/3 parity` job in `.github/workflows/ci-cpu-monitor.yml` fails the pipeline on drift and
-  ShellCheck now covers the script alongside the Stage 1 Bash gate.
+  byte-identical without manual copying. `--check` verifies presence, file type, and content;
+  the new `Stage 2/3 parity` job in `.github/workflows/ci-cpu-monitor.yml` fails the pipeline on
+  drift and ShellCheck now covers the script alongside the Stage 1 Bash gate. The mirror fails
+  closed on symlinked stage directories and shared paths (a symlinked `Stage3-Containerization`
+  would otherwise relocate the deletions outside the repository) and replaces — never merges —
+  shared paths. Regression coverage: `tests/test_sync_stage3.sh` (15 checks), wired into the
+  Bash CI matrix.
 
 ### Changed
 
