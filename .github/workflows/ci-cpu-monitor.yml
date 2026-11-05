@@ -22,7 +22,7 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - name: Checkout repository
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Run ShellCheck
         run: |
@@ -41,7 +41,7 @@ jobs:
         os: [ubuntu-24.04, macos-14]
     steps:
       - name: Checkout repository
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Make the script executable
         run: chmod +x "5-CPU-and-Memory-Usage-Monitor/Stage1-Native-Scripts/system_monitor.sh"
@@ -55,7 +55,7 @@ jobs:
     runs-on: windows-2022
     steps:
       - name: Checkout repository
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Install PSScriptAnalyzer
         shell: pwsh
@@ -87,7 +87,7 @@ jobs:
         os: [windows-2022, ubuntu-24.04]
     steps:
       - name: Checkout repository
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Run PowerShell Test Suite
         shell: pwsh
@@ -106,7 +106,7 @@ jobs:
         python-version: ['3.10', '3.12', '3.14']
     steps:
       - name: Checkout repository
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Set up Python ${{ matrix.python-version }}
         uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
@@ -140,7 +140,7 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - name: Checkout repository
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
