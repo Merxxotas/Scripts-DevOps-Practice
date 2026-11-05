@@ -63,6 +63,9 @@ jobs:
       - name: Run Bash Test Suite
         run: bash "5-CPU-and-Memory-Usage-Monitor/tests/test_system_monitor.sh"
 
+      - name: Run Stage 3 sync regression test
+        run: bash "5-CPU-and-Memory-Usage-Monitor/tests/test_sync_stage3.sh"
+
   lint-powershell:
     name: Lint PowerShell (PSScriptAnalyzer)
     timeout-minutes: 15
