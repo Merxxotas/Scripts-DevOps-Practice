@@ -186,7 +186,7 @@ data contract. The four-stage capstone of the repository.
 - `README.md` · `SPECS.md` · `ROADMAP.md` · `CODESTYLE.md` · `AGENTS.md`
 - `tests/` — Stage 1 suites: 20 Bash tests, 18 PowerShell tests
 - `docs/` — `ARCHITECTURE_COMPARISON.md`, `SCENARIOS.md`, `labs/LAB1-3`
-- CI: `.github/workflows/ci-cpu-monitor.yml` — 6 jobs across Linux, macOS and Windows
+- CI: `.github/workflows/ci-cpu-monitor.yml` — 7 jobs across Linux, macOS and Windows (incl. the `Stage 2/3 parity` gate)
 - Wiki: [10](wiki/10-CPU-Monitor-Overview.md) · [11](wiki/11-CPU-Monitor-Bash-vs-PowerShell.md) · [12](wiki/12-CPU-Monitor-Scenarios-and-Labs.md)
 
 **Defects found and fixed while shipping it.** The module had never been in git and its workflows

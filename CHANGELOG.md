@@ -34,6 +34,11 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   their local rules, the ODD-versus-SDD relationship, the feature-document format, task sizing,
   the test-first policy and the delegation triggers. Moved out of `AGENTS.md` so that file can stay
   within a readable size while remaining the entry point.
+- **`5-CPU-and-Memory-Usage-Monitor/sync-stage3.sh`** — mirrors Stage 2's shared files
+  (`pyproject.toml`, `src/system_monitor/`, `tests/`) into Stage 3 so the two stages stay
+  byte-identical without manual copying. `--check` verifies the mirror without copying; the new
+  `Stage 2/3 parity` job in `.github/workflows/ci-cpu-monitor.yml` fails the pipeline on drift and
+  ShellCheck now covers the script alongside the Stage 1 Bash gate.
 
 ### Changed
 

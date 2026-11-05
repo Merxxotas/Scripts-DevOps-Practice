@@ -84,12 +84,19 @@ Push to `main` branch triggers automated testing and Docker image publishing.
 ├── README.md
 ├── SPECS.md                         # Module contract and architecture decisions
 ├── ROADMAP.md
+├── sync-stage3.sh                   # Mirror Stage 2 shared files into Stage 3
 ├── CODESTYLE.md
 └── .gitignore
 ```
 
 The repository CI for this module lives at the repository root in
 `.github/workflows/ci-cpu-monitor.yml`; it is not duplicated here.
+
+Stage 3 carries a byte-identical mirror of Stage 2's shared files
+(`pyproject.toml`, `src/system_monitor/`, `tests/`). Stage 2 is the source of
+truth — after changing any of them, run `./sync-stage3.sh` from this
+directory (`--check` verifies without copying). CI fails the pipeline on
+drift, so one-sided edits cannot merge.
 
 ---
 
