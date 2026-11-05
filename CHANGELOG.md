@@ -86,6 +86,26 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   -Expected 1 -Actual 1`); guardrail tests were extended for subtree protection and `Days = 0`, and the
   Bash suite now uses a `mktemp -d` sandbox with a `trap`-based cleanup.
 
+### Security
+
+- **EventOps (`11-Scheduling-And-Automation`) — the webhook trigger now requires authentication and
+  refuses to listen anonymously.** Both implementations (Python `EventOps/` and Go `EventOps-Go/`)
+  previously accepted unauthenticated POSTs on `0.0.0.0:8080` and executed shell actions from
+  `rules.json` — reachability of the port was equivalent to unauthenticated remote code execution,
+  despite documentation framing GitHub Actions as the primary caller. The listener now verifies
+  `X-Hub-Signature-256` (HMAC-SHA256 of the raw body, constant-time comparison) keyed by the
+  `EVENTOPS_WEBHOOK_SECRET` environment variable; without the secret the daemon refuses to start the
+  webhook listener (fail-closed). The default bind address is now `127.0.0.1` (pass `--host 0.0.0.0`
+  only behind a firewall or reverse proxy), request bodies are capped at 1 MB, socket reads time out
+  after 30 seconds, and actions executed by the executor are killed after 300 seconds
+  (`subprocess.run(timeout=…)` / `exec.CommandContext`). Both implementations stay in parity; tests
+  were extended to cover missing/invalid/tampered/wrong-secret signatures, fail-closed startup and the
+  executor timeout. Documentation (SPECS, README, LAB1, scenarios, wiki) now documents the signature
+  flow.
+- **EventOps — the Python webhook handler no longer stores `rule_engine` as a class attribute** shared
+  process-wide; configuration now travels on the server instance, so concurrent server instances and
+  test cases cannot overwrite each other's configuration.
+
 ---
 
 ## 2026-10-29/30 — v1.1: JSON/CSV output for the script modules

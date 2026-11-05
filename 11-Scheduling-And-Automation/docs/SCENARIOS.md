@@ -43,10 +43,15 @@ echo "Deployment successfully completed!"
 ```
 
 ### Triggering the Webhook
-External CI/CD or curl request:
+External CI/CD or curl request. The daemon requires a valid `X-Hub-Signature-256` HMAC-SHA256 signature of the raw body (GitHub signs automatically when the webhook is configured with the same secret in the repository settings):
 ```bash
-curl -X POST http://deploy-server.internal:8080/deploy-prod
+BODY='{}'
+SIG=$(printf '%s' "$BODY" | openssl dgst -sha256 -hmac "$EVENTOPS_WEBHOOK_SECRET" -hex | awk '{print $NF}')
+curl -X POST http://deploy-server.internal:8080/deploy-prod \
+  -H "X-Hub-Signature-256: sha256=$SIG" \
+  --data "$BODY"
 ```
+Unsigned or wrongly signed requests are rejected with `401 Unauthorized`.
 
 ### Log Audit (`eventops.log`)
 ```text

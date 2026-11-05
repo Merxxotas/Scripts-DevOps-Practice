@@ -16,7 +16,7 @@
          v                                                             v
 +-------------------------------+                             +-------------------------------+
 |    Webhook Server Trigger     |                             |     File Watcher Trigger      |
-|  - Listens on HTTP 0.0.0.0    |                             |  - Inotify / FSEvents / Win   |
+|  - Listens on HTTP 127.0.0.1 (HMAC-authenticated) |                             |  - Inotify / FSEvents / Win   |
 |  - Matches URL endpoint path  |                             |  - 2-Second Cooldown Debounce |
 +---------------+---------------+                             +---------------+---------------+
                 |                                                             |

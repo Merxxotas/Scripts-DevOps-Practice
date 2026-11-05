@@ -1,6 +1,9 @@
 package tests
 
 import (
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -69,7 +72,9 @@ func TestFullDaemonIntegration(t *testing.T) {
 		t.Fatalf("failed to load rule engine: %v", err)
 	}
 
-	ws := triggers.NewWebhookServer(re, "127.0.0.1", 8097)
+	const testSecret = "integration-test-secret"
+
+	ws := triggers.NewWebhookServer(re, "127.0.0.1", 8097, testSecret)
 	if err := ws.Start(); err != nil {
 		t.Fatalf("failed to start webhook server: %v", err)
 	}
@@ -83,8 +88,18 @@ func TestFullDaemonIntegration(t *testing.T) {
 
 	time.Sleep(200 * time.Millisecond)
 
-	// 1. Trigger Webhook
-	resp, err := http.Post("http://127.0.0.1:8097/e2e-webhook", "application/json", strings.NewReader(""))
+	// 1. Trigger Webhook (signed, as GitHub would send it)
+	body := []byte{}
+	mac := hmac.New(sha256.New, []byte(testSecret))
+	mac.Write(body)
+	sig := "sha256=" + hex.EncodeToString(mac.Sum(nil))
+
+	req, err := http.NewRequest(http.MethodPost, "http://127.0.0.1:8097/e2e-webhook", strings.NewReader(""))
+	if err != nil {
+		t.Fatalf("failed to build request: %v", err)
+	}
+	req.Header.Set("X-Hub-Signature-256", sig)
+	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		t.Fatalf("webhook post failed: %v", err)
 	}

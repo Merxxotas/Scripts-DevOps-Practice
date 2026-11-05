@@ -1,5 +1,7 @@
 """End-to-end integration tests for EventOps daemon."""
 
+import hashlib
+import hmac
 import json
 import sys
 import threading
@@ -8,8 +10,17 @@ import urllib.request
 
 from eventops import EventOpsDaemon
 
+TEST_SECRET = "integration-test-secret"
 
-def test_full_daemon_integration(tmp_path):
+
+def _sign(body: bytes) -> str:
+    digest = hmac.new(TEST_SECRET.encode("utf-8"), body, hashlib.sha256).hexdigest()
+    return f"sha256={digest}"
+
+
+def test_full_daemon_integration(tmp_path, monkeypatch):
+    monkeypatch.setenv("EVENTOPS_WEBHOOK_SECRET", TEST_SECRET)
+
     config_file = tmp_path / "rules.json"
     watched_file = tmp_path / "trigger_file.txt"
     output_log_file = tmp_path / "output_action.log"
@@ -55,9 +66,15 @@ def test_full_daemon_integration(tmp_path):
     time.sleep(0.5)  # Wait for daemon startup
 
     try:
-        # 1. Trigger Webhook
+        # 1. Trigger Webhook (signed, as GitHub would send it)
+        body = b""
         url = "http://127.0.0.1:8099/e2e-webhook"
-        req = urllib.request.Request(url, data=b"", method="POST")
+        req = urllib.request.Request(
+            url,
+            data=body,
+            headers={"X-Hub-Signature-256": _sign(body)},
+            method="POST",
+        )
         with urllib.request.urlopen(req) as resp:
             assert resp.status == 200
 

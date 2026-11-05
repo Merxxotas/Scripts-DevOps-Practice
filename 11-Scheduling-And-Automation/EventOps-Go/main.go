@@ -39,17 +39,23 @@ func printUsage() {
 	fmt.Println("  eventops start [options]")
 	fmt.Println("\nOptions for start:")
 	fmt.Println("  --config, -c    Path to rules.json configuration file (default: rules.json)")
-	fmt.Println("  --host          Host interface for Webhook server (default: 0.0.0.0)")
+	fmt.Println("  --host          Host interface for Webhook server (default: 127.0.0.1)")
+	fmt.Println("                  pass 0.0.0.0 only behind a firewall or reverse proxy")
 	fmt.Println("  --port, -p      Port for Webhook server (default: 8080)")
 	fmt.Println("  --log-file      Path to log file (default: eventops.log)")
 	fmt.Println("  --log-level     Logging level: DEBUG, INFO, WARN, ERROR (default: INFO)")
+	fmt.Println("\nEnvironment:")
+	fmt.Println("  EVENTOPS_WEBHOOK_SECRET   Required. Shared HMAC secret used to verify")
+	fmt.Println("                            X-Hub-Signature-256 on incoming webhooks.")
+	fmt.Println("                            The daemon refuses to start the webhook listener")
+	fmt.Println("                            without it. Generate with: openssl rand -hex 32")
 }
 
 func runStartCommand(args []string) {
 	fs := flag.NewFlagSet("start", flag.ExitOnError)
 	configPath := fs.String("config", "rules.json", "Path to rules.json configuration file")
 	fs.StringVar(configPath, "c", "rules.json", "Path to rules.json configuration file (shorthand)")
-	host := fs.String("host", "0.0.0.0", "Host interface for Webhook server")
+	host := fs.String("host", "127.0.0.1", "Host interface for Webhook server (pass 0.0.0.0 only behind a firewall or reverse proxy)")
 	port := fs.Int("port", 8080, "Port for Webhook server")
 	fs.IntVar(port, "p", 8080, "Port for Webhook server (shorthand)")
 	logFile := fs.String("log-file", "eventops.log", "Path to log file")
@@ -74,7 +80,9 @@ func runStartCommand(args []string) {
 		os.Exit(1)
 	}
 
-	webhookServer := triggers.NewWebhookServer(re, *host, *port)
+	// Secret resolution happens inside NewWebhookServer (argument wins, then
+	// EVENTOPS_WEBHOOK_SECRET). Start fails closed when no secret is set.
+	webhookServer := triggers.NewWebhookServer(re, *host, *port, "")
 	if err := webhookServer.Start(); err != nil {
 		logger.Error("Main", "Failed to start Webhook Server: %v", err)
 		os.Exit(1)

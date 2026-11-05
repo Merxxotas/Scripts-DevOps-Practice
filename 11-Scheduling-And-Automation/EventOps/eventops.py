@@ -21,7 +21,7 @@ class EventOpsDaemon:
     def __init__(
         self,
         config_path: str = "rules.json",
-        host: str = "0.0.0.0",
+        host: str = "127.0.0.1",
         port: int = 8080,
         log_file: str = "eventops.log",
         log_level: str = "INFO",
@@ -66,11 +66,15 @@ class EventOpsDaemon:
             except (ValueError, OSError) as e:
                 logger.debug("Signal registration skipped: %s", e)
 
-        # Initialize and start Webhook Server
+        # Initialize and start Webhook Server (fail-closed without a secret)
         self.webhook_server = WebhookServer(
             rule_engine=self.rule_engine, host=self.host, port=self.port
         )
-        self.webhook_server.start()
+        try:
+            self.webhook_server.start()
+        except RuntimeError as e:
+            logger.critical("%s", e)
+            sys.exit(1)
 
         # Initialize and start File Watcher
         self.file_watcher = FileWatcherManager(
@@ -114,7 +118,10 @@ class EventOpsDaemon:
 def parse_args(args: list[str] | None = None) -> argparse.Namespace:
     """Parses CLI arguments."""
     parser = argparse.ArgumentParser(
-        description="EventOps - Cross-platform Event-Driven Automation Daemon"
+        description="EventOps - Cross-platform Event-Driven Automation Daemon",
+        epilog="Environment: EVENTOPS_WEBHOOK_SECRET (required) — shared HMAC secret used to "
+        "verify X-Hub-Signature-256 on incoming webhooks. The daemon refuses to start the "
+        "webhook listener without it. Generate with: openssl rand -hex 32",
     )
     subparsers = parser.add_subparsers(dest="command", required=True)
 
@@ -127,8 +134,9 @@ def parse_args(args: list[str] | None = None) -> argparse.Namespace:
     )
     start_parser.add_argument(
         "--host",
-        default="0.0.0.0",
-        help="Host interface for Webhook server (default: 0.0.0.0)",
+        default="127.0.0.1",
+        help="Host interface for Webhook server (default: 127.0.0.1; pass "
+        "0.0.0.0 only behind a firewall or reverse proxy)",
     )
     start_parser.add_argument(
         "--port",

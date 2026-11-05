@@ -34,6 +34,7 @@ EventOps is implemented in both **Python** (`EventOps/`) and **Go** (`EventOps-G
 - **Cross-Platform:** Works natively on Linux, macOS, and Windows.
 - **Zero-Friction Configuration:** Define all your automation rules in a single, human-readable `rules.json` file.
 - **Asynchronous & Non-Blocking:** Long-running deployment scripts won't block the daemon from catching new events.
+- **Authenticated Webhooks:** Every webhook POST must carry a valid `X-Hub-Signature-256` HMAC-SHA256 signature over the raw body, keyed by `EVENTOPS_WEBHOOK_SECRET` (the same scheme GitHub uses). The daemon refuses to start the listener without it, and binds to `127.0.0.1` by default. Actions executed by the daemon also have a hard timeout (300s) so a runaway script cannot hang the executor forever.
 - **Smart Debouncing:** Built-in cooldowns (2.0s) prevent rapid-fire OS file events from triggering script execution storms.
 - **CI/CD Integrated:** Tested and validated automatically across Ubuntu, macOS, and Windows matrix environments via GitHub Actions.
 
@@ -55,12 +56,19 @@ EventOps runs as a single background daemon that spawns independent listener thr
 # Install dependencies
 pip install -r EventOps/requirements.txt
 
-# Start daemon
+# The webhook listener refuses to start without a shared HMAC secret.
+# Generate one and export it (GitHub: configure the same secret in the repo's webhook settings)
+export EVENTOPS_WEBHOOK_SECRET="$(openssl rand -hex 32)"
+
+# Start daemon (binds to 127.0.0.1:8080 by default)
 python eventops.py start
 ```
 
 ### 2. Go Edition (`EventOps-Go/`)
 ```bash
+# The webhook listener refuses to start without a shared HMAC secret
+export EVENTOPS_WEBHOOK_SECRET="$(openssl rand -hex 32)"
+
 # Run directly with Go
 cd EventOps-Go
 go run main.go start
@@ -89,10 +97,15 @@ Perfect for integrating with external services like GitHub Actions, Slack, or CI
   "action": "bash /opt/scripts/deploy.sh"
 }
 ```
-**How to trigger:**
+**How to trigger** (the daemon verifies `X-Hub-Signature-256`, GitHub-style):
 ```bash
-curl -X POST http://localhost:8080/deploy-prod
+BODY='{}'
+SIG=$(printf '%s' "$BODY" | openssl dgst -sha256 -hmac "$EVENTOPS_WEBHOOK_SECRET" -hex | awk '{print $NF}')
+curl -X POST http://localhost:8080/deploy-prod \
+  -H "X-Hub-Signature-256: sha256=$SIG" \
+  --data "$BODY"
 ```
+Requests without a valid signature are rejected with `401 Unauthorized`.
 
 ### 2. File Watcher Triggers
 Perfect for auto-reloading services when configuration files change, or processing data as soon as a file is downloaded.

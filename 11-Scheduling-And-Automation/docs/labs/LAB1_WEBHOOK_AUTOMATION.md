@@ -45,7 +45,14 @@ Create `rules.json` with two webhook endpoints:
 
 ---
 
-### Step 2: Start the EventOps Daemon
+### Step 2: Generate a Shared Secret & Start the EventOps Daemon
+
+The webhook listener refuses to start without a shared HMAC secret. Generate one and export it:
+
+```bash
+export EVENTOPS_WEBHOOK_SECRET="$(openssl rand -hex 32)"
+echo "$EVENTOPS_WEBHOOK_SECRET" > webhook.secret   # keep it; you need it to sign requests
+```
 
 #### Option A: Running Python Daemon
 ```bash
@@ -60,19 +67,31 @@ go run /path/to/11-Scheduling-And-Automation/EventOps-Go/main.go start --config 
 **Expected Startup Log Output:**
 ```text
 [2026-08-12 15:00:00] [INFO] [Main] Starting EventOps Daemon...
-[2026-08-12 15:00:00] [INFO] [WebhookServer] Webhook Server listening on http://0.0.0.0:8080
+[2026-08-12 15:00:00] [INFO] [WebhookServer] Webhook Server listening on http://127.0.0.1:8080
 [2026-08-12 15:00:00] [INFO] [Main] EventOps Daemon is now active and monitoring events.
+```
+
+**If the secret is missing**, the daemon aborts with a clear error instead of listening anonymously:
+```text
+[ERROR] [Main] Failed to start Webhook Server: EVENTOPS_WEBHOOK_SECRET is not set; refusing to start the webhook listener...
 ```
 
 ---
 
 ### Step 3: Trigger the Webhooks via `curl`
 
+The daemon only accepts POSTs whose `X-Hub-Signature-256` header carries a valid HMAC-SHA256 of the raw body, keyed by `EVENTOPS_WEBHOOK_SECRET`. Define a signing helper first (same scheme GitHub uses):
+
+```bash
+sign() { printf '%s' "$1" | openssl dgst -sha256 -hmac "$EVENTOPS_WEBHOOK_SECRET" -hex | awk '{print $NF}'; }
+```
+
 Open a new terminal window and send HTTP POST requests:
 
 #### Test Trigger 1: Health Alert Webhook
 ```bash
-curl -X POST http://localhost:8080/alert
+BODY='{}'
+curl -X POST http://localhost:8080/alert -H "X-Hub-Signature-256: sha256=$(sign "$BODY")" --data "$BODY"
 ```
 **Expected HTTP Response:**
 ```json
@@ -85,7 +104,8 @@ curl -X POST http://localhost:8080/alert
 
 #### Test Trigger 2: Deployment Webhook
 ```bash
-curl -X POST http://localhost:8080/deploy
+BODY='{}'
+curl -X POST http://localhost:8080/deploy -H "X-Hub-Signature-256: sha256=$(sign "$BODY")" --data "$BODY"
 ```
 **Expected HTTP Response:**
 ```json
@@ -96,9 +116,22 @@ curl -X POST http://localhost:8080/deploy
 }
 ```
 
-#### Test Trigger 3: Unknown Endpoint (404 Error Verification)
+#### Test Trigger 3: Missing or Invalid Signature (401 Verification)
 ```bash
-curl -X POST http://localhost:8080/nonexistent
+curl -X POST http://localhost:8080/deploy   # no signature header at all
+```
+**Expected HTTP Response:**
+```json
+{
+  "status": "error",
+  "message": "Missing or invalid signature"
+}
+```
+
+#### Test Trigger 4: Unknown Endpoint (404 Error Verification)
+```bash
+BODY='{}'
+curl -X POST http://localhost:8080/nonexistent -H "X-Hub-Signature-256: sha256=$(sign "$BODY")" --data "$BODY"
 ```
 **Expected HTTP Response:**
 ```json

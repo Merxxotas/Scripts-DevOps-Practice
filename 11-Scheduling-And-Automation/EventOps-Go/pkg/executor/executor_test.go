@@ -39,3 +39,19 @@ func TestExecuteAsync(t *testing.T) {
 		t.Fatal("async execution timed out")
 	}
 }
+
+func TestExecuteSync_Timeout(t *testing.T) {
+	start := time.Now()
+	res := ExecuteSyncTimeout("sleep 5", "TimeoutRule", 500*time.Millisecond)
+	elapsed := time.Since(start)
+
+	if elapsed > 4*time.Second {
+		t.Fatalf("expected timeout to kill the process promptly, took %s", elapsed)
+	}
+	if res.ExitCode == 0 {
+		t.Fatalf("expected non-zero exit code on timeout, got 0")
+	}
+	if res.Err == nil {
+		t.Fatalf("expected an error describing the timeout, got nil")
+	}
+}
