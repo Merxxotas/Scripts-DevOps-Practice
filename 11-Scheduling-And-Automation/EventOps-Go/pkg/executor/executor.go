@@ -52,6 +52,7 @@ func executeSyncContext(ctx context.Context, action string, ruleName string) Res
 	} else {
 		cmd = exec.CommandContext(ctx, "sh", "-c", action)
 	}
+	configureKill(cmd)
 
 	stdoutPipe, err := cmd.StdoutPipe()
 	if err != nil {
