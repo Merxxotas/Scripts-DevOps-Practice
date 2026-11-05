@@ -12,6 +12,12 @@ updates:
       interval: "weekly"
     open-pull-requests-limit: 5
 
+  - package-ecosystem: "pip"
+    directory: "/5-CPU-and-Memory-Usage-Monitor/Stage3-Containerization"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+
   - package-ecosystem: "gomod"
     directory: "/11-Scheduling-And-Automation/EventOps-Go"
     schedule:
