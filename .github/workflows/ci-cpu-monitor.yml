@@ -27,9 +27,23 @@ jobs:
       - name: Run ShellCheck
         run: |
           shellcheck -x "5-CPU-and-Memory-Usage-Monitor/Stage1-Native-Scripts/system_monitor.sh"
+          shellcheck -x "5-CPU-and-Memory-Usage-Monitor/sync-stage3.sh"
 
       - name: Check Bash syntax
-        run: bash -n "5-CPU-and-Memory-Usage-Monitor/Stage1-Native-Scripts/system_monitor.sh"
+        run: |
+          bash -n "5-CPU-and-Memory-Usage-Monitor/Stage1-Native-Scripts/system_monitor.sh"
+          bash -n "5-CPU-and-Memory-Usage-Monitor/sync-stage3.sh"
+
+  stage-parity:
+    name: Stage 2/3 parity
+    timeout-minutes: 5
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Check Stage 3 mirrors Stage 2
+        run: bash "5-CPU-and-Memory-Usage-Monitor/sync-stage3.sh" --check
 
   test-bash:
     name: Test Bash on ${{ matrix.os }}
