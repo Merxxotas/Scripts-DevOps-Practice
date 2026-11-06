@@ -423,6 +423,63 @@ test_verify_no_compress_backup_matches() {
     fi
 }
 
+# Test 29: a symlinked HOME is refused, including via its realpath (S1)
+test_guard_symlink_home_blocked() {
+    setup
+    mkdir -p "$TEST_SANDBOX/realhome"
+    printf 'x\n' > "$TEST_SANDBOX/realhome/f.log"
+    ln -s "$TEST_SANDBOX/realhome" "$TEST_SANDBOX/homelink"
+    local old_home="$HOME"
+    HOME="$TEST_SANDBOX/homelink"
+    run_rotate -f "$TEST_SANDBOX/homelink/f.log" --force --dry-run
+    assert_equals "1" "$LAST_EXIT_CODE" "Test 29a: symlinked HOME refused"
+    run_rotate -f "$TEST_SANDBOX/realhome/f.log" --force --dry-run
+    assert_equals "1" "$LAST_EXIT_CODE" "Test 29b: realpath of symlinked HOME refused"
+    HOME="$old_home"
+}
+
+# Test 30: gzip -t passes but the decompressed payload differs -> exit 2, untouched (S2)
+test_verify_gzip_payload_mismatch_aborts() {
+    setup
+    printf 'precious-log-content\n%.0s' {1..50} > "$TEST_SANDBOX/f.log"
+    cp -p "$TEST_SANDBOX/f.log" "$TEST_SANDBOX/original.bak"
+    mkdir -p "$TEST_SANDBOX/fakebin"
+    # SC2016: fakebin case patterns must stay literal
+    # shellcheck disable=SC2016
+    cat > "$TEST_SANDBOX/fakebin/gzip" <<'EOF'
+#!/bin/bash
+case "${1:-}" in
+    -c) printf 'fake-gzip-bytes' ;;
+    -t) exit 0 ;;
+    -cd) printf 'different-bytes' ;;
+    *) exit 1 ;;
+esac
+EOF
+    chmod +x "$TEST_SANDBOX/fakebin/gzip"
+    local old_path="$PATH"
+    PATH="$TEST_SANDBOX/fakebin:$PATH"
+    run_rotate -f "$TEST_SANDBOX/f.log" -m 0
+    PATH="$old_path"
+    assert_equals "2" "$LAST_EXIT_CODE" "Test 30a: payload mismatch exits 2"
+    if cmp -s "$TEST_SANDBOX/f.log" "$TEST_SANDBOX/original.bak"; then
+        printf "%b[PASS]%b Test 30b: original untouched\n" "$GREEN" "$RESET"; ((PASSED_TESTS++)) || true
+    else
+        printf "%b[FAIL]%b Test 30b: original modified\n" "$RED" "$RESET" >&2; ((FAILED_TESTS++)) || true
+    fi
+    assert_file_exists "$TEST_SANDBOX/f.log.1.gz" "Test 30c: failed artifact kept"
+}
+
+# Test 31: double-slash path is refused via the resolved path (S1)
+test_guard_double_slash_blocked() {
+    setup
+    if [[ ! -e /etc/passwd ]]; then
+        printf "%b[SKIP]%b Test 31: /etc/passwd does not exist on this host\n" "$CYAN" "$RESET"
+        return 0
+    fi
+    run_rotate -f "//etc/passwd" --force --dry-run
+    assert_equals "1" "$LAST_EXIT_CODE" "Test 31: double-slash path refused"
+}
+
 run_all() {
     test_help_menu
     test_missing_file
@@ -452,6 +509,9 @@ run_all() {
     test_verify_gzip_failure_aborts_truncate
     test_verify_compress_roundtrip
     test_verify_no_compress_backup_matches
+    test_guard_symlink_home_blocked
+    test_verify_gzip_payload_mismatch_aborts
+    test_guard_double_slash_blocked
 }
 
 run_all

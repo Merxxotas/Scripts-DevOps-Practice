@@ -203,9 +203,13 @@ function Test-SafetyGuardrail {
     if ([string]::IsNullOrEmpty($UserProfile)) { $UserProfile = $HOME }
     if (-not [string]::IsNullOrEmpty($UserProfile)) {
         $ExactOnlyRoots += (ConvertTo-GuardPath $UserProfile)
+        # Also refuse the canonical home: a symlinked HOME must not smuggle
+        # the guard past its own exact-match root (bash has this arm).
+        $ExactOnlyRoots += (ConvertTo-GuardPath (Get-RealPath -Path $UserProfile))
     }
     if (-not [string]::IsNullOrEmpty($HOME)) {
         $ExactOnlyRoots += (ConvertTo-GuardPath $HOME)
+        $ExactOnlyRoots += (ConvertTo-GuardPath (Get-RealPath -Path $HOME))
     }
 
     $InputParent = [System.IO.Path]::GetDirectoryName($Path)
