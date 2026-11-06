@@ -152,7 +152,7 @@ The executor captures both `stdout` (standard output) and `stderr` (errors) from
 ## ⚙️ CI/CD & GitHub Actions
 
 EventOps uses **GitHub Actions** to maintain code quality across both Python and Go implementations. Any pull requests or merges to the `main` branch trigger:
-- Multi-OS testing matrix (`ubuntu-24.04`, `macos-14`, `windows-2022`).
+- Multi-OS testing matrix (`ubuntu-24.04`, `macos-26`, `windows-2022`).
 - Python linting (`ruff`), Go vetting (`go vet`), and complete `pytest` & `go test` test suites.
 
 Look for the passing CI/CD badge at the top of the repository to confirm stability!

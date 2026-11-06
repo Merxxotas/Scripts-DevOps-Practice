@@ -26,7 +26,7 @@ All pipelines validate cross-platform compatibility across stable, pinned operat
 | Platform | Runner Image | Validated Runtimes & Utilities |
 | :--- | :--- | :--- |
 | **Ubuntu Linux** | `ubuntu-24.04` | POSIX Bash, Python 3.10-3.12, Go 1.22+, PowerShell Core (`pwsh`), ShellCheck |
-| **Apple macOS** | `macos-14` | BSD `stat` / `date` Bash compatibility, Apple Silicon / ARM64 execution |
+| **Apple macOS** | `macos-26` | BSD `stat` / `date` Bash compatibility, Apple Silicon / ARM64 execution |
 | **Microsoft Windows** | `windows-2022` | Windows PowerShell 5.1+, PowerShell 7+, Windows path formatting |
 
 ---
