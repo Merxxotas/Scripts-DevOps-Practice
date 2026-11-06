@@ -467,23 +467,25 @@ main() {
     fi
 
     # Summary
+    local summary_result
+    if [[ "$ROLLED_BACK" == true ]]; then summary_result="rolled-back"; elif [[ "$DEPLOYED" == true ]]; then summary_result="deployed"; else summary_result="failed"; fi
     if [[ "$OUTPUT_MODE" == "human" ]]; then
         printf "\n%b============================================================%b\n" "$COLOR_BLUE" "$COLOR_RESET"
         printf "%b                    Execution Summary                       %b\n" "$COLOR_BLUE" "$COLOR_RESET"
         printf "%b============================================================%b\n" "$COLOR_BLUE" "$COLOR_RESET"
         printf "App Directory    : %b%s%b\n" "$COLOR_BOLD" "$APP_DIR" "$COLOR_RESET"
-        printf "Result           : %b%s%b\n" "$COLOR_BOLD" "$([[ "$DEPLOYED" == true ]] && echo deployed || echo failed)" "$COLOR_RESET"
+        printf "Result           : %b%s%b\n" "$COLOR_BOLD" "$summary_result" "$COLOR_RESET"
         printf "Failed Steps     : %b%d%b\n" "$COLOR_RED" "$FAILED_COUNT" "$COLOR_RESET"
         printf "%b============================================================%b\n" "$COLOR_BLUE" "$COLOR_RESET"
     fi
 
     if [[ "$OUTPUT_MODE" == "json" ]]; then
         local _result
-        if [[ "$ROLLED_BACK" == true ]]; then _result="rolled-back"; elif [[ "$DEPLOYED" == true ]]; then _result="deployed"; else _result="failed"; fi
+        _result="$summary_result"
         printf '{\n  "app_dir": "%s",\n  "repo_url": "%s",\n  "branch": "%s",\n  "result": "%s",\n  "failed": %s\n}\n' "$APP_DIR" "$REPO_URL" "$BRANCH" "$_result" "$FAILED_COUNT"
     elif [[ "$OUTPUT_MODE" == "csv" ]]; then
         local _result
-        if [[ "$ROLLED_BACK" == true ]]; then _result="rolled-back"; elif [[ "$DEPLOYED" == true ]]; then _result="deployed"; else _result="failed"; fi
+        _result="$summary_result"
         printf 'app_dir,repo_url,branch,result,failed\n'
         printf '"%s","%s","%s","%s",%s\n' "$APP_DIR" "$REPO_URL" "$BRANCH" "$_result" "$FAILED_COUNT"
     fi
