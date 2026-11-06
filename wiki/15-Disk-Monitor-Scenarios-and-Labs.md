@@ -580,7 +580,7 @@ itself.
 | Job | Runner | Gate |
 | :--- | :--- | :--- |
 | `lint-bash` | `ubuntu-24.04` | ShellCheck on the script and the suite |
-| `test-bash` | `ubuntu-24.04`, `macos-14` | the Bash suite |
+| `test-bash` | `ubuntu-24.04`, `macos-26` | the Bash suite |
 | `lint-powershell` | `windows-2022` | PSScriptAnalyzer on the script and the suite |
 | `test-powershell` | `windows-2022`, `ubuntu-24.04` | the PowerShell suite |
 
