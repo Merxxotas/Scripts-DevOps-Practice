@@ -473,6 +473,20 @@ setup
 run_deploy -a "$TEST_SANDBOX/appdir" --dry-run
 assert_contains "$LAST_STDOUT" "roll back" "Test 30: dry-run mentions rollback"
 
+# Test 31: explicit -r with credentials and a MATCHING origin does not leak them into output
+setup
+echo "same" > "$TEST_SANDBOX/git_rev_local"
+echo "same" > "$TEST_SANDBOX/git_rev_remote"
+echo "https://secret-token@github.com/acme/widgets.git" > "$TEST_SANDBOX/git_origin_url"
+run_deploy -a "$TEST_SANDBOX/appdir" -r "https://secret-token@github.com/acme/widgets.git" --json
+combined_out="$LAST_STDOUT$LAST_STDERR"
+assert_equals 0 "$LAST_EXIT_CODE" "Test 31a: matching origin proceeds"
+if [[ "$combined_out" == *"secret-token"* ]]; then
+    printf "%b[FAIL]%b Test 31b: credentials leaked in output\n" "$RED" "$RESET" >&2; ((FAILED_TESTS++)) || true
+else
+    printf "%b[PASS]%b Test 31b: credentials scrubbed from output\n" "$GREEN" "$RESET"; ((PASSED_TESTS++)) || true
+fi
+
 # Summary
 echo ""
 echo "========================================"

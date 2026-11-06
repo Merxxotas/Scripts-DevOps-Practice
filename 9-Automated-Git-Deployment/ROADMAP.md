@@ -16,10 +16,10 @@
 - [x] CI workflow.
 - [x] Docs and wiki.
 
-## Phase 2 — Enhancements (planned)
+## Phase 2 — Enhancements
 
-- [ ] Rollback on failure.
+- [x] Rollback on failure (pull failure; `git reset --hard` to the pre-deploy revision; `--no-rollback` / `-NoRollback`).
 - [ ] Multi-environment config.
 - [ ] Webhook notification.
-- [ ] `--json` / `--csv` output.
+- [x] `--json` / `--csv` output (`result` gains the additive value `rolled-back`).
 - [ ] Container orchestration.

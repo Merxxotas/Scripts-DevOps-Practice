@@ -31,13 +31,20 @@ S10 — Risk. `Risk: item 3` for every commit in this tanda: `-r/--repo-url` cha
 ## Tasks
 
 - [x] T1: Create feature document + Engram mirror. route: inline
-- [ ] T2: Bash RED tests — backup gate + verification (tar/gzip stubs), rollback on pull failure + `--no-rollback`, repo-url verify (match/mismatch/no-origin) + not-a-repo exit 1 + truthful origin display. S1, S2, S3, S4. route: inline
-- [ ] T3: Bash implementation to GREEN (gate + verify + rollback + repo-url + not-a-repo pre-flight). S1, S2, S3, S4. route: inline
-- [ ] T4: PowerShell RED tests (stubbed git, real Compress-Archive) mirroring T2 incl. dotfiles coverage. S5, S6. route: inline
-- [ ] T5: PowerShell implementation to GREEN (gate + expand/hash verify + dotfiles fix + rollback + repo-url + not-a-repo pre-flight). S1–S5. route: inline
-- [ ] T6: Lint clean — `shellcheck -x`, `pwsh` parse + `PSScriptAnalyzer`. S7. route: inline
-- [ ] T7: Docs — SPECS, README, ARCHITECTURE_COMPARISON, SCENARIOS, labs LAB1/LAB3, wiki 28/29/30, CHANGELOG. S8. route: inline
-- [ ] T8: Delivery — PR(s), CI green, RDD consent relay, merge `--admin --rebase`, feature doc close + mirror. S9, S10. route: inline
+- [x] T2: Bash RED tests — backup gate + verification (tar/gzip stubs), rollback on pull failure + `--no-rollback`, repo-url verify (match/mismatch/no-origin) + not-a-repo exit 1 + truthful origin display. S1, S2, S3, S4. route: inline
+- [x] T3: Bash implementation to GREEN (gate + verify + rollback + repo-url + not-a-repo pre-flight). S1, S2, S3, S4. route: inline
+- [x] T4: PowerShell RED tests (stubbed git, real Compress-Archive) mirroring T2 incl. dotfiles coverage. S5, S6. route: inline
+- [x] T5: PowerShell implementation to GREEN (gate + expand/hash verify + dotfiles fix + rollback + repo-url + not-a-repo pre-flight). S1–S5. route: inline
+- [x] T6: Lint clean — `shellcheck -x`, `pwsh` parse + `PSScriptAnalyzer`. S7. route: inline
+- [x] T7: Docs — SPECS, README, ARCHITECTURE_COMPARISON, SCENARIOS, labs LAB1/LAB2/LAB3, wiki 28/29/30, CHANGELOG, MODULES. S8. route: inline
+- [ ] T8: Delivery — PR, CI green, RDD consent relay, merge `--admin --rebase`, feature doc close + mirror. S9, S10. route: inline
+
+Delivery decision (2026-11-06): user chose **PR único** at the ask-on-risk checkpoint.
+PS verification deviates from L2's literal "expand + SHA-256": implemented as in-memory ZipArchive
+entry hash compare (same authored checks, zero temp-dir pollution, empty archives supported).
+Bash suite runs against hermetic fakes (/tmp via mktemp); PS suite runs against REAL local git
+repositories with host git config isolated (GIT_CONFIG_NOSYSTEM/GIT_CONFIG_GLOBAL) — CI hosts
+include Windows where bash fakes are not portable.
 
 ## Log
 
@@ -48,3 +55,5 @@ L2 (verbatim, 2026-11-06): "Dale con el paquete que sugieres, tal cual"
   Approving: (A) backup created AND verified (bash gzip -t; PS expand + SHA-256 payload) gating the deploy, fail closed, exit 2, no fetch/pull; `--skip-backup` stays the only opt-out. (B) rollback via `git reset --hard` on PULL FAILURE ONLY, automatic by default, `--no-rollback` / `-NoRollback` to disable; never on npm/restart failure (untracked node_modules defeats the guarantee); rollback failure logged + audited; JSON/CSV result gains `rolled-back`; service is NOT restarted by rollback. (C) explicit `-r/--repo-url` ⇒ normalized origin verify, mismatch or missing origin ⇒ exit 1 pre-flight; unset ⇒ banner/audit/JSON show the real origin; not-a-git-repo ⇒ exit 1 with clear message. (D extra) PS `Compress-Archive` dotfiles fix + backup verification included. Parity Bash↔PowerShell mandatory.
 
 L3 (2026-11-06): Branch fix/module9-git-deploy-failure-safety created from main @ 0b01ab5 (clean tree, zero open PRs, 11/11 CI green verified pre-branch). Module 9 suites today: bash 23 tests with stubbed git/tar/npm/systemctl; PS suite has no git stub (dry-run paths only) — will be extended per S6. Existing tests contain NO backup-failure expectation, so the S1 gate changes no current test's outcome.
+
+L4 (2026-11-06): Implementation complete. Suites: bash 59/59, PS 41/41 (real hermetic git repositories; host git config isolated — the host's ~/.gitconfig rewrites https→git@ via insteadOf, which silently changed origin display; children now run with GIT_CONFIG_NOSYSTEM/GIT_CONFIG_GLOBAL=<empty file>). shellcheck -x clean; PSScriptAnalyzer clean (no suppressions; state-changing helpers declare SupportsShouldProcess). LAB3 verified end-to-end in mktemp scratch (gate abort with exit 2, rollback restores clean tree, --no-rollback preserves the conflict). Finding: Compress-Archive cannot archive hidden files on PowerShell 7 Unix ("Could not find item .env", even with -LiteralPath) — backup rebuilt on .NET ZipArchive + entry SHA-256 verify; test 14 (dotfiles) is the regression pin. PS verification deviates from L2's literal "expand + SHA-256": in-memory ZipArchive entry-hash compare (same checks, no temp-dir payload, empty archives supported). Docs updated (SPECS/README/ROADMAP/ARCHITECTURE_COMPARISON/SCENARIOS/LAB1-3/wiki 28-30/CHANGELOG/MODULES); GitHub Wiki sync pending user decision (manual, AGENTS.md §9).

@@ -15,3 +15,8 @@
    ./git_deploy.sh --audit-log /tmp/deploy.audit
    cat /tmp/deploy.audit
    ```
+4. Rollback toggle (dry-run preview shows the hint; the flag disables the automatic
+   rollback on pull failure):
+   ```bash
+   ./git_deploy.sh --no-rollback --dry-run
+   ```
