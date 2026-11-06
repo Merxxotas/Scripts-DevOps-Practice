@@ -23,6 +23,9 @@ BRANCH="main"
 BACKUP_DIR="/backup/deployments"
 SKIP_BACKUP=false
 SKIP_POST_DEPLOY=false
+NO_ROLLBACK=false
+REPO_URL_SET=false
+ROLLED_BACK=false
 SERVICE_NAME="myapp"
 DRY_RUN=false
 AUDIT_LOG=""
@@ -70,6 +73,32 @@ is_protected_path() {
     return 1
 }
 
+# Strip embedded credentials (user[:pass]@) from a repo URL for display/logs.
+# git@host:path carries no secret (the user is the literal "git") and is left as-is.
+scrub_repo_url() {
+    local url="$1"
+    if [[ "$url" =~ ^([a-zA-Z][a-zA-Z0-9+.-]*://)([^/@]*@)?(.*)$ ]]; then
+        printf '%s%s' "${BASH_REMATCH[1]}" "${BASH_REMATCH[3]}"
+    else
+        printf '%s' "$url"
+    fi
+}
+
+# Normalize a repo URL for identity comparison: lowercase, strip credentials,
+# map git@host:path onto host/path, drop scheme, trailing slashes and .git.
+normalize_repo_url() {
+    local url
+    url="$(printf '%s' "$(scrub_repo_url "$1")" | tr '[:upper:]' '[:lower:]')"
+    if [[ "$url" =~ ^git@([^:]+):(.+)$ ]]; then
+        url="${BASH_REMATCH[1]}/${BASH_REMATCH[2]}"
+    else
+        url="${url#*://}"
+    fi
+    while [[ "$url" == */ ]]; do url="${url%/}"; done
+    url="${url%.git}"
+    printf '%s' "$url"
+}
+
 valid_branch() {
     [[ "${1:-}" =~ ^[a-zA-Z0-9._/-]+$ ]]
 }
@@ -81,11 +110,12 @@ Usage: $0 [OPTIONS]
 
 Optional Arguments:
   -a, --app-dir <path>      Application directory (default: /var/www/myapp).
-  -r, --repo-url <url>      Repository URL.
+  -r, --repo-url <url>      Repository URL. If passed, aborts when the configured origin differs (normalized comparison).
   -b, --branch <name>       Branch to deploy (default: main).
       --backup-dir <path>    Backup directory (default: /backup/deployments).
       --skip-backup          Skip pre-deploy backup.
       --skip-post-deploy     Skip npm install and service restart.
+      --no-rollback          Do not roll back to the pre-deploy revision if the pull fails.
       --service <name>       Service to restart (default: myapp).
       --dry-run              Preview only.
       --audit-log <file>     Append ISO-8601 audit log entries.
@@ -123,6 +153,7 @@ parse_arguments() {
             -r|--repo-url)
                 require_value "$1" "$#"
                 REPO_URL="$2"
+                REPO_URL_SET=true
                 shift 2
                 ;;
             -b|--branch)
@@ -137,6 +168,10 @@ parse_arguments() {
                 ;;
             --skip-backup)
                 SKIP_BACKUP=true
+                shift
+                ;;
+            --no-rollback)
+                NO_ROLLBACK=true
                 shift
                 ;;
             --skip-post-deploy)
@@ -230,6 +265,33 @@ parse_arguments() {
 main() {
     parse_arguments "$@"
 
+    cd "$APP_DIR" || { printf "%bError: cannot cd to %s.%b\n" "$COLOR_RED" "$APP_DIR" "$COLOR_RESET" >&2; exit 1; }
+
+    # Repo pre-flight (before any banner or mutation): the app dir must be a
+    # git work tree, and an explicitly passed -r/--repo-url must match origin.
+    if ! git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+        printf "%bError: App directory '%s' is not a git repository.%b\n" "$COLOR_RED" "$APP_DIR" "$COLOR_RESET" >&2
+        exit 1
+    fi
+    local origin_url
+    origin_url="$(git remote get-url origin 2>/dev/null || true)"
+    if [[ "$REPO_URL_SET" == true ]]; then
+        if [[ -z "$origin_url" ]]; then
+            printf "%bError: -r/--repo-url was provided but no 'origin' remote is configured in '%s'.%b\n" "$COLOR_RED" "$APP_DIR" "$COLOR_RESET" >&2
+            exit 1
+        fi
+        local want have
+        want="$(scrub_repo_url "$REPO_URL")"
+        have="$(scrub_repo_url "$origin_url")"
+        if [[ "$(normalize_repo_url "$want")" != "$(normalize_repo_url "$have")" ]]; then
+            printf "%bError: -r/--repo-url does not match the configured origin (%s vs %s).%b\n" "$COLOR_RED" "$want" "$have" "$COLOR_RESET" >&2
+            exit 1
+        fi
+        REPO_URL="$want"
+    elif [[ -n "$origin_url" ]]; then
+        REPO_URL="$(scrub_repo_url "$origin_url")"
+    fi
+
     if [[ "$OUTPUT_MODE" == "human" ]]; then
         printf "%b============================================================%b\n" "$COLOR_BLUE" "$COLOR_RESET"
         printf "%b            DevOps Git Deployment Utility                  %b\n" "$COLOR_BLUE" "$COLOR_RESET"
@@ -258,6 +320,11 @@ main() {
             fi
             printf "%b[DRY RUN]%b Would git fetch origin %s.\n" "$COLOR_YELLOW" "$COLOR_RESET" "$BRANCH"
             printf "%b[DRY RUN]%b Would git pull origin %s if behind.\n" "$COLOR_YELLOW" "$COLOR_RESET" "$BRANCH"
+            if [[ "$NO_ROLLBACK" == true ]]; then
+                printf "%b[DRY RUN]%b Rollback disabled (--no-rollback).\n" "$COLOR_YELLOW" "$COLOR_RESET"
+            else
+                printf "%b[DRY RUN]%b Would roll back to the pre-deploy revision if the pull fails (disable with --no-rollback).\n" "$COLOR_YELLOW" "$COLOR_RESET"
+            fi
             if [[ "$SKIP_POST_DEPLOY" != true ]]; then
                 printf "%b[DRY RUN]%b Would run post-deploy (npm install if package.json; restart %s).\n" "$COLOR_YELLOW" "$COLOR_RESET" "$SERVICE_NAME"
             fi
@@ -272,8 +339,6 @@ main() {
         exit 0
     fi
 
-    cd "$APP_DIR" || { printf "%bError: cannot cd to %s.%b\n" "$COLOR_RED" "$APP_DIR" "$COLOR_RESET" >&2; exit 1; }
-
     # Backup
     if [[ "$SKIP_BACKUP" != true ]]; then
         if [[ "$OUTPUT_MODE" == "human" ]]; then printf "%bCreating backup...%b\n" "$COLOR_YELLOW" "$COLOR_RESET"; fi
@@ -281,13 +346,28 @@ main() {
         timestamp="$(date +%Y%m%d_%H%M%S)"
         backup_file="$BACKUP_DIR/backup_$timestamp.tar.gz"
         mkdir -p "$BACKUP_DIR" 2>/dev/null || true
-        if tar -czf "$backup_file" -C "$APP_DIR" . 2>/dev/null; then
+        local backup_ok=true
+        if ! tar -czf "$backup_file" -C "$APP_DIR" . 2>/dev/null; then
+            backup_ok=false
+        elif ! gzip -t "$backup_file" >/dev/null 2>&1; then
+            backup_ok=false
+        fi
+        if [[ "$backup_ok" == true ]]; then
             if [[ "$OUTPUT_MODE" == "human" ]]; then printf "%b✓ Backup created: %s%b\n" "$COLOR_GREEN" "$backup_file" "$COLOR_RESET"; fi
             log_message "INFO" "Backup created: $backup_file"
         else
-            if [[ "$OUTPUT_MODE" == "human" ]]; then printf "%b✗ Backup failed.%b\n" "$COLOR_RED" "$COLOR_RESET" >&2; fi
-            FAILED_COUNT=$((FAILED_COUNT + 1))
+            if [[ "$OUTPUT_MODE" == "human" ]]; then
+                printf "%b✗ Backup failed.%b\n" "$COLOR_RED" "$COLOR_RESET" >&2
+                printf "%bDeploy aborted: backup failed.%b\n" "$COLOR_RED" "$COLOR_RESET" >&2
+            fi
             log_message "ERROR" "Backup failed."
+            if [[ "$OUTPUT_MODE" == "json" ]]; then
+                printf '{\n  "app_dir": "%s",\n  "repo_url": "%s",\n  "branch": "%s",\n  "result": "failed",\n  "failed": 1\n}\n' "$APP_DIR" "$REPO_URL" "$BRANCH"
+            elif [[ "$OUTPUT_MODE" == "csv" ]]; then
+                printf 'app_dir,repo_url,branch,result,failed\n'
+                printf '"%s","%s","%s","failed",1\n' "$APP_DIR" "$REPO_URL" "$BRANCH"
+            fi
+            exit 2
         fi
     fi
 
@@ -369,26 +449,44 @@ main() {
         if [[ "$OUTPUT_MODE" == "human" ]]; then printf "%b✗ Git pull failed%b\n" "$COLOR_RED" "$COLOR_RESET" >&2; fi
         FAILED_COUNT=$((FAILED_COUNT + 1))
         log_message "ERROR" "Git pull failed ($APP_DIR)."
+        if [[ "$NO_ROLLBACK" == true ]]; then
+            if [[ "$OUTPUT_MODE" == "human" ]]; then printf "%b⚠ Rollback disabled (--no-rollback); working tree left as-is.%b\n" "$COLOR_YELLOW" "$COLOR_RESET"; fi
+            log_message "INFO" "Rollback disabled (--no-rollback); tree left as-is ($APP_DIR)."
+        elif [[ -n "$local_rev" ]]; then
+            if git reset --hard "$local_rev" >/dev/null 2>&1; then
+                ROLLED_BACK=true
+                if [[ "$OUTPUT_MODE" == "human" ]]; then printf "%bRolled back to %s (files restored; service NOT restarted).%b\n" "$COLOR_YELLOW" "$local_rev" "$COLOR_RESET"; fi
+                log_message "INFO" "Rolled back to $local_rev ($APP_DIR)."
+            else
+                if [[ "$OUTPUT_MODE" == "human" ]]; then printf "%b✗ Rollback failed.%b\n" "$COLOR_RED" "$COLOR_RESET" >&2; fi
+                log_message "ERROR" "Rollback failed ($APP_DIR)."
+            fi
+        else
+            if [[ "$OUTPUT_MODE" == "human" ]]; then printf "%b⚠ Rollback skipped: pre-deploy revision unknown.%b\n" "$COLOR_YELLOW" "$COLOR_RESET"; fi
+            log_message "ERROR" "Rollback skipped: pre-deploy revision unknown ($APP_DIR)."
+        fi
     fi
 
     # Summary
+    local summary_result
+    if [[ "$ROLLED_BACK" == true ]]; then summary_result="rolled-back"; elif [[ "$DEPLOYED" == true ]]; then summary_result="deployed"; else summary_result="failed"; fi
     if [[ "$OUTPUT_MODE" == "human" ]]; then
         printf "\n%b============================================================%b\n" "$COLOR_BLUE" "$COLOR_RESET"
         printf "%b                    Execution Summary                       %b\n" "$COLOR_BLUE" "$COLOR_RESET"
         printf "%b============================================================%b\n" "$COLOR_BLUE" "$COLOR_RESET"
         printf "App Directory    : %b%s%b\n" "$COLOR_BOLD" "$APP_DIR" "$COLOR_RESET"
-        printf "Result           : %b%s%b\n" "$COLOR_BOLD" "$([[ "$DEPLOYED" == true ]] && echo deployed || echo failed)" "$COLOR_RESET"
+        printf "Result           : %b%s%b\n" "$COLOR_BOLD" "$summary_result" "$COLOR_RESET"
         printf "Failed Steps     : %b%d%b\n" "$COLOR_RED" "$FAILED_COUNT" "$COLOR_RESET"
         printf "%b============================================================%b\n" "$COLOR_BLUE" "$COLOR_RESET"
     fi
 
     if [[ "$OUTPUT_MODE" == "json" ]]; then
         local _result
-        if [[ "$DEPLOYED" == true ]]; then _result="deployed"; else _result="failed"; fi
+        _result="$summary_result"
         printf '{\n  "app_dir": "%s",\n  "repo_url": "%s",\n  "branch": "%s",\n  "result": "%s",\n  "failed": %s\n}\n' "$APP_DIR" "$REPO_URL" "$BRANCH" "$_result" "$FAILED_COUNT"
     elif [[ "$OUTPUT_MODE" == "csv" ]]; then
         local _result
-        if [[ "$DEPLOYED" == true ]]; then _result="deployed"; else _result="failed"; fi
+        _result="$summary_result"
         printf 'app_dir,repo_url,branch,result,failed\n'
         printf '"%s","%s","%s","%s",%s\n' "$APP_DIR" "$REPO_URL" "$BRANCH" "$_result" "$FAILED_COUNT"
     fi

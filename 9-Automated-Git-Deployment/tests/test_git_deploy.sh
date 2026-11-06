@@ -25,9 +25,14 @@ LAST_EXIT_CODE=0
 # Fake git
 cat > "$FAKE_BIN/git" <<'EOF'
 #!/bin/bash
-# args handling
+# Failure injection markers
+if [[ -f "$TEST_SANDBOX/git_not_repo" ]]; then
+    echo "fatal: not a git repository" >&2
+    exit 128
+fi
 case "$1" in
     fetch)
+        echo "fetch $2" >> "$TEST_SANDBOX/git_fetch_calls"
         if [[ -f "$TEST_SANDBOX/git_fetch_fail" ]]; then exit 1; fi
         exit 0
         ;;
@@ -36,12 +41,28 @@ case "$1" in
             cat "$TEST_SANDBOX/git_rev_local" 2>/dev/null || echo "local123"
         elif [[ "$2" == "@{u}" ]]; then
             cat "$TEST_SANDBOX/git_rev_remote" 2>/dev/null || echo "remote123"
+        elif [[ "$2" == "--is-inside-work-tree" ]]; then
+            echo "true"
         else
             echo "rev"
         fi
         exit 0
         ;;
+    remote)
+        # remote get-url origin
+        if [[ -f "$TEST_SANDBOX/git_origin_url" ]]; then
+            cat "$TEST_SANDBOX/git_origin_url"
+            exit 0
+        fi
+        exit 1
+        ;;
+    reset)
+        echo "reset $2 $3" >> "$TEST_SANDBOX/git_reset_calls"
+        if [[ -f "$TEST_SANDBOX/git_reset_fail" ]]; then exit 1; fi
+        exit 0
+        ;;
     pull)
+        echo "pull $2 $3" >> "$TEST_SANDBOX/git_pull_calls"
         if [[ -f "$TEST_SANDBOX/git_pull_fail" ]]; then exit 1; fi
         exit 0
         ;;
@@ -58,10 +79,28 @@ chmod +x "$FAKE_BIN/git"
 # Fake tar
 cat > "$FAKE_BIN/tar" <<'EOF'
 #!/bin/bash
+if [[ -f "$TEST_SANDBOX/tar_fail" ]]; then exit 1; fi
 echo "tar called" >> "$TEST_SANDBOX/tar_calls" 2>/dev/null || true
+# create the -f target so downstream gzip verification has a file
+prev=""
+for arg in "$@"; do
+    if [[ "$prev" =~ ^-[a-zA-Z]*f$ ]]; then touch "$arg"; fi
+    prev="$arg"
+done
 exit 0
 EOF
 chmod +x "$FAKE_BIN/tar"
+
+# Fake gzip (deploy backup verification uses `gzip -t`)
+cat > "$FAKE_BIN/gzip" <<'EOF'
+#!/bin/bash
+if [[ -f "$TEST_SANDBOX/gzip_fail" ]]; then exit 1; fi
+# verify shape: gzip -t <file>
+file="${*: -1}"
+if [[ ! -f "$file" ]]; then echo "gzip: $file: No such file or directory" >&2; exit 1; fi
+exit 0
+EOF
+chmod +x "$FAKE_BIN/gzip"
 
 # Fake npm
 cat > "$FAKE_BIN/npm" <<'EOF'
@@ -84,6 +123,9 @@ export PATH="$FAKE_BIN:$PATH"
 setup() {
     rm -f "$TEST_SANDBOX"/git_fetch_fail "$TEST_SANDBOX"/git_pull_fail "$TEST_SANDBOX"/tar_calls "$TEST_SANDBOX"/stdout.txt "$TEST_SANDBOX"/stderr.txt
     rm -f "$TEST_SANDBOX"/git_rev_local "$TEST_SANDBOX"/git_rev_remote
+    rm -f "$TEST_SANDBOX"/git_fetch_calls "$TEST_SANDBOX"/git_pull_calls "$TEST_SANDBOX"/git_reset_calls
+    rm -f "$TEST_SANDBOX"/git_not_repo "$TEST_SANDBOX"/git_origin_url "$TEST_SANDBOX"/git_reset_fail
+    rm -f "$TEST_SANDBOX"/tar_fail "$TEST_SANDBOX"/gzip_fail
     # default app dir
     rm -rf "$TEST_SANDBOX/appdir"
     mkdir -p "$TEST_SANDBOX/appdir"
@@ -93,7 +135,10 @@ run_deploy() {
     local stdout_file="$TEST_SANDBOX/stdout.txt"
     local stderr_file="$TEST_SANDBOX/stderr.txt"
     local exit_code=0
-    # point app-dir to sandbox appdir unless overridden via args
+    # keep the suite hermetic: never write to the real default /backup/deployments
+    if [[ " $* " != *" --backup-dir "* && " $* " != *" --skip-backup "* ]]; then
+        set -- "$@" --backup-dir "$TEST_SANDBOX/backups"
+    fi
     "$DEPLOY_SCRIPT" "$@" >"$stdout_file" 2>"$stderr_file" || exit_code=$?
     LAST_STDOUT="$(cat "$stdout_file" 2>/dev/null || true)"
     LAST_STDERR="$(cat "$stderr_file" 2>/dev/null || true)"
@@ -249,6 +294,198 @@ echo "same" > "$TEST_SANDBOX/git_rev_local"
 echo "same" > "$TEST_SANDBOX/git_rev_remote"
 run_deploy --bogus
 assert_equals 1 "$LAST_EXIT_CODE" "Test 15: unknown option exits 1"
+
+# ---------- failure-safety: backup gate, rollback, repo-url verify (2026-11-06) ----------
+
+# Test 16: backup failure aborts deploy (no fetch, exit 2)
+setup
+echo "local1" > "$TEST_SANDBOX/git_rev_local"
+echo "remote2" > "$TEST_SANDBOX/git_rev_remote"
+touch "$TEST_SANDBOX/tar_fail"
+run_deploy -a "$TEST_SANDBOX/appdir"
+assert_equals 2 "$LAST_EXIT_CODE" "Test 16a: backup failure exits 2"
+assert_contains "$LAST_STDERR" "aborted" "Test 16b: deploy aborted message"
+if [[ -f "$TEST_SANDBOX/git_fetch_calls" ]]; then
+    printf "%b[FAIL]%b Test 16c: fetch happened despite backup failure\n" "$RED" "$RESET" >&2; ((FAILED_TESTS++)) || true
+else
+    printf "%b[PASS]%b Test 16c: no fetch after backup failure\n" "$GREEN" "$RESET"; ((PASSED_TESTS++)) || true
+fi
+
+# Test 17: backup verification failure aborts deploy (no fetch, exit 2)
+setup
+echo "local1" > "$TEST_SANDBOX/git_rev_local"
+echo "remote2" > "$TEST_SANDBOX/git_rev_remote"
+touch "$TEST_SANDBOX/gzip_fail"
+run_deploy -a "$TEST_SANDBOX/appdir"
+assert_equals 2 "$LAST_EXIT_CODE" "Test 17a: verification failure exits 2"
+assert_contains "$LAST_STDERR" "aborted" "Test 17b: deploy aborted message"
+if [[ -f "$TEST_SANDBOX/git_fetch_calls" ]]; then
+    printf "%b[FAIL]%b Test 17c: fetch happened despite verification failure\n" "$RED" "$RESET" >&2; ((FAILED_TESTS++)) || true
+else
+    printf "%b[PASS]%b Test 17c: no fetch after verification failure\n" "$GREEN" "$RESET"; ((PASSED_TESTS++)) || true
+fi
+
+# Test 18: backup failure still emits a JSON failure envelope
+setup
+touch "$TEST_SANDBOX/tar_fail"
+run_deploy -a "$TEST_SANDBOX/appdir" --json
+assert_equals 2 "$LAST_EXIT_CODE" "Test 18a: backup failure exits 2"
+assert_contains "$LAST_STDOUT" '"result": "failed"' "Test 18b: JSON result failed"
+assert_contains "$LAST_STDOUT" '"failed": 1' "Test 18c: JSON failed count 1"
+
+# Test 19: pull failure triggers rollback to pre-deploy revision (automatic)
+setup
+echo "local1" > "$TEST_SANDBOX/git_rev_local"
+echo "remote2" > "$TEST_SANDBOX/git_rev_remote"
+touch "$TEST_SANDBOX/git_pull_fail"
+run_deploy -a "$TEST_SANDBOX/appdir"
+assert_equals 2 "$LAST_EXIT_CODE" "Test 19a: pull failure exits 2"
+assert_contains "$LAST_STDOUT" "Rolled back" "Test 19b: rollback message printed"
+assert_contains "$(cat "$TEST_SANDBOX/git_reset_calls" 2>/dev/null || true)" "reset --hard local1" "Test 19c: reset --hard to pre-deploy rev"
+
+# Test 19d: rollback reported in JSON result
+setup
+echo "local1" > "$TEST_SANDBOX/git_rev_local"
+echo "remote2" > "$TEST_SANDBOX/git_rev_remote"
+touch "$TEST_SANDBOX/git_pull_fail"
+run_deploy -a "$TEST_SANDBOX/appdir" --json
+assert_contains "$LAST_STDOUT" '"result": "rolled-back"' "Test 19d: JSON result rolled-back"
+
+# Test 19e: rollback is audited
+setup
+echo "local1" > "$TEST_SANDBOX/git_rev_local"
+echo "remote2" > "$TEST_SANDBOX/git_rev_remote"
+touch "$TEST_SANDBOX/git_pull_fail"
+run_deploy -a "$TEST_SANDBOX/appdir" --audit-log "$TEST_SANDBOX/audit.log"
+assert_contains "$(cat "$TEST_SANDBOX/audit.log" 2>/dev/null || true)" "Rolled back" "Test 19e: audit records rollback"
+
+# Test 20: --no-rollback leaves the tree as-is
+setup
+echo "local1" > "$TEST_SANDBOX/git_rev_local"
+echo "remote2" > "$TEST_SANDBOX/git_rev_remote"
+touch "$TEST_SANDBOX/git_pull_fail"
+run_deploy -a "$TEST_SANDBOX/appdir" --no-rollback
+assert_equals 2 "$LAST_EXIT_CODE" "Test 20a: pull failure exits 2"
+assert_contains "$LAST_STDOUT" "Rollback disabled" "Test 20b: rollback disabled message"
+if [[ -f "$TEST_SANDBOX/git_reset_calls" ]]; then
+    printf "%b[FAIL]%b Test 20c: reset happened despite --no-rollback\n" "$RED" "$RESET" >&2; ((FAILED_TESTS++)) || true
+else
+    printf "%b[PASS]%b Test 20c: no reset with --no-rollback\n" "$GREEN" "$RESET"; ((PASSED_TESTS++)) || true
+fi
+
+# Test 21: rollback failure is reported, not swallowed
+setup
+echo "local1" > "$TEST_SANDBOX/git_rev_local"
+echo "remote2" > "$TEST_SANDBOX/git_rev_remote"
+touch "$TEST_SANDBOX/git_pull_fail" "$TEST_SANDBOX/git_reset_fail"
+run_deploy -a "$TEST_SANDBOX/appdir"
+assert_equals 2 "$LAST_EXIT_CODE" "Test 21a: pull failure exits 2"
+assert_contains "$LAST_STDERR" "Rollback failed" "Test 21b: rollback failure message"
+
+# Test 22: explicit -r matches git@ origin against https flag (cross-form)
+setup
+echo "same" > "$TEST_SANDBOX/git_rev_local"
+echo "same" > "$TEST_SANDBOX/git_rev_remote"
+echo "https://github.com/acme/widgets.git" > "$TEST_SANDBOX/git_origin_url"
+run_deploy -a "$TEST_SANDBOX/appdir" -r "git@github.com:acme/widgets.git"
+assert_equals 0 "$LAST_EXIT_CODE" "Test 22: cross-form origin match proceeds"
+
+# Test 23: explicit -r is case-insensitive and ignores .git suffix
+setup
+echo "same" > "$TEST_SANDBOX/git_rev_local"
+echo "same" > "$TEST_SANDBOX/git_rev_remote"
+echo "https://github.com/acme/widgets.git" > "$TEST_SANDBOX/git_origin_url"
+run_deploy -a "$TEST_SANDBOX/appdir" -r "HTTPS://GITHUB.COM/Acme/Widgets"
+assert_equals 0 "$LAST_EXIT_CODE" "Test 23: normalized origin match proceeds"
+
+# Test 24: explicit -r mismatch aborts BEFORE any backup or fetch
+setup
+echo "same" > "$TEST_SANDBOX/git_rev_local"
+echo "same" > "$TEST_SANDBOX/git_rev_remote"
+echo "https://github.com/acme/widgets.git" > "$TEST_SANDBOX/git_origin_url"
+run_deploy -a "$TEST_SANDBOX/appdir" -r "https://github.com/evil/other.git"
+assert_equals 1 "$LAST_EXIT_CODE" "Test 24a: origin mismatch exits 1"
+assert_contains "$LAST_STDERR" "does not match" "Test 24b: mismatch message"
+if [[ -f "$TEST_SANDBOX/tar_calls" || -f "$TEST_SANDBOX/git_fetch_calls" ]]; then
+    printf "%b[FAIL]%b Test 24c: mutation happened before origin check\n" "$RED" "$RESET" >&2; ((FAILED_TESTS++)) || true
+else
+    printf "%b[PASS]%b Test 24c: no backup or fetch on mismatch\n" "$GREEN" "$RESET"; ((PASSED_TESTS++)) || true
+fi
+
+# Test 25: origin with embedded credentials is not leaked in the mismatch error
+setup
+echo "same" > "$TEST_SANDBOX/git_rev_local"
+echo "same" > "$TEST_SANDBOX/git_rev_remote"
+echo "https://secret-token@github.com/acme/widgets.git" > "$TEST_SANDBOX/git_origin_url"
+run_deploy -a "$TEST_SANDBOX/appdir" -r "https://github.com/evil/other.git"
+combined_out="$LAST_STDOUT$LAST_STDERR"
+if [[ "$combined_out" == *"secret-token"* ]]; then
+    printf "%b[FAIL]%b Test 25: credentials leaked in output\n" "$RED" "$RESET" >&2; ((FAILED_TESTS++)) || true
+else
+    printf "%b[PASS]%b Test 25: credentials not leaked\n" "$GREEN" "$RESET"; ((PASSED_TESTS++)) || true
+fi
+
+# Test 26: explicit -r with no origin configured aborts with a clear error
+setup
+echo "same" > "$TEST_SANDBOX/git_rev_local"
+echo "same" > "$TEST_SANDBOX/git_rev_remote"
+# no git_origin_url file -> fake git exits 1 for remote get-url origin
+run_deploy -a "$TEST_SANDBOX/appdir" -r "https://github.com/acme/widgets.git"
+assert_equals 1 "$LAST_EXIT_CODE" "Test 26a: missing origin exits 1"
+assert_contains "$LAST_STDERR" "origin" "Test 26b: missing origin message"
+
+# Test 27: without -r, output reports the actual origin (truthful, not decorative)
+setup
+echo "same" > "$TEST_SANDBOX/git_rev_local"
+echo "same" > "$TEST_SANDBOX/git_rev_remote"
+echo "https://github.com/acme/widgets.git" > "$TEST_SANDBOX/git_origin_url"
+run_deploy -a "$TEST_SANDBOX/appdir" --json
+assert_equals 0 "$LAST_EXIT_CODE" "Test 27a: run exits 0"
+assert_contains "$LAST_STDOUT" '"repo_url": "https://github.com/acme/widgets.git"' "Test 27b: JSON reports actual origin"
+
+# Test 28: without -r, credentials in origin are scrubbed from output
+setup
+echo "same" > "$TEST_SANDBOX/git_rev_local"
+echo "same" > "$TEST_SANDBOX/git_rev_remote"
+echo "https://secret-token@github.com/acme/widgets.git" > "$TEST_SANDBOX/git_origin_url"
+run_deploy -a "$TEST_SANDBOX/appdir" --json
+combined_out="$LAST_STDOUT$LAST_STDERR"
+if [[ "$combined_out" == *"secret-token"* ]]; then
+    printf "%b[FAIL]%b Test 28: credentials leaked in JSON output\n" "$RED" "$RESET" >&2; ((FAILED_TESTS++)) || true
+else
+    printf "%b[PASS]%b Test 28: credentials scrubbed from output\n" "$GREEN" "$RESET"; ((PASSED_TESTS++)) || true
+fi
+
+# Test 29: not a git repository -> exit 1 with clear message (before backup/fetch)
+setup
+touch "$TEST_SANDBOX/git_not_repo"
+run_deploy -a "$TEST_SANDBOX/appdir"
+assert_equals 1 "$LAST_EXIT_CODE" "Test 29a: not a git repo exits 1"
+assert_contains "$LAST_STDERR" "not a git repository" "Test 29b: clear not-a-repo message"
+if [[ -f "$TEST_SANDBOX/tar_calls" || -f "$TEST_SANDBOX/git_fetch_calls" ]]; then
+    printf "%b[FAIL]%b Test 29c: mutation happened before repo check\n" "$RED" "$RESET" >&2; ((FAILED_TESTS++)) || true
+else
+    printf "%b[PASS]%b Test 29c: no backup or fetch on non-repo\n" "$GREEN" "$RESET"; ((PASSED_TESTS++)) || true
+fi
+
+# Test 30: dry-run mentions rollback behavior
+setup
+run_deploy -a "$TEST_SANDBOX/appdir" --dry-run
+assert_contains "$LAST_STDOUT" "roll back" "Test 30: dry-run mentions rollback"
+
+# Test 31: explicit -r with credentials and a MATCHING origin does not leak them into output
+setup
+echo "same" > "$TEST_SANDBOX/git_rev_local"
+echo "same" > "$TEST_SANDBOX/git_rev_remote"
+echo "https://secret-token@github.com/acme/widgets.git" > "$TEST_SANDBOX/git_origin_url"
+run_deploy -a "$TEST_SANDBOX/appdir" -r "https://secret-token@github.com/acme/widgets.git" --json
+combined_out="$LAST_STDOUT$LAST_STDERR"
+assert_equals 0 "$LAST_EXIT_CODE" "Test 31a: matching origin proceeds"
+if [[ "$combined_out" == *"secret-token"* ]]; then
+    printf "%b[FAIL]%b Test 31b: credentials leaked in output\n" "$RED" "$RESET" >&2; ((FAILED_TESTS++)) || true
+else
+    printf "%b[PASS]%b Test 31b: credentials scrubbed from output\n" "$GREEN" "$RESET"; ((PASSED_TESTS++)) || true
+fi
 
 # Summary
 echo ""

@@ -14,6 +14,23 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **`9-Automated-Git-Deployment` — verified backup gates the deploy, automatic rollback on pull
+  failure, and the repo URL is no longer decorative.** Pre-deploy backups must now be created AND
+  verified before any fetch/pull (Bash `gzip -t`; PowerShell .NET `ZipArchive`, entry-by-entry —
+  same file set, SHA-256 per entry against the source tree); failure aborts with exit 2 and the
+  app is untouched. On pull failure the tree is automatically restored to the pre-deploy revision
+  (`git reset --hard`; `--no-rollback` / `-NoRollback` disables); rollback never triggers on
+  post-deploy (npm/service) failures, which are recorded but non-fatal. An explicitly passed
+  `-r/--repo-url` / `-RepoUrl` is verified against the configured `origin` using a normalized
+  comparison (lowercase host+path, credentials stripped, `git@host:path` ≡ `https://host/path`,
+  trailing `/` and `.git` ignored); mismatch — or no `origin` — exits 1 before any side effect.
+  Unset, output reports the real `origin` (credentials scrubbed) instead of a seed placeholder.
+  Non-repo app dirs exit 1 with a clear message instead of a cryptic exit 2. JSON/CSV `result`
+  gains the additive value `rolled-back`; human summary and audit log report the rollback. Docs,
+  labs (LAB1/LAB3) and wiki updated; PowerShell suite rewritten against real hermetic git
+  repositories (host git config isolated via `GIT_CONFIG_NOSYSTEM`/`GIT_CONFIG_GLOBAL`), 41 tests;
+  Bash suite 59 tests; both lint legs clean.
+
 - **`AGENTS.md`** — the router for the repository: what it is, the module contract, branching and
   commit conventions, the CI model, the code standards baseline, a navigation map, and the known
   state and gotchas.
@@ -72,6 +89,18 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **Automated Git Deployment — PowerShell backups silently skipped dotfiles.** `Compress-Archive
+  -Path "$AppDir\*"` resolves like a default (non-`-Force`) enumeration, so hidden files such as
+  `.env` (typically gitignored and deploy-critical) were never archived — and on PowerShell 7 for
+  Unix, `Compress-Archive` cannot archive hidden files at all (verified 2026-11-06: "Could not
+  find item …/.env" even with `-LiteralPath`). The backup now uses `.NET
+  System.IO.Compression.ZipArchive` and covers the whole tree including dotfiles; empty app
+  directories produce a valid empty archive (parity with GNU tar). Archives are verified
+  entry-by-entry before any fetch.
+- **Automated Git Deployment — a failed backup no longer lets the deploy proceed.** Previously a
+  backup failure incremented the error counter and the run continued to fetch/pull/post-deploy
+  with no safety net. The backup is now created AND verified before any mutation; on failure the
+  run aborts with exit 2 (`Deploy aborted: backup failed.`), nothing fetches, pulls or restarts.
 - **Log Cleanup (`2-Log-Cleanup-Script-(Delete-Files-Older-Than-X-Days)`) — safety guardrails now
   fail closed.** When a file's modification time or size cannot be determined by any source
   (`stat` GNU/BSD, `date`, `wc`), the file is skipped, logged as `UNINSPECTABLE` and counted in a new

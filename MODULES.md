@@ -159,7 +159,7 @@ Git-based application deployment with backup, fetch, pull and post-deploy tasks.
 - CI: `.github/workflows/ci-git-deployment.yml` — ShellCheck, Bash on ubuntu + macOS, PowerShell on Windows + Ubuntu
 - Wiki: [28](wiki/28-Git-Deployment-Overview.md) · [29](wiki/29-Git-Deployment-Bash-vs-PowerShell.md) · [30](wiki/30-Git-Deployment-Scenarios-and-Labs.md)
 
-**Known gaps**, recorded rather than hidden: no rollback, no multi-environment config, no webhook, no container orchestration. `--json`/`--csv` output is available. One app per invocation. Post-deploy (npm/service) failures are recorded but do not abort. Audit write is best-effort.
+**Known gaps**, recorded rather than hidden: rollback covers pull failure only (post-deploy npm/service failures are recorded, never rolled back); no multi-environment config, no webhook, no container orchestration. Backups are created AND verified (gzip -t / entry SHA-256) before any fetch — failure aborts with exit 2. `--json`/`--csv` output is available; `result` gains the additive value `rolled-back`. One app per invocation. An explicit `-r/--repo-url` must match `origin` (normalized comparison) or the run exits 1 before any side effect; both lint legs and CI are green. Audit write is best-effort.
 
 ### ✅ 11 — Scheduling and Automation / EventOps *(Shipped)*
 
