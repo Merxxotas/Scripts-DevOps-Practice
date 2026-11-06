@@ -295,6 +295,134 @@ test_json_csv_mutual() {
     assert_equals "1" "$LAST_EXIT_CODE" "Test 21: mutual exclusion exits 1"
 }
 
+# Test 22: a file under a protected full-tree root must be refused
+# (host-dependent candidates; SKIP when none exists — module 2 pattern)
+test_guardrail_subtree_blocked() {
+    setup
+    local target=""
+    local candidate
+    for candidate in /usr/share/zoneinfo/UTC /etc/hostname /etc/ssh/sshd_config /etc/nginx/nginx.conf; do
+        if [[ -f "$candidate" ]]; then
+            target="$candidate"
+            break
+        fi
+    done
+    if [[ -z "$target" ]]; then
+        printf "%b[SKIP]%b Test 22: no protected full-tree file found on this host\n" "$CYAN" "$RESET"
+        return 0
+    fi
+    run_rotate -f "$target" --force --dry-run
+    assert_equals "1" "$LAST_EXIT_CODE" "Test 22: file under protected full-tree root exits 1"
+}
+
+# Test 23: guard blocks via the resolved path when the input path is a symlink
+test_guard_symlink_resolved() {
+    setup
+    if [[ ! -e /etc/passwd ]]; then
+        printf "%b[SKIP]%b Test 23: /etc/passwd does not exist on this host\n" "$CYAN" "$RESET"
+        return 0
+    fi
+    ln -s /etc "$TEST_SANDBOX/link"
+    run_rotate -f "$TEST_SANDBOX/link/passwd" --force --dry-run
+    assert_equals "1" "$LAST_EXIT_CODE" "Test 23: symlink into protected tree exits 1"
+}
+
+# Test 24: a file in a subtree of an exact-only root stays allowed
+test_guard_exact_only_subtree_allowed() {
+    setup
+    mkdir -p "$TEST_SANDBOX/var-log-like/app"
+    printf 'small\n' > "$TEST_SANDBOX/var-log-like/app/f.log"
+    run_rotate -f "$TEST_SANDBOX/var-log-like/app/f.log"
+    assert_equals "0" "$LAST_EXIT_CODE" "Test 24: subtree of exact-only root is allowed"
+}
+
+# Test 25: a copied backup that does not match must abort before truncation
+test_verify_cmp_failure_aborts_truncate() {
+    setup
+    printf 'precious-log-content\n%.0s' {1..50} > "$TEST_SANDBOX/f.log"
+    cp -p "$TEST_SANDBOX/f.log" "$TEST_SANDBOX/original.bak"
+    mkdir -p "$TEST_SANDBOX/fakebin"
+    cat > "$TEST_SANDBOX/fakebin/cp" <<'EOF'
+#!/bin/bash
+args=()
+for a in "$@"; do
+    [[ "$a" == -* ]] && continue
+    args+=("$a")
+done
+src="${args[0]}"
+dst="${args[$((${#args[@]} - 1))]}"
+/bin/cp -p "$src" "$dst" && printf 'corruption' >> "$dst"
+exit 0
+EOF
+    chmod +x "$TEST_SANDBOX/fakebin/cp"
+    local old_path="$PATH"
+    PATH="$TEST_SANDBOX/fakebin:$PATH"
+    run_rotate -f "$TEST_SANDBOX/f.log" -m 0
+    PATH="$old_path"
+    assert_equals "2" "$LAST_EXIT_CODE" "Test 25a: mismatched backup exits 2"
+    if cmp -s "$TEST_SANDBOX/f.log" "$TEST_SANDBOX/original.bak"; then
+        printf "%b[PASS]%b Test 25b: original log untouched\n" "$GREEN" "$RESET"; ((PASSED_TESTS++)) || true
+    else
+        printf "%b[FAIL]%b Test 25b: original log was modified\n" "$RED" "$RESET" >&2; ((FAILED_TESTS++)) || true
+    fi
+}
+
+# Test 26: a gzip stream that fails verification must abort before truncation
+test_verify_gzip_failure_aborts_truncate() {
+    setup
+    printf 'precious-log-content\n%.0s' {1..50} > "$TEST_SANDBOX/f.log"
+    cp -p "$TEST_SANDBOX/f.log" "$TEST_SANDBOX/original.bak"
+    mkdir -p "$TEST_SANDBOX/fakebin"
+    cat > "$TEST_SANDBOX/fakebin/gzip" <<'EOF'
+#!/bin/bash
+case "${1:-}" in
+    -c) printf 'garbage-not-gzip' ;;
+    -t) exit 1 ;;
+    *) exit 1 ;;
+esac
+EOF
+    chmod +x "$TEST_SANDBOX/fakebin/gzip"
+    local old_path="$PATH"
+    PATH="$TEST_SANDBOX/fakebin:$PATH"
+    run_rotate -f "$TEST_SANDBOX/f.log" -m 0
+    PATH="$old_path"
+    assert_equals "2" "$LAST_EXIT_CODE" "Test 26a: unverifiable gzip exits 2"
+    if cmp -s "$TEST_SANDBOX/f.log" "$TEST_SANDBOX/original.bak"; then
+        printf "%b[PASS]%b Test 26b: original log untouched\n" "$GREEN" "$RESET"; ((PASSED_TESTS++)) || true
+    else
+        printf "%b[FAIL]%b Test 26b: original log was modified\n" "$RED" "$RESET" >&2; ((FAILED_TESTS++)) || true
+    fi
+}
+
+# Test 27: after rotation the gzip backup decompresses to the original bytes
+test_verify_compress_roundtrip() {
+    setup
+    printf 'roundtrip-content\n%.0s' {1..80} > "$TEST_SANDBOX/f.log"
+    cp -p "$TEST_SANDBOX/f.log" "$TEST_SANDBOX/original.bak"
+    run_rotate -f "$TEST_SANDBOX/f.log" -m 0
+    assert_equals "0" "$LAST_EXIT_CODE" "Test 27a: rotation exits 0"
+    if gzip -cd "$TEST_SANDBOX/f.log.1.gz" | cmp -s - "$TEST_SANDBOX/original.bak"; then
+        printf "%b[PASS]%b Test 27b: backup decompresses to original\n" "$GREEN" "$RESET"; ((PASSED_TESTS++)) || true
+    else
+        printf "%b[FAIL]%b Test 27b: backup does not match the original\n" "$RED" "$RESET" >&2; ((FAILED_TESTS++)) || true
+    fi
+}
+
+# Test 28: --no-compress backup is byte-identical to the pre-rotation log
+test_verify_no_compress_backup_matches() {
+    setup
+    printf 'raw-backup-content\n%.0s' {1..80} > "$TEST_SANDBOX/f.log"
+    cp -p "$TEST_SANDBOX/f.log" "$TEST_SANDBOX/original.bak"
+    run_rotate -f "$TEST_SANDBOX/f.log" -m 0 --no-compress
+    assert_equals "0" "$LAST_EXIT_CODE" "Test 28a: no-compress rotation exits 0"
+    assert_file_exists "$TEST_SANDBOX/f.log.1" "Test 28b: raw backup created"
+    if cmp -s "$TEST_SANDBOX/f.log.1" "$TEST_SANDBOX/original.bak"; then
+        printf "%b[PASS]%b Test 28c: raw backup matches the original\n" "$GREEN" "$RESET"; ((PASSED_TESTS++)) || true
+    else
+        printf "%b[FAIL]%b Test 28c: raw backup differs from the original\n" "$RED" "$RESET" >&2; ((FAILED_TESTS++)) || true
+    fi
+}
+
 run_all() {
     test_help_menu
     test_missing_file
@@ -317,6 +445,13 @@ run_all() {
     test_json_dry_run
     test_csv_output
     test_json_csv_mutual
+    test_guardrail_subtree_blocked
+    test_guard_symlink_resolved
+    test_guard_exact_only_subtree_allowed
+    test_verify_cmp_failure_aborts_truncate
+    test_verify_gzip_failure_aborts_truncate
+    test_verify_compress_roundtrip
+    test_verify_no_compress_backup_matches
 }
 
 run_all

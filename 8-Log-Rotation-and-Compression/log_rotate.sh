@@ -108,21 +108,29 @@ get_realpath() {
     fi
 }
 
+# Validates that the log file's parent directory is not a protected system
+# location. Two classes of protection, checked against BOTH the given path
+# and its resolved real path (module 2 port):
+#   1. Full-tree roots (this root and everything under it) — system-owned
+#      trees where rotation is never legitimate.
+#   2. Exact-match roots — these roots themselves are protected, but their
+#      children are the tool's legitimate targets (e.g. /var/log/myapp).
 validate_safety_guardrails() {
     local target="$1"
     local resolved
     resolved="$(get_realpath "$target")"
 
+    # The log file itself is the object; its parent directory is what gets
+    # compared. Check both the given and the resolved path.
+    local -a candidates=()
     local dir
-    dir="$(dirname "$resolved")"
+    for dir in "$(dirname "$target")" "$(dirname "$resolved")"; do
+        [[ "$dir" == "/" ]] || dir="${dir%/}"
+        candidates+=("$dir")
+    done
 
-    local norm_dir="$dir"
-    if [[ "$norm_dir" != "/" ]]; then
-        norm_dir="${norm_dir%/}"
-    fi
-
-    local -a protected_paths=(
-        "/"
+    # System-owned trees: refuse the root itself and every subtree below it.
+    local -a full_tree_roots=(
         "/bin"
         "/sbin"
         "/usr"
@@ -134,11 +142,18 @@ validate_safety_guardrails() {
         "/sys"
         "/boot"
         "/root"
+        "/private/etc"
+    )
+
+    # Roots whose children are legitimate log directories.
+    local -a exact_only_roots=(
+        "/"
         "/var"
+        "/var/run"
+        "/var/log"
         "/tmp"
         "/home"
         "/private"
-        "/private/etc"
         "/private/var"
         "/private/tmp"
         "/Library"
@@ -147,13 +162,31 @@ validate_safety_guardrails() {
         "/Volumes"
     )
 
-    for protected in "${protected_paths[@]}"; do
-        if [[ "$norm_dir" == "$protected" ]]; then
-            printf "%bError: Safety violation! Log file '%s' is in a protected system directory.%b\n" \
-                "$COLOR_RED" "$target" "$COLOR_RESET" >&2
-            log_message "ERROR" "Execution blocked: log file '$target' in protected directory '$dir'."
-            return 1
-        fi
+    local home_real=""
+    if [[ -n "${HOME:-}" ]]; then
+        home_real="$(get_realpath "$HOME")"
+        exact_only_roots+=("${HOME%/}" "${home_real%/}")
+    fi
+
+    local path
+    for path in "${candidates[@]}"; do
+        [[ -n "$path" ]] || continue
+        for root in "${full_tree_roots[@]}"; do
+            if [[ "$path" == "$root" || "$path" == "$root"/* ]]; then
+                printf "%bError: Safety violation! Log file '%s' is inside the protected system tree '%s'.%b\n" \
+                    "$COLOR_RED" "$target" "$root" "$COLOR_RESET" >&2
+                log_message "ERROR" "Execution blocked: log file '$target' is inside the protected system tree '$root'."
+                return 1
+            fi
+        done
+        for root in "${exact_only_roots[@]}"; do
+            if [[ "$path" == "$root" ]]; then
+                printf "%bError: Safety violation! Log file '%s' is a protected system root.%b\n" \
+                    "$COLOR_RED" "$target" "$COLOR_RESET" >&2
+                log_message "ERROR" "Execution blocked: log file '$target' is a protected system root '$root'."
+                return 1
+            fi
+        done
     done
     return 0
 }
@@ -392,14 +425,12 @@ main() {
         fi
     done
 
-    # Copy current log to slot 1
+    # Copy current log to slot 1. The backup is verified byte-exact against
+    # the original BEFORE the active log is truncated; anything else risks
+    # losing the only copy of the log.
     local slot1
     slot1="$(backup_name 1)"
-    # slot1 may end in .gz; copy to a temp raw name first
     local raw_slot="${LOG_FILE}.1"
-    if [[ "$COMPRESS" == true ]]; then
-        raw_slot="${LOG_FILE}.1"
-    fi
 
     if [[ "$VERBOSE" == true && "$OUTPUT_MODE" == "human" ]]; then
         printf "  copying %s -> %s\n" "$LOG_FILE" "$raw_slot"
@@ -408,26 +439,33 @@ main() {
         printf "%b✗ Failed to copy %s -> %s%b\n" "$COLOR_RED" "$LOG_FILE" "$raw_slot" "$COLOR_RESET" >&2
         log_message "ERROR" "Failed to copy $LOG_FILE -> $raw_slot"
         ((FAILED_COUNT++)) || true
+    elif ! cmp -s "$LOG_FILE" "$raw_slot"; then
+        # A backup that does not match is worse than none: never truncate
+        # a log we cannot restore byte-for-byte.
+        printf "%b✗ Backup copy '%s' does not match '%s'; refusing to truncate.%b\n" "$COLOR_RED" "$raw_slot" "$LOG_FILE" "$COLOR_RESET" >&2
+        log_message "ERROR" "Backup copy $raw_slot failed byte comparison against $LOG_FILE; truncation refused."
+        ((FAILED_COUNT++)) || true
     else
         if [[ "$COMPRESS" == true ]]; then
             if [[ "$VERBOSE" == true && "$OUTPUT_MODE" == "human" ]]; then
                 printf "  compressing %s -> %s\n" "$raw_slot" "$slot1"
             fi
-            if gzip -c "$raw_slot" > "$slot1" 2>/dev/null; then
+            if gzip -c "$raw_slot" > "$slot1" 2>/dev/null \
+                && gzip -t "$slot1" 2>/dev/null \
+                && gzip -cd "$slot1" 2>/dev/null | cmp -s - "$LOG_FILE"; then
                 rm -f "$raw_slot" 2>/dev/null || true
                 if [[ "$OUTPUT_MODE" == "human" ]]; then
                     printf "%b✓ Rotated to %s%b\n" "$COLOR_GREEN" "$slot1" "$COLOR_RESET"
                 fi
                 ROTATED=true
             else
-                printf "%b✗ Compression failed for %s%b\n" "$COLOR_RED" "$raw_slot" "$COLOR_RESET" >&2
-                log_message "ERROR" "Compression failed for $raw_slot"
-                # keep raw as backup
-                mv -f "$raw_slot" "$slot1" 2>/dev/null || true
+                printf "%b✗ Compressed backup '%s' failed integrity verification; refusing to truncate.%b\n" "$COLOR_RED" "$slot1" "$COLOR_RESET" >&2
+                log_message "ERROR" "Compressed backup $slot1 failed verification (gzip -t or content compare); truncation refused."
+                # Keep both artifacts for inspection; do not truncate.
                 ((FAILED_COUNT++)) || true
             fi
         else
-            # raw_slot already equals slot1 in no-compress mode
+            # raw_slot already equals slot1 in no-compress mode and is cmp-verified.
             if [[ "$OUTPUT_MODE" == "human" ]]; then
                 printf "%b✓ Rotated to %s%b\n" "$COLOR_GREEN" "$slot1" "$COLOR_RESET"
             fi
