@@ -61,8 +61,8 @@ inputs are byte-identical to the base commit (differential check).
 
 T1 — S1,S2 (Bash) — inline — two-tier guard + verify-before-truncate + RED/GREEN tests — [x] fa70f6e (54/54)
 T2 — S1,S3 (PowerShell) — inline — same guard + verification + PS tests (pwsh 7.6.9 local), CI-adaptive — [x] 5a681d6 (30/30)
-T3 — S1-S3 (docs) — inline — SPECS.md §5/§6, README/wiki 19-20 — commit pending
-T4 — S1-S4 (verify+deliver) — inline + independent verifier (item 1) — RDD assess, CI, PR, merge --admin --rebase — commit: n/a
+T3 — S1-S3 (docs) — inline — SPECS.md §5/§6, README/wiki 19-20 — [x] fbdb929
+T4 — S1-S4 (verify+deliver) — inline + independent verifier (item 1) — verifier done (S1/S2/S4 met; S3 met except unverifiable windows-2022 CI leg; zero change-caused blockers); correction batch committed (A1 PS HOME realpath arm + tests 29-31/19; 60/60 + 31/31); recheck limited to A1 in progress — RDD assess, PR, merge --admin --rebase
 
 ## Log
 
@@ -85,3 +85,5 @@ RED tests in both suites before implementation. Verification of the PS side
 runs locally with pwsh 7.6.9 (+ PSScriptAnalyzer 1.25.0) instead of waiting
 for CI. Scratch under /tmp/opencode or mktemp; subagents report paths,
 parent cleans.
+
+L6 — Independent verification (2026-11-05, gentle-ai-verify, read-only, scratch /tmp/opencode/verify-mod8-3TPlkF — removed after report): S1 met, S2 met, S4 met (54/54 bash, 30/30 PS at that point, lints clean, 15/15 differential byte-identical, RED integrity confirmed), S3 met except the unverifiable windows-2022 CI leg (U1, deferred to PR CI). Zero change-caused blockers. Verifier-promoted regression tests committed (bash Test 29 symlinked HOME refused incl. realpath; Test 30 gzip -t passes but payload differs -> exit 2, original untouched, artifact kept; Test 31 double-slash path refused; PS Test 19 POSIX realpath HOME refused). Advisory A1 fixed in the correction batch: PS guard gains the HOME realpath arm (Get-RealPath + ConvertTo-GuardPath) matching bash; PS suite 31/31, bash 60/60 afterwards. Note: verifier probes contaminated workspace with f15/ (un-cd'd relative path) — parent removed it and the scratch dir.

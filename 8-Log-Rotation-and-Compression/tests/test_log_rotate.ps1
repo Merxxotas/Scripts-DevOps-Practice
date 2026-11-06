@@ -249,6 +249,30 @@ Assert-Equal 0 $script:LastExitCode "Test 18a: rotation exits 0"
 $sz = (Get-Item -LiteralPath $f).Length
 Assert-Equal 0 $sz "Test 18b: original truncated to 0"
 
+# Test 19: a symlinked HOME is refused, including via its realpath (S1; POSIX only)
+if ($IsWin) {
+    Write-Host "[SKIP] Test 19: symlink HOME guard test is POSIX-only" -ForegroundColor Yellow
+} else {
+    $realHome = Join-Path $TestSandbox "realhome"
+    New-Item -ItemType Directory -Path $realHome -Force | Out-Null
+    $f = Join-Path $realHome "d.log"
+    "small" | Set-Content -LiteralPath $f -NoNewline
+    $homeLink = Join-Path $TestSandbox "homelink"
+    try {
+        New-Item -ItemType SymbolicLink -Path $homeLink -Target $realHome -ErrorAction Stop | Out-Null
+        $oldHome = $env:HOME
+        $env:HOME = $homeLink
+        try {
+            Invoke-Rotate -ScriptArgs @("-LogFile", "`"$realHome/d.log`"", "-Force", "-DryRun")
+            Assert-Equal 1 $script:LastExitCode "Test 19: realpath of symlinked HOME refused"
+        } finally {
+            $env:HOME = $oldHome
+        }
+    } catch {
+        Write-Host "[SKIP] Test 19: symlink creation refused on this host" -ForegroundColor Yellow
+    }
+}
+
 # Summary
 Write-Host ""
 Write-Host "========================================"
