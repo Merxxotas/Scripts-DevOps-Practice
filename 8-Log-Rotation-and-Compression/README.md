@@ -7,7 +7,7 @@ Cross-platform log rotation with compression and retention. Available in **POSIX
 
 ## Key Features
 
-- 🛡️ **Safety Guardrails**: refuses protected system roots; requires an existing regular log file.
+- 🛡️ **Safety Guardrails**: two-tier protected system roots (full-tree roots and their subtrees; exact roots themselves); the active log is truncated only after the rotated backup is verified byte-exact.
 - 🧪 **Dry-Run Simulation**: preview renames, compression, truncation and pruning without touching anything.
 - 📦 **Compression**: gzip on Bash (`.gz`), zip on PowerShell (`.zip`).
 - 🧹 **Retention**: keeps the most recent N backups; prunes the rest.

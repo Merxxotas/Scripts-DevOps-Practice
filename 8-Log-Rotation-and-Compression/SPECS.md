@@ -38,7 +38,8 @@ and the standard compression tooling (`gzip` on Bash, `Compress-Archive` on Powe
 |                             4. Rotation                                        |
 |  - Shift backups: .<i>.<ext> -> .<i+1>.<ext> (from highest down)              |
 |  - Copy current log to .1.<ext>, compress when enabled                         |
-|  - Truncate current log to zero bytes                                          |
+|  - Verify the backup (byte compare / gzip -t / zip payload hash)               |
+|  - Truncate current log to zero bytes (only after verification)                |
 +---------------------------------------+----------------------------------------+
                                         |
                                         v
@@ -58,7 +59,7 @@ and the standard compression tooling (`gzip` on Bash, `Compress-Archive` on Powe
 
 ### Design Principles
 1. **Zero External Dependencies**: only core OS utilities (`stat`, `cp`, `mv`, `rm`, `gzip` on Bash; standard .NET / PowerShell runtime on Windows).
-2. **Safety First**: destructive operations (truncation, deletion) are guarded against protected system roots and require an existing, regular log file.
+2. **Safety First**: destructive operations (truncation, deletion) are guarded against protected system roots and require an existing, regular log file plus a backup verified byte-exact against the original before truncation.
 3. **Dry-Run**: preview every planned action without mutating anything.
 4. **Observable & Auditable**: every rotation is traceable through console output and an optional audit log.
 
@@ -95,7 +96,26 @@ and the standard compression tooling (`gzip` on Bash, `Compress-Archive` on Powe
 
 ## 5. Safety Guardrails
 
-- **Path blacklist:** refuse to operate when the log file's resolved directory is a protected system root (`/`, `/etc`, `/var`, `/bin`, `/sbin`, `/usr`, `/boot`, `/dev`, `/proc`, `/sys`, `/root`, `/tmp`, `/home`, `/Library`, `/System`, `/Applications`, `/Volumes` on POSIX; `C:\`, `C:\Windows`, `C:\Program Files`, `C:\Users`, `C:\ProgramData` on Windows).
+- **Two-tier path protection:** the guard evaluates the *parent directory* of the
+  log file, checked against BOTH the given path and its resolved real path.
+  1. **Full-tree roots** — the root itself and every subtree below it are
+     refused: `/bin`, `/sbin`, `/usr`, `/usr/bin`, `/usr/sbin`, `/etc`,
+     `/dev`, `/proc`, `/sys`, `/boot`, `/root`, `/private/etc`, and
+     `C:\Windows` on Windows.
+  2. **Exact-match roots** — only the root itself is refused; its children
+     are legitimate log targets: `/`, `/var`, `/var/run`, `/var/log`, `/tmp`,
+     `/home`, `/private`, `/private/var`, `/private/tmp`, `/Library`,
+     `/System`, `/Applications`, `/Volumes`, plus the user's home directory,
+     and `C:\`, `C:\Program Files`, `C:\Program Files (x86)`, `C:\ProgramData`,
+     `C:\Users` on Windows.
+- **Verified backup before truncate:** the raw copy is compared byte-exact
+  against the original (`cmp` on Bash, SHA-256 on PowerShell) before any
+  destructive step. The compress path additionally requires `gzip -t` to pass
+  and `gzip -cd <backup>` to compare equal to the original (PowerShell:
+  the `.zip` is extracted to a temporary directory whose payload is
+  hash-compared against the original). On any verification failure the
+  original log is left **untouched**, `FAILED_COUNT` is incremented, the
+  artifacts are preserved for inspection and the exit code is 2.
 - **Existence:** the log file must exist and be a regular file (not a directory).
 - **Backup count:** must be a positive integer.
 - **Max size:** must be a non-negative integer.
@@ -107,8 +127,14 @@ and the standard compression tooling (`gzip` on Bash, `Compress-Archive` on Powe
 
 - Bash: `gzip` (`.log.1.gz`).
 - PowerShell: `Compress-Archive` (`.log.1.zip`).
-- Both remove the intermediate raw copy after successful compression.
+- Both remove the intermediate raw copy after successful compression **and verification**.
 - `--no-compress` keeps the raw `.log.1` file and no compression is attempted.
+- The backup is verified **before** the active log is truncated: the raw copy
+  is compared byte-exact against the original (`cmp` / SHA-256); the compressed
+  artifact must pass `gzip -t` and re-decompress to the original bytes
+  (`gzip -cd | cmp` on Bash; the `.zip` is extracted to a temporary directory
+  and the payload hash-compared on PowerShell). Any verification failure
+  aborts the rotation without truncating, preserves the artifacts and exits 2.
 
 ---
 
