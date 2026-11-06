@@ -732,7 +732,7 @@ executes a workflow nested inside a module folder:
 | Job | Runner | Gate |
 | :--- | :--- | :--- |
 | Lint Bash | `ubuntu-24.04` | `shellcheck -x` on the implementation and the suite |
-| Test Bash | `ubuntu-24.04`, `macos-14` | The Bash suite |
+| Test Bash | `ubuntu-24.04`, `macos-26` | The Bash suite |
 | Lint PowerShell | `windows-2022` | `PSScriptAnalyzer` with the module's `PSScriptAnalyzerSettings.psd1` |
 | Test PowerShell | `windows-2022`, `ubuntu-24.04` | The PowerShell suite |
 

@@ -47,7 +47,7 @@ pipeline also triggers a run.
 | Job | Runner | Gate |
 | :--- | :--- | :--- |
 | `lint-bash` | `ubuntu-24.04` | `shellcheck -x` and `bash -n` on the native script |
-| `test-bash` | `ubuntu-24.04`, `macos-14` | the Bash test suite |
+| `test-bash` | `ubuntu-24.04`, `macos-26` | the Bash test suite |
 | `lint-powershell` | `windows-2022` | PSScriptAnalyzer against the module settings file |
 | `test-powershell` | `windows-2022`, `ubuntu-24.04` | the PowerShell test suite |
 | `test-python` | 3 OS × Python 3.9/3.12/3.13 | `ruff check`, `ruff format --check` and `pytest` for Stage 2 **and** Stage 3 |
