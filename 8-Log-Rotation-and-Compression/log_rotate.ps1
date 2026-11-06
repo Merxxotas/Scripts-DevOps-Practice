@@ -94,58 +94,143 @@ function Get-FileSize {
     }
 }
 
+# Canonicalize a path the way realpath(1) does: absolute, normalized, with
+# every symlink in the path resolved (bounded hops against ELOOP cycles).
+# Resolve-Path does NOT resolve OS symlinks, so it is not a substitute.
+# The final component is left unresolved: directory resolution is what the
+# safety guard needs, and file opens follow links anyway.
+function Get-RealPath {
+    param([string]$Path)
+
+    $current = [System.IO.Path]::GetFullPath($Path)
+
+    for ($hop = 0; $hop -lt 40; $hop++) {
+        $current = [System.IO.Path]::GetFullPath($current)
+        $root = [System.IO.Path]::GetPathRoot($current)
+        $relative = $current.Substring($root.Length)
+        $parts = @($relative -split '[/\\]' | Where-Object { -not [string]::IsNullOrEmpty($_) })
+        $acc = $root
+        $expanded = $false
+
+        for ($i = 0; $i -lt $parts.Count; $i++) {
+            $candidate = Join-Path $acc $parts[$i]
+            $item = Get-Item -LiteralPath $candidate -Force -ErrorAction SilentlyContinue
+            $target = $null
+            if ($null -ne $item) { $target = $item.LinkTarget }
+            if (-not [string]::IsNullOrEmpty($target)) {
+                $expandedBase = if ([System.IO.Path]::IsPathRooted($target)) {
+                    [System.IO.Path]::GetFullPath($target)
+                } else {
+                    [System.IO.Path]::GetFullPath((Join-Path $acc $target))
+                }
+                $current = $expandedBase
+                for ($j = $i + 1; $j -lt $parts.Count; $j++) {
+                    $current = Join-Path $current $parts[$j]
+                }
+                $expanded = $true
+                break
+            }
+            $acc = $candidate
+        }
+
+        if (-not $expanded) { return [System.IO.Path]::GetFullPath($acc) }
+    }
+
+    return $current
+}
+
+# Two classes of protection, checked against BOTH the given path's parent
+# and the fully resolved path's parent (module 2 port):
+#   1. Full-tree roots (this root and everything under it) — system-owned
+#      trees where rotation is never legitimate.
+#   2. Exact-match roots — these roots themselves are protected, but their
+#      children are the tool's legitimate targets (e.g. C:\Logs\App).
 function Test-SafetyGuardrail {
     param([string]$Path)
 
-    try {
-        $ResolvedPath = (Resolve-Path -LiteralPath $Path -ErrorAction Stop).ProviderPath
-    } catch {
-        $ResolvedPath = [System.IO.Path]::GetFullPath($Path)
+    $ResolvedPath = Get-RealPath -Path $Path
+
+    function ConvertTo-GuardPath {
+        param([string]$p)
+        $n = $p.TrimEnd('\', '/') -replace '\\', '/'
+        if ([string]::IsNullOrEmpty($n)) { return '/' }
+        $n = $n.TrimEnd('/')
+        if ($n -match '^[A-Za-z]:$') { return "$n/" }
+        return $n
     }
 
-    $Blacklist = @(
-        "C:\",
-        "C:\Windows",
-        "C:\Windows\System32",
-        "C:\Program Files",
-        "C:\Program Files (x86)",
-        "C:\Users",
-        "C:\ProgramData",
-        "/",
+    # System-owned trees: refuse the root itself and every subtree below it.
+    # Drive roots ("C:/") are exact-only; handled by the exact-match list.
+    $FullTreeRoots = @(
         "/bin",
         "/sbin",
         "/usr",
         "/usr/bin",
+        "/usr/sbin",
         "/etc",
         "/dev",
         "/proc",
         "/sys",
         "/boot",
         "/root",
+        "/private/etc",
+        "C:/Windows"
+    )
+
+    # Roots whose children are legitimate log directories.
+    $ExactOnlyRoots = @(
+        "/",
         "/var",
+        "/var/run",
+        "/var/log",
         "/tmp",
         "/home",
         "/private",
-        "/private/etc",
         "/private/var",
         "/private/tmp",
         "/Library",
         "/System",
         "/Applications",
-        "/Volumes"
+        "/Volumes",
+        "C:/",
+        "C:/Program Files",
+        "C:/Program Files (x86)",
+        "C:/ProgramData",
+        "C:/Users"
     )
 
-    $Parent = [System.IO.Path]::GetDirectoryName($ResolvedPath)
-    if ([string]::IsNullOrEmpty($Parent)) { $Parent = $ResolvedPath }
+    $UserProfile = [Environment]::GetFolderPath("UserProfile")
+    if ([string]::IsNullOrEmpty($UserProfile)) { $UserProfile = $HOME }
+    if (-not [string]::IsNullOrEmpty($UserProfile)) {
+        $ExactOnlyRoots += (ConvertTo-GuardPath $UserProfile)
+    }
+    if (-not [string]::IsNullOrEmpty($HOME)) {
+        $ExactOnlyRoots += (ConvertTo-GuardPath $HOME)
+    }
 
-    $NormalizedParent = $Parent.TrimEnd('\', '/')
+    $InputParent = [System.IO.Path]::GetDirectoryName($Path)
+    if ([string]::IsNullOrEmpty($InputParent)) { $InputParent = $Path }
+    $ResolvedParent = [System.IO.Path]::GetDirectoryName($ResolvedPath)
+    if ([string]::IsNullOrEmpty($ResolvedParent)) { $ResolvedParent = $ResolvedPath }
 
-    foreach ($Blocked in $Blacklist) {
-        $NormalizedBlocked = $Blocked.TrimEnd('\', '/')
-        if ([string]::Equals($NormalizedParent, $NormalizedBlocked, [System.StringComparison]::OrdinalIgnoreCase)) {
-            Write-Host "$($Colors.Red)Error: Safety violation! Log file '$Path' is in a protected system directory.$($Colors.Reset)"
-            Write-AuditLog -Level "ERROR" -Message "Execution blocked: log file '$Path' in protected directory '$Parent'."
-            return $false
+    foreach ($Candidate in @((ConvertTo-GuardPath $InputParent), (ConvertTo-GuardPath $ResolvedParent))) {
+        if ([string]::IsNullOrEmpty($Candidate)) { continue }
+
+        foreach ($Root in $FullTreeRoots) {
+            if ([string]::Equals($Candidate, $Root, [System.StringComparison]::OrdinalIgnoreCase) -or
+                $Candidate.StartsWith($Root + "/", [System.StringComparison]::OrdinalIgnoreCase)) {
+                Write-Host "$($Colors.Red)Error: Safety violation! Log file '$Path' is inside the protected system tree '$Root'.$($Colors.Reset)"
+                Write-AuditLog -Level "ERROR" -Message "Execution blocked: log file '$Path' is inside the protected system tree '$Root'."
+                return $false
+            }
+        }
+
+        foreach ($Root in $ExactOnlyRoots) {
+            if ([string]::Equals($Candidate, $Root, [System.StringComparison]::OrdinalIgnoreCase)) {
+                Write-Host "$($Colors.Red)Error: Safety violation! Log file '$Path' is a protected system root.$($Colors.Reset)"
+                Write-AuditLog -Level "ERROR" -Message "Execution blocked: log file '$Path' is a protected system root '$Root'."
+                return $false
+            }
         }
     }
 
@@ -207,8 +292,7 @@ function Invoke-LogRotate {
     $FileSize = Get-FileSize -Path $LogFile
     $MaxSizeBytes = [long]$MaxSizeMB * 1048576
 
-    $Resolved = $LogFile
-    try { $Resolved = (Resolve-Path -LiteralPath $LogFile).ProviderPath } catch { $null = $_ }
+    $Resolved = Get-RealPath -Path $LogFile
 
     if ($Script:OutputMode -eq "human") {
         Write-Host "$($Colors.Blue)$($Colors.Bold)============================================================$($Colors.Reset)"
@@ -301,39 +385,81 @@ function Invoke-LogRotate {
     $rawSlot = "$LogFile.1"
 
     if ($Verbose -and $Script:OutputMode -eq "human") { Write-Host "  copying $LogFile -> $rawSlot" }
+    $CopyOk = $false
+    $HashOriginal = $null
     try {
         Copy-Item -LiteralPath $LogFile -Destination $rawSlot -Force -ErrorAction Stop
+        $CopyOk = $true
     } catch {
         Write-Host "$($Colors.Red)✗ Failed to copy $LogFile -> $rawSlot$($Colors.Reset)"
         Write-AuditLog -Level "ERROR" -Message "Failed to copy $LogFile -> $rawSlot"
         $Script:FailedCount++
     }
 
+    # A backup that does not match the original is worse than none: never
+    # truncate a log we cannot restore byte-for-byte.
+    if ($CopyOk) {
+        try {
+            $HashOriginal = (Get-FileHash -LiteralPath $LogFile -Algorithm SHA256).Hash
+            $HashCopy = (Get-FileHash -LiteralPath $rawSlot -Algorithm SHA256).Hash
+        } catch {
+            $HashOriginal = $null
+            $HashCopy = $null
+        }
+        if ([string]::IsNullOrEmpty($HashOriginal) -or ($HashOriginal -ne $HashCopy)) {
+            Write-Host "$($Colors.Red)✗ Backup copy '$rawSlot' does not match '$LogFile'; refusing to truncate.$($Colors.Reset)"
+            Write-AuditLog -Level "ERROR" -Message "Backup copy $rawSlot failed hash comparison against $LogFile; truncation refused."
+            $Script:FailedCount++
+            $CopyOk = $false
+        }
+    }
+
     if ($Script:FailedCount -eq 0) {
         if ($Script:DoCompress) {
             if ($Verbose -and $Script:OutputMode -eq "human") { Write-Host "  compressing $rawSlot -> $slot1" }
+            $VerifyDir = Join-Path ([System.IO.Path]::GetTempPath()) ("log_rotate_verify_" + [System.Guid]::NewGuid().ToString("N"))
             try {
                 Compress-Archive -LiteralPath $rawSlot -DestinationPath $slot1 -Force -ErrorAction Stop
-                Remove-Item -LiteralPath $rawSlot -Force -ErrorAction SilentlyContinue
-                if ($Script:OutputMode -eq "human") { Write-Host "$($Colors.Green)✓ Rotated to $slot1$($Colors.Reset)" }
-                $Script:Rotated = $true
+                New-Item -ItemType Directory -Path $VerifyDir -Force | Out-Null
+                Expand-Archive -LiteralPath $slot1 -DestinationPath $VerifyDir -Force -ErrorAction Stop
+                $Extracted = Get-ChildItem -LiteralPath $VerifyDir -File | Select-Object -First 1
+                $HashZip = $null
+                if ($null -ne $Extracted) {
+                    $HashZip = (Get-FileHash -LiteralPath $Extracted.FullName -Algorithm SHA256).Hash
+                }
+                if (-not [string]::IsNullOrEmpty($HashZip) -and $HashZip -eq $HashOriginal) {
+                    Remove-Item -LiteralPath $rawSlot -Force -ErrorAction SilentlyContinue
+                    if ($Script:OutputMode -eq "human") { Write-Host "$($Colors.Green)✓ Rotated to $slot1$($Colors.Reset)" }
+                    $Script:Rotated = $true
+                } else {
+                    Write-Host "$($Colors.Red)✗ Compressed backup '$slot1' failed integrity verification; refusing to truncate.$($Colors.Reset)"
+                    Write-AuditLog -Level "ERROR" -Message "Compressed backup $slot1 failed integrity verification; truncation refused."
+                    # Keep both artifacts for inspection; do not truncate.
+                    $Script:FailedCount++
+                }
             } catch {
-                Write-Host "$($Colors.Red)✗ Compression failed for $rawSlot$($Colors.Reset)"
-                Write-AuditLog -Level "ERROR" -Message "Compression failed for $rawSlot"
+                Write-Host "$($Colors.Red)✗ Compressed backup '$slot1' failed integrity verification; refusing to truncate.$($Colors.Reset)"
+                Write-AuditLog -Level "ERROR" -Message "Compressed backup $slot1 failed verification: $($_.Exception.Message); truncation refused."
                 $Script:FailedCount++
+            } finally {
+                Remove-Item -LiteralPath $VerifyDir -Recurse -Force -ErrorAction SilentlyContinue
             }
         } else {
-            # rawSlot already correct name? rename to slot1 if different
+            # rawSlot already equals slot1 in no-compress mode and is hash-verified.
             if ($rawSlot -ne $slot1) {
                 try {
                     Move-Item -LiteralPath $rawSlot -Destination $slot1 -Force -ErrorAction Stop
                 } catch {
                     Write-Host "$($Colors.Red)✗ Failed to move $rawSlot -> $slot1$($Colors.Reset)"
+                    Write-AuditLog -Level "ERROR" -Message "Failed to move $rawSlot -> $slot1"
                     $Script:FailedCount++
                 }
             }
-            if ($Script:OutputMode -eq "human") { Write-Host "$($Colors.Green)✓ Rotated to $slot1$($Colors.Reset)" }
-            $Script:Rotated = $true
+            if ($Script:FailedCount -eq 0) {
+                # rawSlot (now the artifact) is hash-verified against the original.
+                if ($Script:OutputMode -eq "human") { Write-Host "$($Colors.Green)✓ Rotated to $slot1$($Colors.Reset)" }
+                $Script:Rotated = $true
+            }
         }
     }
 
