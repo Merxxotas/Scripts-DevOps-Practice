@@ -287,6 +287,7 @@ main() {
             printf "%bError: -r/--repo-url does not match the configured origin (%s vs %s).%b\n" "$COLOR_RED" "$want" "$have" "$COLOR_RESET" >&2
             exit 1
         fi
+        REPO_URL="$want"
     elif [[ -n "$origin_url" ]]; then
         REPO_URL="$(scrub_repo_url "$origin_url")"
     fi
