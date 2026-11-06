@@ -10,6 +10,16 @@ New-Item -ItemType Directory -Path $TestSandbox -Force | Out-Null
 $AppDir = Join-Path $TestSandbox "appdir"
 New-Item -ItemType Directory -Path $AppDir -Force | Out-Null
 
+# Host git config must not leak into the tests (e.g. core.autocrlf=true on
+# Git for Windows rewrites line endings on checkout/add and dirties clones).
+$emptyGitConfig = Join-Path $TestSandbox "gitconfig-empty"
+New-Item -ItemType File -Path $emptyGitConfig -Force | Out-Null
+$env:GIT_CONFIG_NOSYSTEM = "1"
+$env:GIT_CONFIG_GLOBAL = $emptyGitConfig
+$env:GIT_CONFIG_COUNT = "1"
+$env:GIT_CONFIG_KEY_0 = "core.autocrlf"
+$env:GIT_CONFIG_VALUE_0 = "false"
+
 # AppDir doubles as a git work tree by default (deploy pre-flight requires one).
 & git init -b main $AppDir -q | Out-Null
 
@@ -28,11 +38,6 @@ function Invoke-Deploy {
     $psi.RedirectStandardOutput = $true
     $psi.RedirectStandardError = $true
     $psi.UseShellExecute = $false
-    # isolate git config: the host may rewrite https->ssh URLs (insteadOf); tests must be deterministic
-    $emptyGitConfig = Join-Path $TestSandbox "gitconfig-empty"
-    if (-not (Test-Path -LiteralPath $emptyGitConfig)) { New-Item -ItemType File -Path $emptyGitConfig -Force | Out-Null }
-    $psi.EnvironmentVariables["GIT_CONFIG_NOSYSTEM"] = "1"
-    $psi.EnvironmentVariables["GIT_CONFIG_GLOBAL"] = $emptyGitConfig
     $proc = [System.Diagnostics.Process]::Start($psi)
     $script:LastStdout = $proc.StandardOutput.ReadToEnd()
     $script:LastStderr = $proc.StandardError.ReadToEnd()
