@@ -180,6 +180,75 @@ $f = Join-Path $TestSandbox "m.log"
 Invoke-Rotate -ScriptArgs @("-LogFile", "`"$f`"", "-Force", "-Json", "-Csv")
 Assert-Equal 1 $script:LastExitCode "Test 13: mutual exclusion exits 1"
 
+# Test 14: a file under a protected full-tree root must be refused
+# (host-dependent candidates; SKIP when none exists)
+$IsWin = [System.Runtime.InteropServices.RuntimeInformation]::IsOSPlatform([System.Runtime.InteropServices.OSPlatform]::Windows)
+$ProtectedProbe = $null
+$ProtectedCandidates = if ($IsWin) {
+    @("C:\Windows\System32\drivers\etc\hosts")
+} else {
+    @("/usr/share/zoneinfo/UTC", "/etc/hostname", "/etc/ssh/sshd_config", "/etc/nginx/nginx.conf")
+}
+foreach ($c in $ProtectedCandidates) {
+    if (Test-Path -LiteralPath $c -PathType Leaf) { $ProtectedProbe = $c; break }
+}
+if ($null -eq $ProtectedProbe) {
+    Write-Host "[SKIP] Test 14: no protected full-tree file found on this host" -ForegroundColor Yellow
+} else {
+    Invoke-Rotate -ScriptArgs @("-LogFile", "`"$ProtectedProbe`"", "-Force", "-DryRun")
+    Assert-Equal 1 $script:LastExitCode "Test 14: file under protected full-tree root exits 1"
+}
+
+# Test 15: a file in a subtree of an exact-only root stays allowed
+$subdir = Join-Path $TestSandbox "var-log-like"
+New-Item -ItemType Directory -Path (Join-Path $subdir "app") -Force | Out-Null
+$f = Join-Path (Join-Path $subdir "app") "f.log"
+"small" | Set-Content -LiteralPath $f -NoNewline
+Invoke-Rotate -ScriptArgs @("-LogFile", "`"$f`"")
+Assert-Equal 0 $script:LastExitCode "Test 15: subtree of exact-only root is allowed"
+
+# Test 16: guard blocks via the resolved path when the input path is a symlink (POSIX only)
+if ($IsWin) {
+    Write-Host "[SKIP] Test 16: symlink guard test is POSIX-only" -ForegroundColor Yellow
+} elseif (-not (Test-Path /etc/passwd -PathType Leaf)) {
+    Write-Host "[SKIP] Test 16: /etc/passwd does not exist on this host" -ForegroundColor Yellow
+} else {
+    $link = Join-Path $TestSandbox "link"
+    try {
+        New-Item -ItemType SymbolicLink -Path $link -Target "/etc" -ErrorAction Stop | Out-Null
+        Invoke-Rotate -ScriptArgs @("-LogFile", "`"$link/passwd`"", "-Force", "-DryRun")
+        Assert-Equal 1 $script:LastExitCode "Test 16: symlink into protected tree exits 1"
+    } catch {
+        Write-Host "[SKIP] Test 16: symlink creation refused on this host" -ForegroundColor Yellow
+    }
+}
+
+# Test 17: the zip backup decompresses to the original bytes
+$f = Join-Path $TestSandbox "zipcheck.log"
+$original = Join-Path $TestSandbox "zipcheck.original"
+("roundtrip-content`n" * 80) | Set-Content -LiteralPath $f -NoNewline
+Copy-Item -LiteralPath $f -Destination $original -Force
+Invoke-Rotate -ScriptArgs @("-LogFile", "`"$f`"", "-MaxSizeMB", "0")
+Assert-Equal 0 $script:LastExitCode "Test 17a: rotation exits 0"
+$verifyDir = Join-Path ([System.IO.Path]::GetTempPath()) ("log_rotate_ps_test_" + [System.Guid]::NewGuid().ToString("N"))
+try {
+    Expand-Archive -LiteralPath "$f.1.zip" -DestinationPath $verifyDir -Force -ErrorAction Stop
+    $extracted = (Get-ChildItem -LiteralPath $verifyDir -File | Select-Object -First 1).FullName
+    $hashOriginal = (Get-FileHash -LiteralPath $original -Algorithm SHA256).Hash
+    $hashZip = (Get-FileHash -LiteralPath $extracted -Algorithm SHA256).Hash
+    Assert-Equal $hashOriginal $hashZip "Test 17b: zip backup matches the original"
+} finally {
+    Remove-Item -LiteralPath $verifyDir -Recurse -Force -ErrorAction SilentlyContinue
+}
+
+# Test 18: the original is truncated to zero bytes after rotation
+$f = Join-Path $TestSandbox "trunccheck.log"
+("line`n" * 100) | Set-Content -LiteralPath $f -NoNewline
+Invoke-Rotate -ScriptArgs @("-LogFile", "`"$f`"", "-MaxSizeMB", "0")
+Assert-Equal 0 $script:LastExitCode "Test 18a: rotation exits 0"
+$sz = (Get-Item -LiteralPath $f).Length
+Assert-Equal 0 $sz "Test 18b: original truncated to 0"
+
 # Summary
 Write-Host ""
 Write-Host "========================================"
