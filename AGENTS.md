@@ -114,7 +114,7 @@ Bash `shellcheck -x` · PowerShell `PSScriptAnalyzer` · Python `ruff check` + `
 - **Always at the repository root** in `.github/workflows/`. GitHub ignores workflows in nested
   `.github/` folders — a module's pipeline placed inside its own folder **will never run**.
 - **Always path-filtered**, including the workflow file itself.
-- **Pin OS versions explicitly** (`ubuntu-24.04`, `macos-14`, `windows-2022`) — do not use `-latest`
+- **Pin OS versions explicitly** (`ubuntu-24.04`, `macos-26`, `windows-2022`) — do not use `-latest`
   aliases for the matrix.
 - **Never** bake credentials into the workflow. Use repository secrets. →
 [`wiki/08-CI-CD-Pipelines.md`](wiki/08-CI-CD-Pipelines.md)

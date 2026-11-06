@@ -56,7 +56,7 @@ transport, config file and doctor are the pattern the remaining seven seed modul
   scenarios and runs in CI
 - `docs/` — `ARCHITECTURE_COMPARISON.md`, `SCENARIOS.md`, `labs/LAB1-3`
 - CI: `.github/workflows/ci-disk-monitor.yml` — six jobs: `lint-bash` (ShellCheck) and
-  `lint-powershell` (PSScriptAnalyzer), `test-bash` on `ubuntu-24.04` and `macos-14`, and
+  `lint-powershell` (PSScriptAnalyzer), `test-bash` on `ubuntu-24.04` and `macos-26`, and
   `test-powershell` on `windows-2022` and `ubuntu-24.04`
 - Wiki: [13](wiki/13-Disk-Monitor-Overview.md) · [14](wiki/14-Disk-Monitor-Bash-vs-PowerShell.md) · [15](wiki/15-Disk-Monitor-Scenarios-and-Labs.md)
 

@@ -213,6 +213,6 @@ The GitHub Actions workflow is isolated to this module:
   - PSScriptAnalyzer (`Invoke-ScriptAnalyzer`) for PowerShell best practices and rule compliance.
 - **Cross-Platform Matrix Testing**:
   - `ubuntu-24.04`: Unit & integration tests for Bash script with mock temporary directory trees and manipulated timestamps.
-  - `macos-14`: Validation of BSD `stat` and `date` compatibility in Bash.
+  - `macos-26`: Validation of BSD `stat` and `date` compatibility in Bash.
   - `windows-2022`: Unit & integration tests for PowerShell script testing file locks, read-only attributes, and recursion.
 

@@ -166,7 +166,7 @@ The module's pipeline lives at the repository root, in
 | Job | Runner | Gate |
 | :--- | :--- | :--- |
 | `lint-bash` | `ubuntu-24.04` | ShellCheck and `bash -n` |
-| `test-bash` | `ubuntu-24.04`, `macos-14` | the Bash suite |
+| `test-bash` | `ubuntu-24.04`, `macos-26` | the Bash suite |
 | `lint-powershell` | `windows-2022` | PSScriptAnalyzer |
 | `test-powershell` | `windows-2022`, `ubuntu-24.04` | the PowerShell suite |
 | `test-python` | 3 OS × Python 3.9/3.12/3.13 | ruff and pytest, for Stage 2 and Stage 3 |
