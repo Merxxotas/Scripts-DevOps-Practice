@@ -59,8 +59,8 @@ inputs are byte-identical to the base commit (differential check).
 
 ## Tasks
 
-T1 — S1,S2 (Bash) — inline — two-tier guard + verify-before-truncate + RED/GREEN tests — commit pending
-T2 — S1,S3 (PowerShell) — inline — same guard + verification + PS tests (pwsh 7.6.9 local), CI-adaptive — commit pending
+T1 — S1,S2 (Bash) — inline — two-tier guard + verify-before-truncate + RED/GREEN tests — [x] fa70f6e (54/54)
+T2 — S1,S3 (PowerShell) — inline — same guard + verification + PS tests (pwsh 7.6.9 local), CI-adaptive — [x] 5a681d6 (30/30)
 T3 — S1-S3 (docs) — inline — SPECS.md §5/§6, README/wiki 19-20 — commit pending
 T4 — S1-S4 (verify+deliver) — inline + independent verifier (item 1) — RDD assess, CI, PR, merge --admin --rebase — commit: n/a
 

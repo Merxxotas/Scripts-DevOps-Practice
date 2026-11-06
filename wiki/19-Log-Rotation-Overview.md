@@ -6,7 +6,7 @@ feature parity.
 
 ## Key Features
 
-- Safety guardrails against protected system roots.
+- Safety guardrails: two-tier protected system roots (full-tree roots plus their subtrees; exact roots), and the active log is truncated only after the rotated backup is verified byte-exact.
 - Dry-run simulation.
 - Compression: gzip (Bash) / zip (PowerShell).
 - Retention: keep the most recent N backups.
