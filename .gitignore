@@ -14,6 +14,8 @@ env/
 # EventOps logs & runtime output
 *.log
 eventops.log
+# LAB1 writes the shared webhook secret here; it must never be committed.
+webhook.secret
 
 # Test & coverage outputs
 .pytest_cache/
