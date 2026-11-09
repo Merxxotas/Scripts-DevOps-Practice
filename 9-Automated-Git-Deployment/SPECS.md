@@ -23,6 +23,9 @@ exit codes and guardrails. Dependencies: `git` (required), `tar`/`npm`/service m
 |  - Repo pre-flight: app dir must be a git work tree (exit 1 otherwise); if      |
 |    -r/--repo-url was passed explicitly it must match `origin` (normalized       |
 |    comparison) - mismatch or missing origin: exit 1, no side effects            |
+|  - Backup dir must not be inside the app dir (exit 1; prevents self-archiving)|
+|  - Tracked worktree must be clean (git status --porcelain --untracked-files=no |
+|    non-empty => exit 1, protects auto-rollback from destroying local edits)     |
 +---------------------------------------+----------------------------------------+
                                         |
                                         v
@@ -102,7 +105,7 @@ exit codes and guardrails. Dependencies: `git` (required), `tar`/`npm`/service m
 | Code | Meaning |
 | :--- | :--- |
 | 0 | Success (up-to-date or deployed) |
-| 1 | Configuration or safety violation (invalid args, protected root, non-repo, origin mismatch) |
+| 1 | Configuration or safety violation (invalid args, protected root, non-repo, origin mismatch, dirty tracked worktree, backup dir nested inside app dir) |
 | 2 | Partial failure (backup failed/unverified, pull failed, post-deploy failed) |
 
 Exit 2 after a backup failure means **no mutation happened**. Exit 2 after a pull failure
@@ -113,9 +116,10 @@ means the tree was rolled back to the pre-deploy revision (unless `--no-rollback
 ## 5. Safety Guardrails
 
 - **App dir:** must exist and be a directory; refused if in a protected system root.
-- **Repo pre-flight:** the app dir must be a git work tree (`git rev-parse --is-inside-work-tree`); otherwise exit 1 with a clear message. If `-r/--repo-url` was passed explicitly, the configured `origin` must match under a normalized comparison (lowercase host+path; credentials stripped; `git@host:path` ≡ `https://host/path`; trailing `/` and `.git` ignored). Mismatch — or no origin configured — exits 1 before any backup or fetch. Unset, the real `origin` is printed (credentials scrubbed) instead of a placeholder.
-- **Backup verified:** the created archive must pass verification before any fetch/pull — `gzip -t` (Bash) or an entry-by-entry comparison (same file set, SHA-256 per entry vs source tree, `.NET System.IO.Compression`; PowerShell). Verification failure aborts with exit 2; the app is untouched.
-- **Backup dir:** refused if in a protected system root.
+- **Repo pre-flight:** the app dir must be a git work tree (`git rev-parse --is-inside-work-tree`); otherwise exit 1 with a clear message. If `-r/--repo-url` was passed explicitly, the configured `origin` must match under a normalized comparison (lowercase host+path; credentials stripped; `git@host:path` ≡ `https://host/path`; trailing `/` and `.git` ignored). Mismatch — or no origin configured — exits 1 before any backup or fetch. Unset, the real `origin` is printed (credentials scrubbed) instead of a placeholder; with no `origin` configured the reported `repo_url` is empty (never a seed placeholder).
+- **Dirty worktree:** tracked changes (`git status --porcelain --untracked-files=no` non-empty) abort with exit 1 before any backup or fetch — the automatic `git reset --hard` must never destroy uncommitted edits. Untracked files are ignored (the reset never touches them).
+- **Backup verified:** the created archive must pass verification before any fetch/pull — `gzip -t` (Bash) or an entry-by-entry comparison (same file set, SHA-256 per entry vs source tree, `.NET System.IO.Compression`; PowerShell). Recursive enumeration errors abort the backup (fail closed). Verification failure aborts with exit 2; the app is untouched.
+- **Backup dir:** refused if in a protected system root. It must not be the app dir or inside it (exit 1) — a self-referencing archive would corrupt both creation and verification.
 - **Branch name:** must match `^[a-zA-Z0-9._/-]+$`.
 - **Rollback:** on pull failure the pre-deploy revision is restored (`git reset --hard`) unless `--no-rollback`. Rollback failure is logged and audited (never swallowed); exit stays 2. JSON/CSV `result` gains the additive value `rolled-back`.
 - **Dry-run:** no backup, fetch, pull, or post-deploy action is performed.

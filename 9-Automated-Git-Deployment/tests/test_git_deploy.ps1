@@ -327,6 +327,49 @@ Assert-Equal 0 $script:LastExitCode "Test 25a: matching origin proceeds"
 Assert-NotMatch ($script:LastStdout + $script:LastStderr) "secret-token" "Test 25b: credentials not leaked"
 Set-OriginUrl -Repo $AppDir -Url "https://github.com/acme/widgets.git"
 
+# Test 26: dirty worktree (tracked, uncommitted) aborts BEFORE backup
+$repos = New-TestRepo -Name "t26"
+Set-GitIdentity -Repo $repos.App
+"dirty edit" | Set-Content -LiteralPath (Join-Path $repos.App "file.txt")
+$backupDir = Join-Path $TestSandbox "backups26"
+Invoke-Deploy -ScriptArgs @("-AppDir", $repos.App, "-BackupDir", $backupDir, "-SkipPostDeploy")
+Assert-Equal 1 $script:LastExitCode "Test 26a: dirty worktree exits 1"
+Assert-Match ($script:LastStdout + $script:LastStderr) "uncommitted" "Test 26b: dirty worktree clear message"
+$zips26 = Get-ChildItem -LiteralPath $backupDir -Filter "backup_*.zip" -ErrorAction SilentlyContinue
+Assert-Equal 0 @($zips26).Count "Test 26c: no backup on dirty worktree"
+
+# Test 27: nested backup dir (BackupDir inside AppDir) aborts BEFORE backup
+$repos = New-TestRepo -Name "t27"
+Set-GitIdentity -Repo $repos.App
+$nestedBackup = Join-Path $repos.App "backups-nested"
+New-Item -ItemType Directory -Path $nestedBackup -Force | Out-Null
+Invoke-Deploy -ScriptArgs @("-AppDir", $repos.App, "-BackupDir", $nestedBackup, "-SkipPostDeploy")
+Assert-Equal 1 $script:LastExitCode "Test 27a: nested backup dir exits 1"
+Assert-Match ($script:LastStdout + $script:LastStderr) "inside" "Test 27b: nested backup clear message"
+
+# Test 28: no origin + no -RepoUrl reports truthful empty repo_url (no seed placeholder)
+$repos = New-TestRepo -Name "t28"
+Set-GitIdentity -Repo $repos.App
+& git -C $repos.App remote remove origin 2>$null | Out-Null
+Invoke-Deploy -ScriptArgs @("-AppDir", $repos.App, "-DryRun", "-Json")
+Assert-Equal 0 $script:LastExitCode "Test 28a: no-origin dry-run exits 0"
+Assert-Match $script:LastStdout '"repo_url": ""' "Test 28b: JSON reports empty (truthful) repo_url"
+Assert-NotMatch $script:LastStdout "company/myapp" "Test 28c: no seed placeholder"
+
+# Test 29: backup verified is audited (parity pin)
+$repos = New-TestRepo -Name "t29"
+Set-GitIdentity -Repo $repos.App
+$backupDir = Join-Path $TestSandbox "backups29"
+$audit29 = Join-Path $TestSandbox "audit29.log"
+Invoke-Deploy -ScriptArgs @("-AppDir", $repos.App, "-BackupDir", $backupDir, "-SkipPostDeploy", "-AuditLog", $audit29)
+Assert-Match (Get-Content -LiteralPath $audit29 -Raw) "Backup verified" "Test 29: audit records backup verified"
+
+# Test 30: recursive backup enumerations fail closed (static guard pin)
+$deployText = Get-Content -LiteralPath $DeployScript -Raw
+$dparent = ([regex]::Matches($deployText, "-ErrorAction Stop")).Count
+if ($dparent -ge 2) { Write-Host "[PASS] Test 30: backup enumerations use -ErrorAction Stop" -ForegroundColor Green; $script:PassedCount++ }
+else { Write-Host "[FAIL] Test 30: backup enumerations missing -ErrorAction Stop (found $dparent)" -ForegroundColor Red; $script:FailedCount++ }
+
 # Summary
 Write-Host ""
 Write-Host "========================================"

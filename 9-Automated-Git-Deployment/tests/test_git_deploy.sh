@@ -31,6 +31,12 @@ if [[ -f "$TEST_SANDBOX/git_not_repo" ]]; then
     exit 128
 fi
 case "$1" in
+    status)
+        if [[ -f "$TEST_SANDBOX/git_status_dirty" ]]; then
+            echo " M file.txt"
+        fi
+        exit 0
+        ;;
     fetch)
         echo "fetch $2" >> "$TEST_SANDBOX/git_fetch_calls"
         if [[ -f "$TEST_SANDBOX/git_fetch_fail" ]]; then exit 1; fi
@@ -125,7 +131,7 @@ setup() {
     rm -f "$TEST_SANDBOX"/git_rev_local "$TEST_SANDBOX"/git_rev_remote
     rm -f "$TEST_SANDBOX"/git_fetch_calls "$TEST_SANDBOX"/git_pull_calls "$TEST_SANDBOX"/git_reset_calls
     rm -f "$TEST_SANDBOX"/git_not_repo "$TEST_SANDBOX"/git_origin_url "$TEST_SANDBOX"/git_reset_fail
-    rm -f "$TEST_SANDBOX"/tar_fail "$TEST_SANDBOX"/gzip_fail
+    rm -f "$TEST_SANDBOX"/tar_fail "$TEST_SANDBOX"/gzip_fail "$TEST_SANDBOX"/git_status_dirty
     # default app dir
     rm -rf "$TEST_SANDBOX/appdir"
     mkdir -p "$TEST_SANDBOX/appdir"
@@ -486,6 +492,59 @@ if [[ "$combined_out" == *"secret-token"* ]]; then
 else
     printf "%b[PASS]%b Test 31b: credentials scrubbed from output\n" "$GREEN" "$RESET"; ((PASSED_TESTS++)) || true
 fi
+
+# Test 32: dirty worktree (tracked) aborts BEFORE backup/fetch (protects rollback from destroying edits)
+setup
+echo "local1" > "$TEST_SANDBOX/git_rev_local"
+echo "remote2" > "$TEST_SANDBOX/git_rev_remote"
+echo "https://github.com/acme/widgets.git" > "$TEST_SANDBOX/git_origin_url"
+touch "$TEST_SANDBOX/git_status_dirty"
+run_deploy -a "$TEST_SANDBOX/appdir"
+assert_equals 1 "$LAST_EXIT_CODE" "Test 32a: dirty worktree exits 1"
+assert_contains "$LAST_STDERR" "uncommitted" "Test 32b: dirty worktree clear message"
+if [[ -f "$TEST_SANDBOX/tar_calls" || -f "$TEST_SANDBOX/git_fetch_calls" ]]; then
+    printf "%b[FAIL]%b Test 32c: mutation happened before dirty check\n" "$RED" "$RESET" >&2; ((FAILED_TESTS++)) || true
+else
+    printf "%b[PASS]%b Test 32c: no backup or fetch on dirty worktree\n" "$GREEN" "$RESET"; ((PASSED_TESTS++)) || true
+fi
+
+# Test 33: nested backup dir (BackupDir inside AppDir) aborts BEFORE backup/fetch
+setup
+echo "local1" > "$TEST_SANDBOX/git_rev_local"
+echo "remote2" > "$TEST_SANDBOX/git_rev_remote"
+echo "https://github.com/acme/widgets.git" > "$TEST_SANDBOX/git_origin_url"
+mkdir -p "$TEST_SANDBOX/appdir/backups-nested"
+run_deploy -a "$TEST_SANDBOX/appdir" --backup-dir "$TEST_SANDBOX/appdir/backups-nested"
+assert_equals 1 "$LAST_EXIT_CODE" "Test 33a: nested backup dir exits 1"
+assert_contains "$LAST_STDERR" "inside" "Test 33b: nested backup clear message"
+if [[ -f "$TEST_SANDBOX/tar_calls" || -f "$TEST_SANDBOX/git_fetch_calls" ]]; then
+    printf "%b[FAIL]%b Test 33c: mutation happened before nested check\n" "$RED" "$RESET" >&2; ((FAILED_TESTS++)) || true
+else
+    printf "%b[PASS]%b Test 33c: no backup or fetch on nested backup dir\n" "$GREEN" "$RESET"; ((PASSED_TESTS++)) || true
+fi
+
+# Test 34: no origin + no -r reports truthful empty repo_url (no seed placeholder)
+setup
+echo "same" > "$TEST_SANDBOX/git_rev_local"
+echo "same" > "$TEST_SANDBOX/git_rev_remote"
+# no git_origin_url file => fake git remote fails => origin missing
+run_deploy -a "$TEST_SANDBOX/appdir" --dry-run --json
+assert_equals 0 "$LAST_EXIT_CODE" "Test 34a: no-origin dry-run exits 0"
+assert_contains "$LAST_STDOUT" '"repo_url": ""' "Test 34b: JSON reports empty (truthful) repo_url"
+if [[ "$LAST_STDOUT" == *"company/myapp"* ]]; then
+    printf "%b[FAIL]%b Test 34c: seed placeholder leaked\n" "$RED" "$RESET" >&2; ((FAILED_TESTS++)) || true
+else
+    printf "%b[PASS]%b Test 34c: no seed placeholder\n" "$GREEN" "$RESET"; ((PASSED_TESTS++)) || true
+fi
+
+# Test 35: successful backup is audited as verified (parity with PS)
+setup
+echo "local1" > "$TEST_SANDBOX/git_rev_local"
+echo "remote2" > "$TEST_SANDBOX/git_rev_remote"
+echo "https://github.com/acme/widgets.git" > "$TEST_SANDBOX/git_origin_url"
+run_deploy -a "$TEST_SANDBOX/appdir" --audit-log "$TEST_SANDBOX/audit35.log" --skip-post-deploy
+assert_equals 0 "$LAST_EXIT_CODE" "Test 35a: deploy exits 0"
+assert_contains "$(cat "$TEST_SANDBOX/audit35.log" 2>/dev/null || true)" "Backup verified" "Test 35b: audit records backup verified"
 
 # Summary
 echo ""

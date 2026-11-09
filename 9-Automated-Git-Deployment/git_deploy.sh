@@ -265,12 +265,42 @@ parse_arguments() {
 main() {
     parse_arguments "$@"
 
+    # Nested backup guard: a backup archive inside the app tree would be
+    # self-referencing (tar includes the archive while writing it). Reject
+    # it pre-flight instead of failing later in verification.
+    local app_norm backup_norm
+    app_norm="${APP_DIR%/}"
+    backup_norm="${BACKUP_DIR%/}"
+    if command -v realpath >/dev/null 2>&1; then
+        local app_real backup_real
+        app_real="$(realpath "$APP_DIR" 2>/dev/null || echo "$APP_DIR")"
+        backup_real="$(realpath "$BACKUP_DIR" 2>/dev/null || echo "$BACKUP_DIR")"
+        app_real="${app_real%/}"
+        backup_real="${backup_real%/}"
+        if [[ "$backup_real" == "$app_real" || "$backup_real" == "$app_real"/* ]]; then
+            printf "%bError: Backup directory '%s' must not be inside the app directory '%s'.%b\n" "$COLOR_RED" "$BACKUP_DIR" "$APP_DIR" "$COLOR_RESET" >&2
+            exit 1
+        fi
+    elif [[ "$backup_norm" == "$app_norm" || "$backup_norm" == "$app_norm"/* ]]; then
+        printf "%bError: Backup directory '%s' must not be inside the app directory '%s'.%b\n" "$COLOR_RED" "$BACKUP_DIR" "$APP_DIR" "$COLOR_RESET" >&2
+        exit 1
+    fi
+
     cd "$APP_DIR" || { printf "%bError: cannot cd to %s.%b\n" "$COLOR_RED" "$APP_DIR" "$COLOR_RESET" >&2; exit 1; }
 
     # Repo pre-flight (before any banner or mutation): the app dir must be a
     # git work tree, and an explicitly passed -r/--repo-url must match origin.
     if ! git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
         printf "%bError: App directory '%s' is not a git repository.%b\n" "$COLOR_RED" "$APP_DIR" "$COLOR_RESET" >&2
+        exit 1
+    fi
+    # Dirty worktree guard: an automatic `git reset --hard` on pull failure
+    # would destroy uncommitted tracked edits. Refuse a dirty tracked tree
+    # up-front (untracked files are ignored; reset --hard never touches them).
+    local worktree_status
+    worktree_status="$(git status --porcelain --untracked-files=no 2>/dev/null || true)"
+    if [[ -n "$worktree_status" ]]; then
+        printf "%bError: App directory '%s' has uncommitted tracked changes. Commit or stash them before deployment.%b\n" "$COLOR_RED" "$APP_DIR" "$COLOR_RESET" >&2
         exit 1
     fi
     local origin_url
@@ -290,6 +320,8 @@ main() {
         REPO_URL="$want"
     elif [[ -n "$origin_url" ]]; then
         REPO_URL="$(scrub_repo_url "$origin_url")"
+    else
+        REPO_URL=""
     fi
 
     if [[ "$OUTPUT_MODE" == "human" ]]; then
@@ -355,6 +387,7 @@ main() {
         if [[ "$backup_ok" == true ]]; then
             if [[ "$OUTPUT_MODE" == "human" ]]; then printf "%b✓ Backup created: %s%b\n" "$COLOR_GREEN" "$backup_file" "$COLOR_RESET"; fi
             log_message "INFO" "Backup created: $backup_file"
+            log_message "INFO" "Backup verified: $backup_file"
         else
             if [[ "$OUTPUT_MODE" == "human" ]]; then
                 printf "%b✗ Backup failed.%b\n" "$COLOR_RED" "$COLOR_RESET" >&2
