@@ -73,6 +73,29 @@ def test_non_hex_chunk_size_is_rejected(size_field):
     assert excinfo.value.too_large is False
 
 
+@pytest.mark.parametrize("size_line", [b" 1\r\n", b"1 \r\n", b"\t1\r\n", b"1\n"])
+def test_size_line_must_be_strict_hex_crlf(size_line):
+    """RFC 7230 chunk-size is 1*HEXDIG followed by CRLF; no whitespace, no bare LF."""
+    payload = b"A"
+    stream = SliceReader(size_line + payload + b"\r\n0\r\n\r\n")
+
+    with pytest.raises(ChunkedBodyError) as excinfo:
+        read_chunked_body(stream, MAX_BODY_BYTES)
+
+    assert excinfo.value.too_large is False
+
+
+def test_trailer_terminator_must_be_crlf():
+    """A bare LF cannot terminate the trailer section."""
+    payload = b"A"
+    stream = SliceReader(b"1\r\n" + payload + b"\r\n0\r\n\n")
+
+    with pytest.raises(ChunkedBodyError) as excinfo:
+        read_chunked_body(stream, MAX_BODY_BYTES)
+
+    assert excinfo.value.too_large is False
+
+
 def test_chunk_extension_is_accepted():
     """A chunk extension after the size is legal and must not be parsed as data."""
     payload = b"A" * 16
