@@ -52,7 +52,7 @@ The webhook listener is fail-closed and speaks one body contract in both impleme
 | Decoded body over 1 MB | `413` |
 | Unknown endpoint (valid signature) | `404` |
 | `GET` | `405` |
-| `PUT`, `DELETE`, `PATCH`, `HEAD`, `OPTIONS` | `501` — the stdlib handler's answer for an unimplemented method |
+| `PUT`, `DELETE`, `PATCH`, `HEAD`, `OPTIONS` | Python `501` (stdlib handler); Go `405` |
 
 Two properties are deliberate. The signature is verified **before** rule matching, so an unauthenticated
 caller cannot probe which endpoints exist. And a sender that switches to chunked framing — GitHub does so

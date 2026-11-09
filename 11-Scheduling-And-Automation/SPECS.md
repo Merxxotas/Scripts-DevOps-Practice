@@ -62,9 +62,10 @@ The system is entirely configured via a single JSON file. This allows for progra
   5. Returns `200 OK` with a JSON success payload.
   6. If no match is found, returns `404 Not Found`.
 
-Only `POST` triggers an action: `GET` answers `405`, and the remaining methods (`PUT`, `DELETE`,
-`PATCH`, `HEAD`, `OPTIONS`) get the stdlib handler's `501 Not Implemented`. That asymmetry is the
-existing behaviour of `BaseHTTPRequestHandler` in both implementations, documented rather than hidden.
+Only `POST` triggers an action. Python answers `405` for `GET` and leaves the remaining methods
+(`PUT`, `DELETE`, `PATCH`, `HEAD`, `OPTIONS`) to the stdlib handler's `501 Not Implemented`; Go
+answers `405` for every non-`POST` method. That asymmetry is the existing behaviour, documented
+rather than hidden.
 
 ### 5.3 File Watcher (`triggers/file_watcher.py`)
 - Inherits from `watchdog.events.FileSystemEventHandler`.

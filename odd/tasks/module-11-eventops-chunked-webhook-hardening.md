@@ -37,9 +37,10 @@ already caps, behaviour verified by test).
 - missing header, bad hex, wrong secret, tampered body → `401`;
 - valid signature + unknown endpoint → `404` (not `200`, not `401`);
 - `GET` → `405`; other methods (`PUT`, `DELETE`, `PATCH`, `HEAD`, `OPTIONS`) → `501` from the stdlib
-  handler, which is what both implementations actually return — the docs say so instead of claiming a
-  uniform `405`. Widening the handler to answer every non-POST method with `405` is **not** part of this
-  change: it would alter an existing response code nobody asked to change (recorded as an advisory).
+  handler in Python, while Go answers `405` for every non-`POST` method. The docs state the per-language
+  behaviour instead of claiming a uniform verdict. Widening the Python handler to answer every non-POST
+  method with `405` is **not** part of this change: it would alter an existing response code nobody asked
+  to change (recorded as an advisory).
 The ordering is part of the contract: signature is verified **before** rule matching, so an
 unauthenticated caller cannot probe which endpoints exist.
 
@@ -87,7 +88,7 @@ artifact and adding a parser library would be a supply-chain change beyond this 
 - [x] T5: Go implementation to GREEN — `errors.As(*http.MaxBytesError)` separates 413 (too big) from every other read error (framing untrustworthy → 401). `go test ./...` all green. S3, S4. route: inline
 - [x] T6: LAB1 secret hardening — `umask 077` + explicit `chmod 600` + why + cleanup step. Verified by running the whole lab end to end (perms `600`, 200/200/401/404/200). S6. route: inline
 - [ ] T7: Lint clean — `ruff check`, `ruff format --check`, `go vet`, `gofmt -l`. S9. route: inline
-- [ ] T8: Docs — SPECS, README, SCENARIOS, ARCHITECTURE_COMPARISON, wiki 02/03/04, CHANGELOG, MODULES. S7. route: inline
+- [x] T8: Docs — SPECS, README, SCENARIOS, ARCHITECTURE_COMPARISON, wiki 02/03/04, CHANGELOG, MODULES. S7. route: inline
 - [ ] T9: Independent verifier over S1–S9. S11. route: delegated
 - [ ] T10: Delivery — PR opened with CI green, Copilot suggestions triaged with the user, **no merge**. S10. route: inline
 - [x] T11: macOS over-cap test robustness — RED reproduced (`BrokenPipeError` under a forced 4 KB send buffer), fix sends the first chunk + oversized size line then reads the 413. S4, S8. route: inline
@@ -174,3 +175,12 @@ server rejects on the declared chunk size before reading the payload, so the tes
 chunk plus the oversized size line and reads the 413, instead of racing the early close with a full 1 MB
 send. GREEN: 47 passed, ruff clean; the fixed body also passes under the forced 4 KB buffer
 (`/tmp/opencode/repro_fixed.py`). Scratch scripts live in `/tmp/opencode`, outside the worktree.
+
+L12 (2026-11-09): GitHub Copilot review (17:55) returned 8 suggestions; all verified against the code and
+accepted by the user, one by one. Two were code hardening: `_read_chunk_size` accepted whitespace-padded
+size lines (` 1 `, `1 `, `\t1`) and a bare-LF terminator, and the trailer section accepted a bare LF, all
+of which Go rejects. RED observed (5 new decoder tests failed, 9 passed), fix requires CRLF and parses the
+size without trimming → 52 passed, ruff clean. Six were doc corrections: the ROADMAP Phase 7 heading was
+restored; SPECS, the feature doc and wiki 02 now state that Python answers 501 for non-GET methods while Go
+answers 405 for every non-POST method; the CHANGELOG count was corrected 38 → 47; wiki 04 gained the
+chunked-body/rejection contract. The PR description's Risk section was missing and was added.
