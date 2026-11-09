@@ -91,7 +91,7 @@ function New-DeployBackup {
     $srcRoot = $SourceRoot.TrimEnd('\', '/')
     $zip = [System.IO.Compression.ZipFile]::Open($DestinationPath, [System.IO.Compression.ZipArchiveMode]::Create)
     try {
-        foreach ($file in @(Get-ChildItem -LiteralPath $SourceRoot -Recurse -File -Force)) {
+        foreach ($file in @(Get-ChildItem -LiteralPath $SourceRoot -Recurse -File -Force -ErrorAction Stop)) {
             $rel = $file.FullName.Substring($srcRoot.Length).TrimStart('\', '/') -replace '\\', '/'
             $entry = $zip.CreateEntry($rel, [System.IO.Compression.CompressionLevel]::Optimal)
             $es = $entry.Open()
@@ -110,7 +110,7 @@ function Test-BackupArchive {
     try { Add-Type -AssemblyName System.IO.Compression.FileSystem -ErrorAction SilentlyContinue } catch { $null = $_ }
     $srcRoot = $SourceRoot.TrimEnd('\', '/')
     $srcMap = @{}
-    foreach ($f in @(Get-ChildItem -LiteralPath $SourceRoot -Recurse -File -Force)) {
+    foreach ($f in @(Get-ChildItem -LiteralPath $SourceRoot -Recurse -File -Force -ErrorAction Stop)) {
         $rel = $f.FullName.Substring($srcRoot.Length).TrimStart('\', '/') -replace '\\', '/'
         $srcMap[$rel] = (Get-FileHash -LiteralPath $f.FullName -Algorithm SHA256).Hash
     }
@@ -203,6 +203,20 @@ if (Test-ProtectedPath $BackupDir) { Write-Host "$($Colors.Red)Error: Backup dir
 # work tree, and an explicitly passed -RepoUrl must match origin.
 & git -C $AppDir rev-parse --is-inside-work-tree 2>$null | Out-Null
 if ($LASTEXITCODE -ne 0) { Write-Host "$($Colors.Red)Error: App directory '$AppDir' is not a git repository.$($Colors.Reset)" -ForegroundColor Red; exit 1 }
+# Nested backup guard: a backup archive inside the app tree would be
+# self-referencing. Reject pre-flight instead of failing in verification.
+$appAbs = [System.IO.Path]::GetFullPath($AppDir).TrimEnd('\', '/')
+$backupAbs = [System.IO.Path]::GetFullPath($BackupDir).TrimEnd('\', '/')
+if ($backupAbs -eq $appAbs -or $backupAbs.StartsWith($appAbs + [System.IO.Path]::DirectorySeparatorChar)) {
+    Write-Host "$($Colors.Red)Error: Backup directory '$BackupDir' must not be inside the app directory '$AppDir'.$($Colors.Reset)" -ForegroundColor Red; exit 1
+}
+# Dirty worktree guard: an automatic `git reset --hard` on pull failure
+# would destroy uncommitted tracked edits. Refuse a dirty tracked tree
+# up-front (untracked files are ignored; reset --hard never touches them).
+$worktreeStatus = (& git -C $AppDir status --porcelain --untracked-files=no 2>$null | Out-String).Trim()
+if (-not [string]::IsNullOrWhiteSpace($worktreeStatus)) {
+    Write-Host "$($Colors.Red)Error: App directory '$AppDir' has uncommitted tracked changes. Commit or stash them before deployment.$($Colors.Reset)" -ForegroundColor Red; exit 1
+}
 $originUrl = (& git -C $AppDir remote get-url origin 2>$null)
 if ($LASTEXITCODE -ne 0) { $originUrl = "" } else { $originUrl = "$originUrl".Trim() }
 if ($PSBoundParameters.ContainsKey('RepoUrl')) {
@@ -213,6 +227,8 @@ if ($PSBoundParameters.ContainsKey('RepoUrl')) {
     $RepoUrl = $want
 } elseif (-not [string]::IsNullOrWhiteSpace($originUrl)) {
     $RepoUrl = Get-ScrubbedRepoUrl $originUrl
+} else {
+    $RepoUrl = ""
 }
 
 # Header
