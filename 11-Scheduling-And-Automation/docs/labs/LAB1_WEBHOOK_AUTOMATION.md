@@ -51,7 +51,12 @@ The webhook listener refuses to start without a shared HMAC secret. Generate one
 
 ```bash
 export EVENTOPS_WEBHOOK_SECRET="$(openssl rand -hex 32)"
-echo "$EVENTOPS_WEBHOOK_SECRET" > webhook.secret   # keep it; you need it to sign requests
+
+# This file signs webhooks. A readable copy lets any local user forge
+# triggers, so it is created private from the start — a plain redirect
+# would leave it at 0644 under the usual umask 022.
+( umask 077; printf '%s' "$EVENTOPS_WEBHOOK_SECRET" > webhook.secret )
+chmod 600 webhook.secret
 ```
 
 #### Option A: Running Python Daemon
@@ -154,6 +159,15 @@ cat deploy.log
 Inspect `eventops.log`:
 ```bash
 cat eventops.log
+```
+
+### Step 5: Clean Up
+
+`webhook.secret` holds a live shared secret. Delete it when the lab is done — and keep it out of
+git if you build on this workspace:
+
+```bash
+rm -f webhook.secret
 ```
 
 ---
