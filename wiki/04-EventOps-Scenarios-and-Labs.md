@@ -7,6 +7,10 @@
 ### Scenario 1: Automated Git Webhook Deployment
 Trigger an automated `git pull` and container rebuild whenever a push notification is delivered from GitHub/GitLab webhooks to `http://server:8080/deploy`.
 
+The listener accepts both `Content-Length` and `Transfer-Encoding: chunked` bodies (GitHub switches to
+chunked above its payload threshold) and verifies the HMAC over the decoded payload. A body over 1 MB
+answers `413`; malformed or truncated framing answers a generic `401` without reaching the rule engine.
+
 ### Scenario 2: Service Auto-Reload on Configuration Changes
 Monitor configuration files (e.g. `/etc/nginx/conf.d/app.conf`) and automatically trigger syntax validation (`nginx -t`) and reload (`systemctl reload nginx`) upon file changes.
 
