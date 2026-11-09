@@ -39,6 +39,29 @@
 
 ---
 
+## 🔐 Webhook Request Contract
+
+The webhook listener is fail-closed and speaks one body contract in both implementations:
+
+| Situation | Answer |
+| :--- | :--- |
+| Valid `X-Hub-Signature-256` over the payload, endpoint registered | `200` + action dispatched |
+| Signed body sent with `Transfer-Encoding: chunked` (no `Content-Length`) | `200` — the framing is decoded and the HMAC covers the payload itself |
+| Missing, malformed or mismatched signature | `401` generic — "Missing or invalid signature" |
+| Malformed or truncated chunked framing | `401` generic — corrupted bytes never reach the rule engine |
+| Decoded body over 1 MB | `413` |
+| Unknown endpoint (valid signature) | `404` |
+| `GET` | `405` |
+| `PUT`, `DELETE`, `PATCH`, `HEAD`, `OPTIONS` | `501` — the stdlib handler's answer for an unimplemented method |
+
+Two properties are deliberate. The signature is verified **before** rule matching, so an unauthenticated
+caller cannot probe which endpoints exist. And a sender that switches to chunked framing — GitHub does so
+above its payload threshold — is not punished for it: reading only `Content-Length` would sign an empty
+body and reject a perfectly valid request.
+
+
+---
+
 ## ⚙️ Configuration Schema (`rules.json`)
 
 All automation behaviors are configured via a single declarative JSON schema:

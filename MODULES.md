@@ -171,6 +171,13 @@ a debounced filesystem watcher feed a rule engine that dispatches actions asynch
 - CI: `.github/workflows/ci-eventops.yml` — 3 OS × Python 3.10/3.11/3.12, plus `go vet` and `go test`
 - Wiki: [02](wiki/02-EventOps-Overview.md) · [03](wiki/03-EventOps-Python-vs-Go.md) · [04](wiki/04-EventOps-Scenarios-and-Labs.md)
 
+**Known gaps**, recorded rather than hidden: no retry or dead-letter queue for failed actions; no
+per-rule concurrency limit, so a burst of triggers can spawn unbounded executor threads; `rules.json`
+is read once at startup, so a rule change needs a daemon restart; the executor runs actions through a
+shell, so the rule file is trusted configuration. Webhook bodies are accepted in both framings
+(`Content-Length` and `Transfer-Encoding: chunked`); a body over 1 MB returns `413`, malformed framing
+returns a generic `401`, and the signature is verified before rule matching on both implementations.
+
 ### ✅ 5 — CPU and Memory Usage Monitor *(Shipped)*
 
 A cross-platform system resource monitor with three implementations of the same tool and one shared

@@ -25,6 +25,20 @@ EventOps is implemented in both **Python** (`11-Scheduling-And-Automation/EventO
 - **Python**: Spawns OS-level threads for each triggered script. When executing subprocesses (`subprocess.run`), Python releases the Global Interpreter Lock (GIL), allowing non-blocking I/O.
 - **Go**: Spawns Goroutines requiring only ~2 KB of initial stack memory. Goroutines are multiplexed onto a thread pool by the Go runtime, enabling thousands of concurrent triggers with negligible overhead.
 
+### 1b. Webhook Body Framing
+The standard library gives each language a different amount of the HTTP body for free, and the gap is where
+a parity break hides.
+- **Go**: `http.Server` de-chunks a `Transfer-Encoding: chunked` body before the handler sees it, so
+  `io.ReadAll(http.MaxBytesReader(w, r.Body, maxBodyBytes))` yields the payload and the HMAC matches. The
+  one thing the standard library does **not** separate is *why* a read failed: an oversized body and
+  unparseable framing both arrive as one error. `errors.As(err, &maxBytesError)` splits them — `413` for
+  the cap, generic `401` for anything else.
+- **Python**: `BaseHTTPRequestHandler` hands over `self.rfile` and no framing at all, so a handler that reads
+  `Content-Length` reads zero bytes for a chunked request. The decoder is therefore written against
+  RFC 7230 (`read_chunked_body`): hex size line, per-chunk `CRLF`, zero-size chunk, optional trailers, and a
+  cap on the decoded size. Malformed framing raises `ChunkedBodyError`; an oversized payload raises
+  `_BodyTooLarge`, so `413` and `401` stay distinct.
+
 ### 2. Standalone Binary Compilation
 Go allows building single self-contained binaries for target architectures without installing Go on production hosts:
 ```bash
