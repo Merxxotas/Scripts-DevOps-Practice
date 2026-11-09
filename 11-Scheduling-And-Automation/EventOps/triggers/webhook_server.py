@@ -8,6 +8,7 @@ import logging
 import os
 import socketserver
 import threading
+from typing import BinaryIO
 
 from executor import execute_async
 from rule_engine import RuleEngine
@@ -17,6 +18,97 @@ logger = logging.getLogger("eventops.webhook_server")
 SECRET_ENV_VAR = "EVENTOPS_WEBHOOK_SECRET"
 MAX_BODY_BYTES = 1_048_576  # 1 MB hard cap on webhook payloads
 REQUEST_TIMEOUT_SECONDS = 30
+MAX_CHUNK_LINE_BYTES = 1024  # a chunk-size line is short; a long one is garbage
+# Framing overhead cap: chunks carry bytes of framing that the payload cap cannot
+# see. A stream of zero-size chunks adds nothing to the payload but everything to
+# the work, so the wire budget is bounded separately.
+MAX_CHUNKED_WIRE_BYTES = MAX_BODY_BYTES + 65_536
+HEX_DIGITS = frozenset(b"0123456789abcdefABCDEF")
+
+
+class ChunkedBodyError(Exception):
+    """The chunked framing is unparseable or the body exceeds the cap."""
+
+    def __init__(self, too_large: bool) -> None:
+        super().__init__("chunked body rejected")
+        self.too_large = too_large
+
+
+class _BodyTooLarge(Exception):
+    """The request body exceeds MAX_BODY_BYTES and must be answered with 413."""
+
+
+def _read_chunk_size(rfile: BinaryIO, wire: list[int]) -> int:
+    """Reads one chunk-size line (strict hex digits plus optional extensions)."""
+    line = rfile.readline(MAX_CHUNK_LINE_BYTES + 1)
+    wire[0] += len(line)
+    if not line or len(line) > MAX_CHUNK_LINE_BYTES:
+        raise ChunkedBodyError(too_large=False)
+    if not line.endswith(b"\n"):
+        raise ChunkedBodyError(too_large=False)
+
+    size_field = line.strip().split(b";", 1)[0].strip()
+    if not size_field:
+        raise ChunkedBodyError(too_large=False)
+    # RFC 7230 chunk-size is 1*HEXDIG. int(x, 16) is looser than that — it also
+    # accepts "1_0", "0x10" and "+a" — so the charset is checked first.
+    if any(byte not in HEX_DIGITS for byte in size_field):
+        raise ChunkedBodyError(too_large=False)
+    return int(size_field, 16)
+
+
+def read_chunked_body(rfile: BinaryIO, max_bytes: int) -> bytes:
+    """Decodes an RFC 7230 chunked body, enforcing a decoded-size cap.
+
+    A webhook sender switches to chunked framing once its payload outgrows its
+    in-memory buffer, and then sends no Content-Length at all. Reading only
+    Content-Length would sign an empty body and reject a perfectly valid
+    request, so the framing is decoded here and the HMAC is taken over the
+    payload bytes exactly as received.
+
+    Two budgets are enforced, because a payload cap alone is not enough: a
+    hostile stream can spend unbounded time and framing bytes without ever
+    growing the payload (zero-size chunks, endless trailers).
+
+    Returns:
+        The decoded payload.
+
+    Raises:
+        ChunkedBodyError: when the framing is malformed (`too_large=False`) or
+            the decoded payload or the wire budget exceeds its cap
+            (`too_large=True`).
+    """
+    payload = bytearray()
+    wire = [0]  # bytes consumed from the stream, framing included
+    while True:
+        if wire[0] > MAX_CHUNKED_WIRE_BYTES:
+            raise ChunkedBodyError(too_large=True)
+
+        size = _read_chunk_size(rfile, wire)
+        if size == 0:
+            # Trailer section: headers until the terminating empty line.
+            while True:
+                trailer = rfile.readline(MAX_CHUNK_LINE_BYTES + 1)
+                wire[0] += len(trailer)
+                if not trailer or len(trailer) > MAX_CHUNK_LINE_BYTES:
+                    raise ChunkedBodyError(too_large=False)
+                if wire[0] > MAX_CHUNKED_WIRE_BYTES:
+                    raise ChunkedBodyError(too_large=True)
+                if trailer in (b"\r\n", b"\n"):
+                    return bytes(payload)
+
+        if len(payload) + size > max_bytes:
+            raise ChunkedBodyError(too_large=True)
+
+        data = rfile.read(size)
+        wire[0] += len(data)
+        if len(data) != size:
+            raise ChunkedBodyError(too_large=False)
+        payload.extend(data)
+
+        if rfile.read(2) != b"\r\n":
+            raise ChunkedBodyError(too_large=False)
+        wire[0] += 2
 
 
 class EventOpsHTTPRequestHandler(http.server.BaseHTTPRequestHandler):
@@ -48,17 +140,49 @@ class EventOpsHTTPRequestHandler(http.server.BaseHTTPRequestHandler):
     def _read_body(self) -> bytes | None:
         """Reads the request body enforcing the size cap.
 
-        Returns the body bytes, or None when the Content-Length header is
-        invalid or exceeds MAX_BODY_BYTES (the caller decides the response).
+        Handles both framings a webhook sender can choose: a declared
+        Content-Length and chunked transfer encoding.
+
+        Returns:
+            The body bytes, or None when the body was already rejected and a
+            response has been sent.
+
+        Raises:
+            _BodyTooLarge: when the decoded body exceeds MAX_BODY_BYTES.
         """
+        if self._is_chunked():
+            # A sender may close its write side before the terminating chunk and
+            # then wait for the answer, so a failed decode must reply without
+            # draining the connection first.
+            self.close_connection = True
+            try:
+                return read_chunked_body(self.rfile, MAX_BODY_BYTES)
+            except ChunkedBodyError as exc:
+                if exc.too_large:
+                    raise _BodyTooLarge from exc
+                logger.warning(
+                    "Rejected POST %s: malformed chunked body", self._endpoint_path()
+                )
+                return None
+
         raw_length = self.headers.get("Content-Length")
         try:
             content_length = int(raw_length) if raw_length is not None else 0
         except ValueError:
             return None
         if content_length < 0 or content_length > MAX_BODY_BYTES:
-            return None
+            raise _BodyTooLarge
         return self.rfile.read(content_length)
+
+    def _is_chunked(self) -> bool:
+        """Reports whether the request body uses chunked transfer encoding."""
+        transfer_encoding = self.headers.get("Transfer-Encoding", "")
+        encodings = [part.strip().lower() for part in transfer_encoding.split(",")]
+        return "chunked" in encodings
+
+    def _endpoint_path(self) -> str:
+        """Returns the request path without its query string."""
+        return self.path.split("?")[0]
 
     def _signature_valid(self, body: bytes) -> bool:
         """Verifies the X-Hub-Signature-256 HMAC over the raw body."""
@@ -81,15 +205,24 @@ class EventOpsHTTPRequestHandler(http.server.BaseHTTPRequestHandler):
 
         endpoint_path = self.path.split("?")[0]
 
-        body = self._read_body()
-        if body is None:
+        try:
+            body = self._read_body()
+        except _BodyTooLarge:
             logger.warning(
-                "Rejected POST %s: invalid or oversized Content-Length",
+                "Rejected POST %s: body exceeds %d bytes",
                 endpoint_path,
+                MAX_BODY_BYTES,
             )
             self._send_json_response(
                 413,
                 {"status": "error", "message": "Request body too large or invalid"},
+            )
+            return
+
+        if body is None:
+            self._send_json_response(
+                401,
+                {"status": "error", "message": "Missing or invalid signature"},
             )
             return
 

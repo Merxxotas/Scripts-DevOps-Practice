@@ -27,6 +27,19 @@ def post(url: str, body: bytes = b"", signature: str | None = None):
     return urllib.request.Request(url, data=body, headers=headers, method="POST")
 
 
+def post_chunked(url: str, body: bytes, signature: str | None = None):
+    """Builds a POST that transfers its body with chunked framing.
+
+    `http.client` chooses chunked encoding whenever the body has no declared
+    length — exactly what a webhook sender does when the payload exceeds its
+    in-memory buffer. The signature must cover the decoded payload bytes.
+    """
+    headers = {"Transfer-Encoding": "chunked"}
+    if signature is not None:
+        headers["X-Hub-Signature-256"] = signature
+    return urllib.request.Request(url, data=body, headers=headers, method="POST")
+
+
 @pytest.fixture
 def running_webhook_server():
     engine = RuleEngine()
@@ -145,3 +158,57 @@ def test_webhook_get_405_method_not_allowed(running_webhook_server):
         urllib.request.urlopen(req)
 
     assert excinfo.value.code == 405
+
+
+# --- Chunked transfer ------------------------------------------------
+# A webhook sender above its payload threshold switches to chunked framing.
+# The Daemon must sign the DECODED body, not an empty one.
+
+
+def test_chunked_signed_body_returns_200(running_webhook_server):
+    body = b'{"ref":"main","after":"a2ea1f0"}'
+    url = "http://127.0.0.1:8089/deploy"
+    req = post_chunked(url, body, sign_body(body))
+
+    with urllib.request.urlopen(req) as resp:
+        assert resp.status == 200
+        data = json.loads(resp.read().decode("utf-8"))
+        assert data["status"] == "success"
+        assert data["rule"] == "Test Deploy"
+
+
+def test_chunked_without_signature_returns_401(running_webhook_server):
+    url = "http://127.0.0.1:8089/deploy"
+    req = post_chunked(url, b'{"ref":"main"}', None)
+
+    with pytest.raises(urllib.error.HTTPError) as excinfo:
+        urllib.request.urlopen(req)
+
+    assert excinfo.value.code == 401
+    data = json.loads(excinfo.value.read().decode("utf-8"))
+    assert data["message"] == "Missing or invalid signature"
+
+
+def test_chunked_signature_over_empty_body_is_rejected(running_webhook_server):
+    """A signature over nothing must not authenticate a non-empty chunked body."""
+    real_body = b'{"ref":"main"}'
+    url = "http://127.0.0.1:8089/deploy"
+    req = post_chunked(url, real_body, sign_body(b""))
+
+    with pytest.raises(urllib.error.HTTPError) as excinfo:
+        urllib.request.urlopen(req)
+
+    assert excinfo.value.code == 401
+
+
+def test_chunked_unknown_endpoint_returns_404_after_valid_signature(
+    running_webhook_server,
+):
+    body = b"{}"
+    url = "http://127.0.0.1:8089/nonexistent"
+    req = post_chunked(url, body, sign_body(body))
+
+    with pytest.raises(urllib.error.HTTPError) as excinfo:
+        urllib.request.urlopen(req)
+
+    assert excinfo.value.code == 404
