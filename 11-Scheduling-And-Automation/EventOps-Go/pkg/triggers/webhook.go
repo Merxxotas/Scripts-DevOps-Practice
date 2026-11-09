@@ -7,6 +7,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -115,11 +116,25 @@ func (ws *WebhookServer) handleRequest(w http.ResponseWriter, r *http.Request) {
 
 	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, maxBodyBytes))
 	if err != nil {
-		logger.Warn("WebhookServer", "Rejected POST %s: body too large or unreadable", endpointPath)
-		w.WriteHeader(http.StatusRequestEntityTooLarge)
+		// A body over the cap is a distinct verdict from unparseable framing:
+		// 413 means "too big", 401 means "I cannot trust these bytes". A
+		// truncated chunked stream ends without io.EOF and must not be trusted.
+		var maxBytesErr *http.MaxBytesError
+		if errors.As(err, &maxBytesErr) {
+			logger.Warn("WebhookServer", "Rejected POST %s: body exceeds %d bytes", endpointPath, maxBodyBytes)
+			w.WriteHeader(http.StatusRequestEntityTooLarge)
+			_ = json.NewEncoder(w).Encode(ResponsePayload{
+				Status:  "error",
+				Message: "Request body too large or unreadable",
+			})
+			return
+		}
+
+		logger.Warn("WebhookServer", "Rejected POST %s: malformed body framing", endpointPath)
+		w.WriteHeader(http.StatusUnauthorized)
 		_ = json.NewEncoder(w).Encode(ResponsePayload{
 			Status:  "error",
-			Message: "Request body too large or unreadable",
+			Message: "Missing or invalid signature",
 		})
 		return
 	}
