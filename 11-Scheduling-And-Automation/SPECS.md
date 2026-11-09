@@ -51,13 +51,20 @@ The system is entirely configured via a single JSON file. This allows for progra
 - Binds to `127.0.0.1:8080` by default; `--host` changes the interface. Pass `0.0.0.0` only behind a firewall or reverse proxy.
 - **Authentication (fail-closed)**: every POST must carry a valid `X-Hub-Signature-256: sha256=<hex>` header — HMAC-SHA256 of the raw request body keyed by the `EVENTOPS_WEBHOOK_SECRET` environment variable. When the secret is not set, the daemon refuses to start the webhook listener. Signatures are compared in constant time.
 - Request bodies are capped at 1 MB and socket reads time out after 30 seconds, so oversized payloads and idle clients are rejected instead of pinning worker threads.
+- **Both body framings are accepted**: a declared `Content-Length` and `Transfer-Encoding: chunked`. Webhook senders (GitHub among them) switch to chunked framing once a payload outgrows their in-memory buffer and then send no `Content-Length` at all; the chunked framing is decoded and the HMAC is taken over the payload bytes exactly as received, never over an empty body. The 1 MB cap applies to the decoded size, not to the transfer size.
+- **Rejection order is part of the contract**: the signature is verified before rule matching, so an unauthenticated caller cannot probe which endpoints exist. A malformed or truncated chunked body is answered `401` with the generic signature error — the unparseable bytes are never handed to the rule engine.
 - **Request Handling (`do_POST`)**:
-  1. Enforces the body size cap and verifies the HMAC signature (`401 Unauthorized` on failure).
+  1. Reads the body (chunked or `Content-Length`) and enforces the 1 MB cap: over the cap → `413`, malformed framing → `401` (generic signature error), valid body → verify the HMAC signature (`401 Unauthorized` on failure).
+
   2. Extracts the URI path from the incoming request.
   3. Queries the Rule Engine to see if the path matches any rule with `type="webhook"`.
   4. If a match is found, invokes the `action` via the Executor in a non-blocking thread.
   5. Returns `200 OK` with a JSON success payload.
   6. If no match is found, returns `404 Not Found`.
+
+Only `POST` triggers an action: `GET` answers `405`, and the remaining methods (`PUT`, `DELETE`,
+`PATCH`, `HEAD`, `OPTIONS`) get the stdlib handler's `501 Not Implemented`. That asymmetry is the
+existing behaviour of `BaseHTTPRequestHandler` in both implementations, documented rather than hidden.
 
 ### 5.3 File Watcher (`triggers/file_watcher.py`)
 - Inherits from `watchdog.events.FileSystemEventHandler`.

@@ -14,6 +14,17 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **`11-Scheduling-And-Automation` — chunked webhook bodies are verified correctly, and the rejected-body
+  verdicts are split.** A sender that omits `Content-Length` and uses `Transfer-Encoding: chunked`
+  (GitHub does so once a payload outgrows its buffer) was signed over an empty body by the Python
+  daemon and rejected with `401`; the Go daemon already handled it, so the two implementations disagreed
+  on the same request. Python now decodes RFC 7230 chunked framing (stdlib only, no new dependency) and
+  takes the HMAC over the payload exactly as received. Both implementations now answer `413` for a body
+  over the 1 MB cap and a generic `401` for malformed or truncated framing — corrupted bytes never reach
+  the rule engine — and the signature-before-rule-matching order is pinned by test on both sides. Suites:
+  Python 38 tests (raw-socket chunked + malformed framing + cap boundaries), Go raw-socket suite added.
+  LAB1 stopped writing the shared secret world-readable (`umask 077` + `chmod 600`, plus a cleanup step).
+
 - **`9-Automated-Git-Deployment` — verified backup gates the deploy, automatic rollback on pull
   failure, and the repo URL is no longer decorative.** Pre-deploy backups must now be created AND
   verified before any fetch/pull (Bash `gzip -t`; PowerShell .NET `ZipArchive`, entry-by-entry —

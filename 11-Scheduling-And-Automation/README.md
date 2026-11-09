@@ -107,6 +107,11 @@ curl -X POST http://localhost:8080/deploy-prod \
 ```
 Requests without a valid signature are rejected with `401 Unauthorized`.
 
+**Chunked bodies work too.** A sender that omits `Content-Length` and uses `Transfer-Encoding: chunked`
+— what GitHub does above its payload threshold, and what `curl -H 'Transfer-Encoding: chunked' --data-binary`
+sends — is accepted: the framing is decoded and the signature is verified over the payload itself. Bodies
+over 1 MB are rejected with `413`, malformed framing with `401`.
+
 ### 2. File Watcher Triggers
 Perfect for auto-reloading services when configuration files change, or processing data as soon as a file is downloaded.
 

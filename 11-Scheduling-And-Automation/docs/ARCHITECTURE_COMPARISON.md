@@ -16,6 +16,8 @@ EventOps is available in both **Python** (`EventOps/`) and **Go** (`EventOps-Go/
 | **Memory Footprint** | ~28 MB RAM | ~5 MB RAM |
 | **Deployment Dependency** | Requires Python runtime & `pip install -r requirements.txt` | Single self-contained binary (`eventops`), zero external runtime |
 | **Debouncing Mechanism** | Cooldown dictionary protected by Python GIL | Mutex-protected `map[string]time.Time` cooldown map |
+| **Request Body Framing** | Hand-written RFC 7230 chunked decoder over `rfile`; HMAC taken over the decoded payload | `io.ReadAll` de-chunks natively; HMAC taken over the decoded payload |
+| **Oversized vs unparseable body** | `_BodyTooLarge` → `413`; `ChunkedBodyError` → generic `401` | `errors.As(*http.MaxBytesError)` → `413`; any other read error → generic `401` |
 
 ---
 

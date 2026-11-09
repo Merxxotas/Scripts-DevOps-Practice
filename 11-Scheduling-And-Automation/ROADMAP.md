@@ -38,9 +38,13 @@ This roadmap follows Spec Driven Development (SDD) based on `SPECS.md`. It break
 - [x] **Linting Job:** Add a step to run `ruff` to enforce rules from `CODESTYLE.md`.
 - [x] **Testing Job:** Create basic tests (`pytest`) for the Rule Engine and Executor, and run them on pinned stable OS matrices (`ubuntu-24.04`, `macos-14`, `windows-2022`).
 
-## Phase 7: Go Implementation & Interactive Scenario Labs
 - [x] **Go Port (`EventOps-Go`):** Port full EventOps architecture to Go (`main.go`, `pkg/ruleengine`, `pkg/executor`, `pkg/triggers`, `pkg/logger`).
 - [x] **Go Dependencies:** Add `fsnotify` for OS filesystem monitoring.
 - [x] **Go Tests:** Implement complete unit and end-to-end integration test suite (`*_test.go`).
 - [x] **Go CI/CD Matrix:** Integrated `go test` and `go vet` into `.github/workflows/ci-eventops.yml`.
 - [x] **Scenarios & Lab Docs (`docs/`):** Created `SCENARIOS.md`, `ARCHITECTURE_COMPARISON.md`, and 3 hands-on step-by-step labs (`LAB1`, `LAB2`, `LAB3`).
+
+## Phase 8: Webhook Hardening
+- [x] **Chunked Body Parity:** Python decodes RFC 7230 chunked framing (stdlib only) so a sender that omits `Content-Length` is verified over its real payload, matching Go.
+- [x] **Distinct Rejection Verdicts:** `413` for a body over the 1 MB cap, generic `401` for malformed or truncated framing, signature verified before rule matching on both implementations.
+- [x] **Lab Secret Handling:** LAB1 creates `webhook.secret` under `umask 077` with an explicit `chmod 600`, and cleans it up.

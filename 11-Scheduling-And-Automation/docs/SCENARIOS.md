@@ -51,7 +51,11 @@ curl -X POST http://deploy-server.internal:8080/deploy-prod \
   -H "X-Hub-Signature-256: sha256=$SIG" \
   --data "$BODY"
 ```
-Unsigned or wrongly signed requests are rejected with `401 Unauthorized`.
+Unsigned or wrongly signed requests are rejected with `401 Unauthorized`. The daemon accepts both body
+framings: a declared `Content-Length` and `Transfer-Encoding: chunked` (GitHub switches to chunked once a
+payload outgrows its buffer). The signature always covers the decoded payload, bodies over 1 MB get `413`,
+and malformed framing gets the same generic `401` as a bad signature — an unauthenticated caller never
+learns whether an endpoint exists, and corrupted bytes are never executed.
 
 ### Log Audit (`eventops.log`)
 ```text
