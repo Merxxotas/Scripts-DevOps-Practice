@@ -44,10 +44,13 @@ def _read_chunk_size(rfile: BinaryIO, wire: list[int]) -> int:
     wire[0] += len(line)
     if not line or len(line) > MAX_CHUNK_LINE_BYTES:
         raise ChunkedBodyError(too_large=False)
-    if not line.endswith(b"\n"):
+    # RFC 7230 chunk-size is 1*HEXDIG followed by CRLF. A bare LF is not a
+    # terminator here, and whitespace around the size is not allowed — Go
+    # rejects both, so accepting them would be a parity break of its own.
+    if not line.endswith(b"\r\n"):
         raise ChunkedBodyError(too_large=False)
 
-    size_field = line.strip().split(b";", 1)[0].strip()
+    size_field = line[:-2].split(b";", 1)[0]
     if not size_field:
         raise ChunkedBodyError(too_large=False)
     # RFC 7230 chunk-size is 1*HEXDIG. int(x, 16) is looser than that — it also
@@ -94,7 +97,7 @@ def read_chunked_body(rfile: BinaryIO, max_bytes: int) -> bytes:
                     raise ChunkedBodyError(too_large=False)
                 if wire[0] > MAX_CHUNKED_WIRE_BYTES:
                     raise ChunkedBodyError(too_large=True)
-                if trailer in (b"\r\n", b"\n"):
+                if trailer == b"\r\n":
                     return bytes(payload)
 
         if len(payload) + size > max_bytes:
