@@ -90,6 +90,7 @@ artifact and adding a parser library would be a supply-chain change beyond this 
 - [ ] T8: Docs — SPECS, README, SCENARIOS, ARCHITECTURE_COMPARISON, wiki 02/03/04, CHANGELOG, MODULES. S7. route: inline
 - [ ] T9: Independent verifier over S1–S9. S11. route: delegated
 - [ ] T10: Delivery — PR opened with CI green, Copilot suggestions triaged with the user, **no merge**. S10. route: inline
+- [x] T11: macOS over-cap test robustness — RED reproduced (`BrokenPipeError` under a forced 4 KB send buffer), fix sends the first chunk + oversized size line then reads the 413. S4, S8. route: inline
 
 ## Log
 
@@ -162,3 +163,14 @@ that file, so `.gitignore` covers it.
 
 L10 (2026-11-09): Verifier scratch left at `/tmp/user/1002/opencode/verify-scratch.HQJE32` and my own
 venv/scripts in the same directory; all outside the worktree, none committed.
+
+L11 (2026-11-09): macOS CI red on `test_chunked_body_over_cap_returns_413` — `BrokenPipeError` at
+`tests/test_webhook_chunked.py:61` (`sock.sendall`) on all three macos-26 jobs; Ubuntu and Windows green.
+Root cause: the server answers 413 and closes while the client is still sending the 1 MB body; Linux
+loopback buffers absorb the whole write, so the test only fails where the send blocks (macOS). RED
+reproduced deterministically on Linux with a forced 4 KB `SO_SNDBUF` (`/tmp/opencode/repro_brokenpipe.py`):
+`BrokenPipeError: [Errno 32] Broken pipe`, and the 413 response was still readable (227 bytes). Fix: the
+server rejects on the declared chunk size before reading the payload, so the test now sends the first
+chunk plus the oversized size line and reads the 413, instead of racing the early close with a full 1 MB
+send. GREEN: 47 passed, ruff clean; the fixed body also passes under the forced 4 KB buffer
+(`/tmp/opencode/repro_fixed.py`). Scratch scripts live in `/tmp/opencode`, outside the worktree.

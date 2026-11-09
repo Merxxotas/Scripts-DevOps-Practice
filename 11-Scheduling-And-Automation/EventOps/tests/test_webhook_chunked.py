@@ -219,9 +219,19 @@ def test_chunked_missing_chunk_crlf_returns_401(running_webhook_server):
 
 def test_chunked_body_over_cap_returns_413(running_webhook_server):
     oversized = b"x" * (MAX_BODY_BYTES + 1)
-    raw = chunked_request(
-        "/deploy", framed(oversized[:10_000], oversized[10_000:]), sign_body(oversized)
+    first = oversized[:10_000]
+    declared = oversized[10_000:]
+    # The server rejects on the declared chunk size before reading the chunk
+    # payload, so the client sends the first chunk and the oversized size line,
+    # then reads the 413. Sending the whole 1 MB body races the server's early
+    # close: macOS raises BrokenPipeError mid-send (observed in CI).
+    body = (
+        f"{len(first):x}\r\n".encode("ascii")
+        + first
+        + b"\r\n"
+        + f"{len(declared):x}\r\n".encode("ascii")
     )
+    raw = chunked_request("/deploy", body, sign_body(oversized))
 
     status, data = send_raw(raw)
 
