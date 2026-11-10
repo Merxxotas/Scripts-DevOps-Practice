@@ -189,6 +189,7 @@ class EventOpsHTTPRequestHandler(http.server.BaseHTTPRequestHandler):
                 return None
 
         if self.headers.get("Transfer-Encoding"):
+            self.close_connection = True
             logger.warning(
                 "Rejected POST %s: unsupported Transfer-Encoding %r",
                 self._endpoint_path(),
