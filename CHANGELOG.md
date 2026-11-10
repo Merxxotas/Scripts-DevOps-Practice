@@ -22,7 +22,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   takes the HMAC over the payload exactly as received. Both implementations now answer `413` for a body
   over the 1 MB cap and a generic `401` for malformed or truncated framing — corrupted bytes never reach
   the rule engine — and the signature-before-rule-matching order is pinned by test on both sides. Suites:
-  Python 47 tests (raw-socket chunked + malformed framing + cap boundaries), Go raw-socket suite added.
+  Python 55 tests (raw-socket chunked + malformed framing + cap boundaries), Go raw-socket suite added.
   LAB1 stopped writing the shared secret world-readable (`umask 077` + `chmod 600`, plus a cleanup step).
 
 - **`9-Automated-Git-Deployment` — verified backup gates the deploy, automatic rollback on pull
