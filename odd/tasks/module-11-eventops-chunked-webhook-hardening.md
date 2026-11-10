@@ -87,11 +87,12 @@ artifact and adding a parser library would be a supply-chain change beyond this 
 - [x] T4: Go RED — raw-socket suite pins the already-correct chunked path and exposes the real gap: malformed framing and truncated bodies both answered `413`. RED observed: 2 failed / 6 passed. S2, S3, S4, S5. route: inline
 - [x] T5: Go implementation to GREEN — `errors.As(*http.MaxBytesError)` separates 413 (too big) from every other read error (framing untrustworthy → 401). `go test ./...` all green. S3, S4. route: inline
 - [x] T6: LAB1 secret hardening — `umask 077` + explicit `chmod 600` + why + cleanup step. Verified by running the whole lab end to end (perms `600`, 200/200/401/404/200). S6. route: inline
-- [ ] T7: Lint clean — `ruff check`, `ruff format --check`, `go vet`, `gofmt -l`. S9. route: inline
+- [x] T7: Lint clean — `ruff check`, `ruff format --check`, `go vet`, `gofmt -l`. S9. route: inline
 - [x] T8: Docs — SPECS, README, SCENARIOS, ARCHITECTURE_COMPARISON, wiki 02/03/04, CHANGELOG, MODULES. S7. route: inline
 - [ ] T9: Independent verifier over S1–S9. S11. route: delegated
 - [ ] T10: Delivery — PR opened with CI green, Copilot suggestions triaged with the user, **no merge**. S10. route: inline
 - [x] T11: macOS over-cap test robustness — RED reproduced (`BrokenPipeError` under a forced 4 KB send buffer), fix sends the first chunk + oversized size line then reads the 413. S4, S8. route: inline
+- [x] T12: Copilot second-round hardening — trailer fields validated, socket timeout mapped to 401, `Transfer-Encoding` restricted to exactly `chunked`, wire-budget asymmetry documented + Go test. S3, S4. route: inline
 
 ## Log
 
@@ -184,3 +185,14 @@ size without trimming → 52 passed, ruff clean. Six were doc corrections: the R
 restored; SPECS, the feature doc and wiki 02 now state that Python answers 501 for non-GET methods while Go
 answers 405 for every non-POST method; the CHANGELOG count was corrected 38 → 47; wiki 04 gained the
 chunked-body/rejection contract. The PR description's Risk section was missing and was added.
+
+L13 (2026-11-09): Copilot re-review (18:54, effort Lite) on `211c551` found 4 medium issues in code that
+had not changed since the first review; all verified against the code and accepted by the user.
+(1) Python enforces a wire budget on the chunked framing that Go does not: documented as an intentional
+asymmetry in SPECS, wiki 02 and here, and pinned by `TestRawChunkedWireBudgetAsymmetry` (Go answers 200
+for a 200 KB payload whose framing exceeds the Python budget; Go rejects trailers over 64 KB, so the
+asymmetry is pinned with many small chunks instead). (2) The trailer loop accepted any CRLF line: it now
+requires a valid header field. (3) A socket timeout escaped `do_POST` without a response: it now maps to
+the generic 401. (4) `Transfer-Encoding` accepted any list containing `chunked`: it now requires exactly
+`chunked` and rejects other codings. RED observed for (2)-(4) (3 new tests failed), GREEN at 55 passed;
+Go suite, `go vet` and `gofmt` clean.
