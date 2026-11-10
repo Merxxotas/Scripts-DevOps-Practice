@@ -203,6 +203,31 @@ func TestRawChunkedBodyOverCapReturns413(t *testing.T) {
 	}
 }
 
+// TestRawChunkedWireBudgetAsymmetry pins the documented asymmetry: Python
+// enforces a wire budget (maxBodyBytes + 65_536) on the chunked framing and
+// answers 413 when it is exceeded, while Go caps only the decoded payload and
+// accepts a body whose framing exceeds that budget.
+func TestRawChunkedWireBudgetAsymmetry(t *testing.T) {
+	addr := startRawServer(t)
+
+	// 200,000 one-byte chunks: 1.2 MB of wire bytes against a 200 KB decoded
+	// payload, which is over Python's wire budget but under Go's payload cap.
+	const chunks = 200_000
+	payload := []byte(strings.Repeat("x", chunks))
+	body := make([]byte, 0, chunks*6+5)
+	for i := 0; i < chunks; i++ {
+		body = append(body, '1', '\r', '\n', 'x', '\r', '\n')
+	}
+	body = append(body, '0', '\r', '\n', '\r', '\n')
+
+	raw := chunkedRequest(addr, "/deploy", body, signRaw(payload, rawSecret))
+	status, respBody := sendRaw(t, addr, raw)
+
+	if status != http.StatusOK {
+		t.Fatalf("expected 200 (Go caps only the decoded payload), got %d (%v)", status, respBody)
+	}
+}
+
 func TestRawChunkedInvalidChunkSizeReturns401(t *testing.T) {
 	addr := startRawServer(t)
 
