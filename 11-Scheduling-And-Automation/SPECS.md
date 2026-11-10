@@ -67,6 +67,13 @@ Only `POST` triggers an action. Python answers `405` for `GET` and leaves the re
 answers `405` for every non-`POST` method. That asymmetry is the existing behaviour, documented
 rather than hidden.
 
+Python also enforces a second budget on the chunked framing itself (`MAX_BODY_BYTES + 65_536`,
+counting chunk headers and trailers). Go caps only the decoded payload through
+`http.MaxBytesReader`, so a body whose framing exceeds the Python budget is answered `413` by
+Python and `200` by Go. The asymmetry is intentional: Go cannot count framing bytes without
+wrapping the connection, and the Python budget bounds a flood of empty chunks that would
+otherwise pin a worker thread.
+
 ### 5.3 File Watcher (`triggers/file_watcher.py`)
 - Inherits from `watchdog.events.FileSystemEventHandler`.
 - **Event Handling (`on_modified`)**:

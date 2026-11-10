@@ -54,6 +54,11 @@ The webhook listener is fail-closed and speaks one body contract in both impleme
 | `GET` | `405` |
 | `PUT`, `DELETE`, `PATCH`, `HEAD`, `OPTIONS` | Python `501` (stdlib handler); Go `405` |
 
+One asymmetry is deliberate: Python also caps the chunked framing bytes
+(`MAX_BODY_BYTES + 65_536`), while Go caps only the decoded payload. A body whose framing
+exceeds the Python budget is `413` in Python and `200` in Go; the Python budget bounds a flood
+of empty chunks that would otherwise pin a worker thread.
+
 Two properties are deliberate. The signature is verified **before** rule matching, so an unauthenticated
 caller cannot probe which endpoints exist. And a sender that switches to chunked framing — GitHub does so
 above its payload threshold — is not punished for it: reading only `Content-Length` would sign an empty
