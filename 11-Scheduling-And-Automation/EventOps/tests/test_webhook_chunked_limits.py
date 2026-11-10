@@ -20,8 +20,8 @@ from triggers.webhook_server import (
 )
 
 
-class ZeroChunkFlood:
-    """An endless stream of empty chunks followed by endless trailers."""
+class EndlessTrailerFlood:
+    """A zero-size chunk followed by an endless stream of valid trailers."""
 
     def __init__(self, limit: int = 5_000_000) -> None:
         self.calls = 0
@@ -31,7 +31,9 @@ class ZeroChunkFlood:
         self.calls += 1
         if self.calls > self.limit:
             raise AssertionError("decoder read past its own budget")
-        return b"0\r\n" if self.calls % 2 else b"X-Flood: yes\r\n"
+        if self.calls == 1:
+            return b"0\r\n"
+        return b"X-Flood: yes\r\n"
 
     def read(self, size: int = -1) -> bytes:
         return b"\r\n"
@@ -50,12 +52,12 @@ class SliceReader:
         return self.stream.read(size)
 
 
-def test_zero_size_chunk_flood_is_bounded():
-    """11 MB of empty chunks against a 1 MB cap must not be accepted."""
+def test_endless_trailer_flood_is_bounded():
+    """Endless valid trailers against a 1 MB cap must not be accepted."""
     started = time.monotonic()
 
     with pytest.raises(ChunkedBodyError) as excinfo:
-        read_chunked_body(ZeroChunkFlood(), MAX_BODY_BYTES)
+        read_chunked_body(EndlessTrailerFlood(), MAX_BODY_BYTES)
 
     assert excinfo.value.too_large is True
     assert time.monotonic() - started < 10, "decoder did not terminate promptly"
@@ -78,6 +80,17 @@ def test_size_line_must_be_strict_hex_crlf(size_line):
     """RFC 7230 chunk-size is 1*HEXDIG followed by CRLF; no whitespace, no bare LF."""
     payload = b"A"
     stream = SliceReader(size_line + payload + b"\r\n0\r\n\r\n")
+
+    with pytest.raises(ChunkedBodyError) as excinfo:
+        read_chunked_body(stream, MAX_BODY_BYTES)
+
+    assert excinfo.value.too_large is False
+
+
+def test_malformed_trailer_is_rejected():
+    """A trailer line that is not a header field must not be accepted."""
+    payload = b"A"
+    stream = SliceReader(b"1\r\n" + payload + b"\r\n0\r\nnot-a-header\r\n\r\n")
 
     with pytest.raises(ChunkedBodyError) as excinfo:
         read_chunked_body(stream, MAX_BODY_BYTES)

@@ -24,6 +24,10 @@ MAX_CHUNK_LINE_BYTES = 1024  # a chunk-size line is short; a long one is garbage
 # the work, so the wire budget is bounded separately.
 MAX_CHUNKED_WIRE_BYTES = MAX_BODY_BYTES + 65_536
 HEX_DIGITS = frozenset(b"0123456789abcdefABCDEF")
+# RFC 7230 token characters, used to validate trailer field names.
+TOKEN_CHARS = frozenset(
+    b"!#$%&'*+-.^_`|~0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
+)
 
 
 class ChunkedBodyError(Exception):
@@ -99,6 +103,16 @@ def read_chunked_body(rfile: BinaryIO, max_bytes: int) -> bytes:
                     raise ChunkedBodyError(too_large=True)
                 if trailer == b"\r\n":
                     return bytes(payload)
+                # A trailer section carries header fields, not arbitrary lines.
+                # Go rejects a malformed trailer before the handler runs, so
+                # accepting one here would be a parity break of its own.
+                field, sep, _value = trailer[:-2].partition(b":")
+                if (
+                    not sep
+                    or not field
+                    or any(byte not in TOKEN_CHARS for byte in field)
+                ):
+                    raise ChunkedBodyError(too_large=False)
 
         if len(payload) + size > max_bytes:
             raise ChunkedBodyError(too_large=True)
@@ -167,6 +181,20 @@ class EventOpsHTTPRequestHandler(http.server.BaseHTTPRequestHandler):
                     "Rejected POST %s: malformed chunked body", self._endpoint_path()
                 )
                 return None
+            except TimeoutError:
+                logger.warning(
+                    "Rejected POST %s: chunked body read timed out",
+                    self._endpoint_path(),
+                )
+                return None
+
+        if self.headers.get("Transfer-Encoding"):
+            logger.warning(
+                "Rejected POST %s: unsupported Transfer-Encoding %r",
+                self._endpoint_path(),
+                self.headers.get("Transfer-Encoding"),
+            )
+            return None
 
         raw_length = self.headers.get("Content-Length")
         try:
@@ -175,13 +203,22 @@ class EventOpsHTTPRequestHandler(http.server.BaseHTTPRequestHandler):
             return None
         if content_length < 0 or content_length > MAX_BODY_BYTES:
             raise _BodyTooLarge
-        return self.rfile.read(content_length)
+        try:
+            return self.rfile.read(content_length)
+        except TimeoutError:
+            logger.warning(
+                "Rejected POST %s: body read timed out", self._endpoint_path()
+            )
+            return None
 
     def _is_chunked(self) -> bool:
         """Reports whether the request body uses chunked transfer encoding."""
         transfer_encoding = self.headers.get("Transfer-Encoding", "")
         encodings = [part.strip().lower() for part in transfer_encoding.split(",")]
-        return "chunked" in encodings
+        # Go accepts exactly one coding, `chunked`; a list with other codings or
+        # a duplicate is rejected before the handler runs, so accepting it here
+        # would let the two implementations authenticate different bytes.
+        return encodings == ["chunked"]
 
     def _endpoint_path(self) -> str:
         """Returns the request path without its query string."""

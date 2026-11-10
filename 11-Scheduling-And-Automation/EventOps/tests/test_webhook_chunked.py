@@ -15,6 +15,7 @@ import time
 import pytest
 
 from rule_engine import RuleEngine
+from triggers import webhook_server
 from triggers.webhook_server import MAX_BODY_BYTES, WebhookServer
 
 TEST_SECRET = "raw-socket-secret"
@@ -247,3 +248,38 @@ def test_chunked_body_exactly_at_cap_is_accepted(running_webhook_server):
     status, _data = send_raw(raw)
 
     assert status == 200
+
+
+def test_unsupported_transfer_encoding_returns_401(running_webhook_server):
+    """`gzip, chunked` must not be treated as chunked; Go rejects it outright."""
+    payload = b'{"ref":"main"}'
+    raw = (
+        f"POST /deploy HTTP/1.1\r\n"
+        f"Host: 127.0.0.1:{PORT}\r\n"
+        f"Transfer-Encoding: gzip, chunked\r\n"
+        f"Content-Type: application/json\r\n"
+        f"X-Hub-Signature-256: {sign_body(payload)}\r\n\r\n"
+    ).encode("latin-1") + framed(payload)
+
+    status, data = send_raw(raw)
+
+    assert status == 401
+    assert data["message"] == "Missing or invalid signature"
+
+
+def test_chunked_socket_timeout_returns_401(running_webhook_server, monkeypatch):
+    """A client that stalls mid-chunk gets the generic 401, not an unhandled timeout."""
+    monkeypatch.setattr(webhook_server, "REQUEST_TIMEOUT_SECONDS", 1.0)
+    raw = chunked_request("/deploy", b"10\r\nabc", sign_body(b"abc"))
+
+    with socket.create_connection(("127.0.0.1", PORT), timeout=10) as sock:
+        sock.sendall(raw)
+        data = b""
+        while b"\r\n\r\n" not in data:
+            piece = sock.recv(65536)
+            if not piece:
+                break
+            data += piece
+
+    status_line = data.split(b"\r\n", 1)[0]
+    assert b" 401 " in status_line
