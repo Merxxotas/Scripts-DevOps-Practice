@@ -6,17 +6,19 @@ updates:
       interval: "weekly"
     open-pull-requests-limit: 5
 
+  # Module 5 mirrors Stage2-Python-Unified into Stage3-Containerization
+  # byte-for-byte; sync-stage3.sh --check in CI enforces it. Dependabot must
+  # propose both copies in ONE pull request, otherwise the parity job fails.
   - package-ecosystem: "pip"
-    directory: "/5-CPU-and-Memory-Usage-Monitor/Stage2-Python-Unified"
+    directories:
+      - "/5-CPU-and-Memory-Usage-Monitor/Stage2-Python-Unified"
+      - "/5-CPU-and-Memory-Usage-Monitor/Stage3-Containerization"
     schedule:
       interval: "weekly"
     open-pull-requests-limit: 5
-
-  - package-ecosystem: "pip"
-    directory: "/5-CPU-and-Memory-Usage-Monitor/Stage3-Containerization"
-    schedule:
-      interval: "weekly"
-    open-pull-requests-limit: 5
+    groups:
+      python-deps:
+        group-by: dependency-name
 
   - package-ecosystem: "gomod"
     directory: "/11-Scheduling-And-Automation/EventOps-Go"
