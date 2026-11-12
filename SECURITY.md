@@ -27,7 +27,8 @@ CI-covered.
 | Kubernetes Pod Monitor and Restart | `10-Kubernetes-Pod-Monitor-and-Restart/` | Shipped, CI-covered |
 | Scheduling and Automation (EventOps) | `11-Scheduling-And-Automation/` | Shipped, CI-covered |
 
-There are **no tagged releases yet**, so "supported version" means "the current tip of `main`".
+**v1.0.0** (2026-10-29, "all 11 modules shipped") is the first tagged release; `main` is the
+development tip.
 
 ---
 

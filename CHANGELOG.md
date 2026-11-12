@@ -5,8 +5,8 @@ All notable changes to this repository are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-> **No tags exist yet.** Until the first release tag is cut, entries are grouped by date rather
-> than by version number. See [Versioning](#versioning) for the convention going forward.
+> **v1.0.0** was tagged on 2026-10-29 ("all 11 modules shipped"). Entries stay grouped by date; a tag
+> on `main` marks a repository release. See [Versioning](#versioning) for the convention going forward.
 
 ---
 
@@ -134,6 +134,12 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **Log Cleanup — the PowerShell suite no longer hard-codes a passing assertion** (`Assert-Equal
   -Expected 1 -Actual 1`); guardrail tests were extended for subtree protection and `Days = 0`, and the
   Bash suite now uses a `mktemp -d` sandbox with a `trap`-based cleanup.
+- **Dependabot — module 5 pip updates are now grouped across both stages.** The two `pip` entries
+  (`Stage2-Python-Unified` and `Stage3-Containerization`) were proposed as separate pull requests, so a
+  bump could land on one stage and fail the `Stage 2/3 parity` job. They now share one `directories`
+  entry with a `python-deps` group (`group-by: dependency-name`), so both mirrored `pyproject.toml`
+  files move together — this groups the `click` 8.5.0 → 8.5.1 and `ruff` 0.17.3 → 0.17.4 bumps. PR #70
+  (supersedes #66–#69).
 
 ### Security
 
@@ -912,7 +918,8 @@ repository: a Python event-driven automation daemon and its Go port.
   implementation is currently **v2.0.0**; the Log Cleanup utility is **v1.0.0**.
 - The **repository** follows SemVer from the first release tag onward. A tag on `main` marks a
   repository release and this file gains a version heading.
-- Every tag maps to a date heading here until that tag exists.
+- **v1.0.0** (2026-10-29, "all 11 modules shipped", `0f59d84`) is the first repository tag. Entries stay
+  grouped by date; the first tag corresponds to the changes already shipped at that point.
 
 ---
 

@@ -89,8 +89,8 @@ artifact and adding a parser library would be a supply-chain change beyond this 
 - [x] T6: LAB1 secret hardening — `umask 077` + explicit `chmod 600` + why + cleanup step. Verified by running the whole lab end to end (perms `600`, 200/200/401/404/200). S6. route: inline
 - [x] T7: Lint clean — `ruff check`, `ruff format --check`, `go vet`, `gofmt -l`. S9. route: inline
 - [x] T8: Docs — SPECS, README, SCENARIOS, ARCHITECTURE_COMPARISON, wiki 02/03/04, CHANGELOG, MODULES. S7. route: inline
-- [ ] T9: Independent verifier over S1–S9. S11. route: delegated
-- [ ] T10: Delivery — PR opened with CI green, Copilot suggestions triaged with the user, **no merge**. S10. route: inline
+- [x] T9: Independent verifier over S1–S9. S11. route: delegated
+- [x] T10: Delivery — PR #65 opened with CI green, Copilot suggestions triaged with the user, **merged** 2026-11-10 (`5360086`). S10. route: inline
 - [x] T11: macOS over-cap test robustness — RED reproduced (`BrokenPipeError` under a forced 4 KB send buffer), fix sends the first chunk + oversized size line then reads the 413. S4, S8. route: inline
 - [x] T12: Copilot second-round hardening — trailer fields validated, socket timeout mapped to 401, `Transfer-Encoding` restricted to exactly `chunked`, wire-budget asymmetry documented + Go test. S3, S4. route: inline
 

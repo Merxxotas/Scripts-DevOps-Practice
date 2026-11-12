@@ -1,7 +1,7 @@
 # Modules
 
 > Inventory, status and build order for every numbered module in this monorepo.
-> **Last reviewed: 2026-11-04.**
+> **Last reviewed: 2026-11-12.**
 
 Each module is a self-contained DevOps automation utility with its own spec, implementation, tests, CI
 pipeline and documentation. See [`AGENTS.md`](AGENTS.md) for the module contract and methodology.
@@ -190,7 +190,7 @@ data contract. The four-stage capstone of the repository.
 | 3 — Container | Multi-stage `Dockerfile`, `docker-compose.yml` (5 profiles) | non-root UID 1000, read-only rootfs |
 | 4 — CI/CD | `.github/workflows/ci-cpu-monitor.yml` | at the repository root |
 
-- `README.md` · `SPECS.md` · `ROADMAP.md` · `CODESTYLE.md` · `AGENTS.md`
+- `README.md` · `SPECS.md` · `ROADMAP.md` · `CODESTYLE.md`
 - `tests/` — Stage 1 suites: 20 Bash tests, 18 PowerShell tests
 - `docs/` — `ARCHITECTURE_COMPARISON.md`, `SCENARIOS.md`, `labs/LAB1-3`
 - CI: `.github/workflows/ci-cpu-monitor.yml` — 7 jobs across Linux, macOS and Windows (incl. the `Stage 2/3 parity` gate)
