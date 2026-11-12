@@ -92,9 +92,11 @@ optional body explaining **WHY**, not what. Types: `feat` `fix` `docs` `ci` `tes
 = module name. Imperative mood; one logical change per commit, each buildable and CI-green on its own; tests
 and docs ship with it; **no** `Co-Authored-By` or AI attribution.
 
-**Merge flow:** `feature branch → local fast-forward merge into main → push`. `main` has **no branch
-protection and no rulesets**, so CI-green-before-merge is a **manual** obligation — check with
-`gh run list --workflow ci-<module>.yml --branch main --limit 1`. → [`CONTRIBUTING.md`](CONTRIBUTING.md)
+**Merge flow:** `feature branch → local fast-forward merge into main → push`. `main` is **protected** —
+one approving review is required and stale reviews are dismissed, but there are **no required status
+checks** and admins are not enforced — so CI-green-before-merge is still a **manual** obligation. Check
+with `gh run list --workflow ci-<module>.yml --branch main --limit 1`. →
+[`CONTRIBUTING.md`](CONTRIBUTING.md)
 
 ---
 
@@ -173,14 +175,14 @@ The rules that break things most often:
 
 ## 9. Known State and Gotchas
 
-Verified on **2026-10-21**. These are real, current, and will bite you.
+Verified on **2026-11-12**. These are real, current, and will bite you.
 
 | # | Gotcha |
 | :-- | :--- |
 | 1 | **All modules shipped** — no seed modules remain on disk. |
 | 2 | **Path filters create a blind spot** — changes under `wiki/`, `MODULES.md`, `AGENTS.md` and other root docs match no workflow → no CI run. |
-| 3 | **The wiki lives in two places** — `main:wiki/` and the GitHub Wiki (`Scripts-DevOps-Practice.wiki.git`). Verified identical 2026-10-20, nothing enforces it. Push edits to both. |
-| 4 | **`main` is unprotected** — no branch protection, rulesets or required checks. |
+| 3 | **The wiki lives in two places** — `main:wiki/` and the GitHub Wiki (`Scripts-DevOps-Practice.wiki.git`). Nothing enforces it. The Wiki clone trails the repo (last sync 2026-11-09 @ `7dc583c`, before the chunked-webhook docs). Push edits to both. |
+| 4 | **`main` is protected** — one approving review is required and stale reviews are dismissed; there are no required status checks and admins are not enforced. |
 | 5 | **`.gitattributes` normalizes line endings** — `.ps1` stored LF, checked out CRLF. Compare with `git show HEAD:<path>`, not the working file. |
 | 6 | **Go version drift** — CI pins Go `1.26` (matching `go.mod`); keep the pin current as Go evolves. |
 | 7 | **Private vulnerability reporting enabled** — reporters can use *Security → Report a vulnerability* (GitHub Security Advisory). Email channel remains as fallback. |

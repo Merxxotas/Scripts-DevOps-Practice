@@ -78,8 +78,9 @@ verification tier and requires an independent verifier before the change is cons
 
 ### Merge flow
 
-`feature branch → local fast-forward merge into main → push`. `main` has **no branch protection
-or rulesets**, so "CI green before merge" is a manual obligation — check it yourself:
+`feature branch → local fast-forward merge into main → push`. `main` is **protected** — one approving
+review is required and stale reviews are dismissed, but there are **no required status checks** and
+admins are not enforced — so "CI green before merge" is still a manual obligation — check it yourself:
 
 ```bash
 gh run list --workflow ci-cleanup-logs.yml --branch main --limit 1
