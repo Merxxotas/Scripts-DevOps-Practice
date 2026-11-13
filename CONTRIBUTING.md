@@ -78,7 +78,7 @@ verification tier and requires an independent verifier before the change is cons
 
 ### Merge flow
 
-`feature branch → local fast-forward merge into main → push`. `main` is **protected** — one approving
+`feature branch → pull request → required review → merge into main → push`. `main` is **protected** — one approving
 review is required and stale reviews are dismissed, but there are **no required status checks** and
 admins are not enforced — so "CI green before merge" is still a manual obligation — check it yourself:
 
