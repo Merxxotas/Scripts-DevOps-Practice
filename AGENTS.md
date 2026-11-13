@@ -181,7 +181,7 @@ Verified on **2026-11-12**. These are real, current, and will bite you.
 | :-- | :--- |
 | 1 | **All modules shipped** — no seed modules remain on disk. |
 | 2 | **Path filters create a blind spot** — changes under `wiki/`, `MODULES.md`, `AGENTS.md` and other root docs match no workflow → no CI run. |
-| 3 | **The wiki lives in two places** — `main:wiki/` and the GitHub Wiki (`Scripts-DevOps-Practice.wiki.git`). Nothing enforces it. The Wiki clone trails the repo (last sync 2026-11-09 @ `7dc583c`, before the chunked-webhook docs). Push edits to both. |
+| 3 | **The wiki lives in two places** — `main:wiki/` and the GitHub Wiki (`Scripts-DevOps-Practice.wiki.git`). Nothing enforces it. The Wiki clone was synced separately after this update (commit `1b185f9`); push edits to both. |
 | 4 | **`main` is protected** — one approving review is required and stale reviews are dismissed; there are no required status checks and admins are not enforced. |
 | 5 | **`.gitattributes` normalizes line endings** — `.ps1` stored LF, checked out CRLF. Compare with `git show HEAD:<path>`, not the working file. |
 | 6 | **Go version drift** — CI pins Go `1.26` (matching `go.mod`); keep the pin current as Go evolves. |
