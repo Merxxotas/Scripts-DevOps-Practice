@@ -104,3 +104,22 @@ jobs:
         shell: pwsh
         run: |
           & './2-Log-Cleanup-Script-(Delete-Files-Older-Than-X-Days)/tests/test_cleanup_logs.ps1'
+
+  test-windows-powershell:
+    name: Test Windows PowerShell 5.1 on windows-2022
+    timeout-minutes: 15
+    runs-on: windows-2022
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Run Windows PowerShell 5.1 Test Suite
+        shell: powershell
+        run: |
+          $edition = $PSVersionTable.PSEdition
+          $version = $PSVersionTable.PSVersion
+          if ($edition -ne 'Desktop' -or $version.ToString(2) -ne '5.1') {
+            throw "Expected Windows PowerShell 5.1 (Desktop), got $edition $version."
+          }
+          & './2-Log-Cleanup-Script-(Delete-Files-Older-Than-X-Days)/tests/test_cleanup_logs.ps1'
+          exit $LASTEXITCODE
