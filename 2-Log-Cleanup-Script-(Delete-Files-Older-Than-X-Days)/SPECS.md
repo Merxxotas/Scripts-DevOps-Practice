@@ -214,5 +214,7 @@ The GitHub Actions workflow is isolated to this module:
 - **Cross-Platform Matrix Testing**:
   - `ubuntu-24.04`: Unit & integration tests for Bash script with mock temporary directory trees and manipulated timestamps.
   - `macos-26`: Validation of BSD `stat` and `date` compatibility in Bash.
-  - `windows-2022`: Unit & integration tests for PowerShell script testing file locks, read-only attributes, and recursion.
+  - `windows-2022`: Two separate jobs run the same PowerShell test suite: the matrix job uses
+    PowerShell 7 (`pwsh`), and the Windows PowerShell job uses `powershell.exe` and verifies
+    the runtime is Desktop 5.1 before running the suite.
 
