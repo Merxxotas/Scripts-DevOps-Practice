@@ -227,6 +227,54 @@ function Test-Lab1Walkthrough {
     }
 }
 
+# Exercise the published scan examples and their filesystem assertions on Windows as well.
+function Test-Lab2Walkthrough {
+    $ErrorActionPreference = "Stop"
+    $Lab = Join-Path (Split-Path -Parent $ScriptDir) `
+        "docs/labs/LAB2_RECURSIVE_SIZE_FILTERING.md"
+    $Blocks = [regex]::Matches((Get-Content -LiteralPath $Lab -Raw),
+        '(?ms)^```powershell[^\S\r\n]*\r?\n(.*?)^```')
+    if ($Blocks.Count -ne 6) {
+        Assert-Equal -Expected 6 -Actual $Blocks.Count -TestName "Lab 2 publishes all PowerShell steps"
+        return
+    }
+
+    Push-Location -LiteralPath (Split-Path -Parent $CleanupScript)
+    $LabDir = $null
+    try {
+        . ([scriptblock]::Create($Blocks[0].Groups[1].Value))
+        $Expected = @{
+            1 = @('root_old.log')
+            2 = @('root_old.log', 'auth/small_old.log', 'billing/large_old.log',
+                  'worker/large_old.log')
+            3 = @('billing/large_old.log', 'worker/large_old.log')
+        }
+        foreach ($Step in 1..3) {
+            $Output = . ([scriptblock]::Create($Blocks[$Step].Groups[1].Value)) 6>&1
+            $Candidates = @($Output | Where-Object { $_.ToString() -match 'Would delete: ' })
+            $Missing = @(foreach ($Log in $Expected[$Step]) {
+                $Path = [regex]::Escape((Join-Path $LabDir $Log))
+                if (-not ($Candidates -match "Would delete: $Path \(")) { $Log }
+            })
+            if ($Candidates.Count -ne $Expected[$Step].Count -or $Missing.Count -ne 0) {
+                throw "Unexpected candidates in Lab 2 scan ${Step}: $($Candidates -join '; ')"
+            }
+        }
+        foreach ($Step in 4..5) {
+            . ([scriptblock]::Create($Blocks[$Step].Groups[1].Value))
+        }
+        Assert-Equal -Expected $false -Actual (Test-Path -LiteralPath $LabDir) `
+            -TestName "Lab 2 selects the expected logs and removes its sandbox"
+    } catch {
+        Assert-Equal -Expected "Lab succeeds" -Actual $_.ToString() -TestName "Lab 2 examples"
+    } finally {
+        Pop-Location
+        if ($LabDir -and (Test-Path -LiteralPath $LabDir)) {
+            Remove-Item -LiteralPath $LabDir -Recurse -Force
+        }
+    }
+}
+
 # Execution
 Write-Host "$([char]27)[0;36mStarting PowerShell Log Cleanup Test Suite...$([char]27)[0m"
 Test-MissingDirectory
@@ -240,6 +288,7 @@ Test-RetentionDeletion
 Test-RecursiveCleanup
 Test-AuditLogging
 Test-Lab1Walkthrough
+Test-Lab2Walkthrough
 
 Write-Host "============================================================"
 Write-Host "Tests Summary: $([char]27)[0;32m$Script:PassedCount Passed$([char]27)[0m, $([char]27)[0;31m$Script:FailedCount Failed$([char]27)[0m"

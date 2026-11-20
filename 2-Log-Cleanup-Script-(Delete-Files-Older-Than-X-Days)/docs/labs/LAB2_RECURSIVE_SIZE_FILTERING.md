@@ -1,105 +1,164 @@
 # Lab 2: Recursive Traversal & Size Threshold Filtering 📁
 
-## Objective
-Learn how to manage complex, multi-tiered microservice log directories by combining recursive directory traversal (`-r`), glob patterns (`-p`), and minimum file size filters (`-m`).
+Compare three dry runs before applying a policy that deletes only old, large logs.
+Start in the module directory after [Lab 1](LAB1_BASIC_RETENTION_AND_DRYRUN.md). Run only the
+blocks for your shell, in the same session, and stop if a step fails.
 
----
+## Step 1: Create an isolated directory tree
 
-## 📋 Prerequisites
-- A Linux/macOS shell or Windows PowerShell environment.
-- Completed [Lab 1: Basic Retention & Dry-Run Preview](LAB1_BASIC_RETENTION_AND_DRYRUN.md).
+| File | Age | Size |
+| --- | ---: | ---: |
+| `root_old.log` | 45 days | 5 MiB |
+| `auth/small_old.log` | 45 days | 100 KiB |
+| `billing/large_old.log` | 45 days | 15 MiB |
+| `worker/large_old.log` | 45 days | 25 MiB |
+| `auth/active.log` | Recent | 5 bytes |
+| `billing/active.log` | Recent | 12 MiB |
 
----
+The recent 12 MiB log meets the size rule but not the age rule. The CLI calls its size unit MB;
+its minimum of 10 MB is 10 × 1,048,576 bytes.
 
-## Step 1: Create Nested Directory Tree
+### Bash
 
-Set up a simulated microservices architecture with subdirectories and logs of varying sizes and ages.
-
-### Linux / macOS:
 ```bash
-mkdir -p /tmp/lab2_services/{auth,billing,worker}
+lab_dir=$(mktemp -d "${TMPDIR:-/tmp}/log-cleanup-lab2.XXXXXXXX") && (
+    set -e
+    mkdir "$lab_dir"/{auth,billing,worker}
+    dd if=/dev/zero of="$lab_dir/root_old.log" bs=1048576 count=5
+    dd if=/dev/zero of="$lab_dir/auth/small_old.log" bs=1024 count=100
+    dd if=/dev/zero of="$lab_dir/billing/large_old.log" bs=1048576 count=15
+    dd if=/dev/zero of="$lab_dir/worker/large_old.log" bs=1048576 count=25
+    dd if=/dev/zero of="$lab_dir/billing/active.log" bs=1048576 count=12
+    printf 'live\n' > "$lab_dir/auth/active.log"
 
-# Create small and large old logs (> 40 days old)
-dd if=/dev/zero of=/tmp/lab2_services/auth/small_old.log bs=1K count=100 2>/dev/null      # 100 KB
-dd if=/dev/zero of=/tmp/lab2_services/billing/large_old.log bs=1M count=15 2>/dev/null   # 15 MB
-dd if=/dev/zero of=/tmp/lab2_services/worker/large_old.log bs=1M count=25 2>/dev/null    # 25 MB
-dd if=/dev/zero of=/tmp/lab2_services/root_old.log bs=1M count=5 2>/dev/null             # 5 MB
-
-# Create recent active files
-echo "active auth" > /tmp/lab2_services/auth/active.log
-echo "active billing" > /tmp/lab2_services/billing/active.log
-
-# Backdate old files to 45 days ago
-touch -t 202606010000 /tmp/lab2_services/auth/small_old.log
-touch -t 202606010000 /tmp/lab2_services/billing/large_old.log
-touch -t 202606010000 /tmp/lab2_services/worker/large_old.log
-touch -t 202606010000 /tmp/lab2_services/root_old.log
+    if [[ $(uname -s) == Darwin ]]; then
+        stamp=$(date -v-45d +%Y%m%d%H%M)
+    else
+        stamp=$(date -d '45 days ago' +%Y%m%d%H%M)
+    fi
+    touch -t "$stamp" "$lab_dir/root_old.log" "$lab_dir/auth/small_old.log" \
+        "$lab_dir/billing/large_old.log" "$lab_dir/worker/large_old.log"
+)
 ```
 
----
+### PowerShell
 
-## Step 2: Compare Flat vs. Recursive Scans
-
-### Flat Scan (Default Behavior):
-```bash
-./cleanup_logs.sh -d /tmp/lab2_services -t 30 -n
-```
-*Result:* Only `/tmp/lab2_services/root_old.log` is targeted (1 file, 5.00 MB). All nested subdirectory files are safely ignored.
-
-### Recursive Scan (`-r` / `-Recursive`):
-```bash
-./cleanup_logs.sh -d /tmp/lab2_services -t 30 -r -n
-```
-*Result:* All 4 stale files across `auth/`, `billing/`, and `worker/` are detected, totaling ~45.10 MB of candidate storage.
-
----
-
-## Step 3: Apply Minimum Size Threshold Filter
-
-Suppose you only want to purge stale logs that exceed **10 Megabytes** in size, preserving smaller diagnostic logs for investigation.
-
-### Run with `-m 10` (Files $\ge 10$ MB):
-```bash
-./cleanup_logs.sh -d /tmp/lab2_services -t 30 -r -m 10 -n -v
-```
-
-### PowerShell Equivalent:
 ```powershell
-.\cleanup_logs.ps1 -LogDirectory "$env:TEMP\lab2_services" -Days 30 -Recursive -MinSizeMB 10.0 -DryRun -Verbose
+$LabDir = $null
+$SandboxPath = Join-Path ([System.IO.Path]::GetTempPath()) ('log-cleanup-lab2.' + [guid]::NewGuid())
+$LabDir = (New-Item -ItemType Directory -Path $SandboxPath -ErrorAction Stop).FullName
+foreach ($Service in 'auth', 'billing', 'worker') {
+    New-Item -ItemType Directory -Path (Join-Path $LabDir $Service) -ErrorAction Stop | Out-Null
+}
+$Stale = (Get-Date).AddDays(-45)
+$Sizes = @{
+    'root_old.log' = 5MB
+    'auth/small_old.log' = 100KB
+    'billing/large_old.log' = 15MB
+    'worker/large_old.log' = 25MB
+    'auth/active.log' = 5
+    'billing/active.log' = 12MB
+}
+foreach ($Log in $Sizes.Keys) {
+    $Path = Join-Path $LabDir $Log
+    $File = [System.IO.File]::Open($Path, [System.IO.FileMode]::CreateNew)
+    try { $File.SetLength($Sizes[$Log]) } finally { $File.Dispose() }
+    if ($Log -like '*_old.log') { [System.IO.File]::SetLastWriteTime($Path, $Stale) }
+}
 ```
 
-### Output Observation:
-```text
-Scanning target files...
-[SKIP - SIZE] /tmp/lab2_services/auth/small_old.log is below minimum size threshold (100.00 KB < 10 MB)
-[SKIP - SIZE] /tmp/lab2_services/root_old.log is below minimum size threshold (5.00 MB < 10 MB)
-[DRY RUN] Would delete: /tmp/lab2_services/billing/large_old.log (15.00 MB, 79 days old)
-[DRY RUN] Would delete: /tmp/lab2_services/worker/large_old.log (25.00 MB, 79 days old)
+## Step 2: Compare flat and recursive scans
 
-============================================================
-                    Execution Summary                       
-============================================================
-Total Files Scanned : 6
-Eligible for Purge  : 2
-Files Processed     : 2
-Failed Deletions    : 0
-Storage Reclaimed   : 40.00 MB
-============================================================
-```
+Without recursion, the only candidate is `root_old.log`.
 
----
-
-## Step 4: Execute Live Purge with Reclaimed Storage Verification
 ```bash
-./cleanup_logs.sh -d /tmp/lab2_services -t 30 -r -m 10
+./cleanup_logs.sh -d "$lab_dir" -t 30 -n
 ```
 
-Verify that the 15 MB and 25 MB files are purged, while the small 100 KB and 5 MB logs remain intact.
+```powershell
+.\cleanup_logs.ps1 -LogDirectory $LabDir -Days 30 -DryRun
+if ($LASTEXITCODE -ne 0) { throw "Flat dry run failed (exit $LASTEXITCODE)." }
+```
 
----
+With recursion, all four `_old.log` files are candidates. Neither active log is a candidate.
 
-## Step 5: Clean Up Lab Environment
 ```bash
-rm -rf /tmp/lab2_services
+./cleanup_logs.sh -d "$lab_dir" -t 30 -r -n
 ```
 
+```powershell
+.\cleanup_logs.ps1 -LogDirectory $LabDir -Days 30 -Recursive -DryRun
+if ($LASTEXITCODE -ne 0) { throw "Recursive dry run failed (exit $LASTEXITCODE)." }
+```
+
+## Step 3: Preview the combined policy
+
+The only two candidates should be `billing/large_old.log` and `worker/large_old.log`, a total of
+40 MiB. All six files should still be present after the dry runs.
+
+```bash
+./cleanup_logs.sh -d "$lab_dir" -t 30 -r -m 10 -n && (
+    for log in root_old.log auth/small_old.log billing/large_old.log worker/large_old.log \
+        auth/active.log billing/active.log; do
+        [[ -f "$lab_dir/$log" ]] || { printf 'Missing after dry run: %s\n' "$log" >&2; exit 1; }
+    done
+)
+```
+
+```powershell
+.\cleanup_logs.ps1 -LogDirectory $LabDir -Days 30 -Recursive -MinSizeMB 10 -DryRun
+if ($LASTEXITCODE -ne 0) { throw "Filtered dry run failed (exit $LASTEXITCODE)." }
+foreach ($Log in $Sizes.Keys) {
+    if (-not (Test-Path -LiteralPath (Join-Path $LabDir $Log) -PathType Leaf)) {
+        throw "Missing after dry run: $Log"
+    }
+}
+```
+
+## Step 4: Apply the combined policy
+
+Only the two large stale logs should disappear. The stale logs below the minimum and both recent
+logs should remain.
+
+```bash
+./cleanup_logs.sh -d "$lab_dir" -t 30 -r -m 10 && (
+    for log in billing/large_old.log worker/large_old.log; do
+        [[ ! -e "$lab_dir/$log" ]] || { printf 'Still present: %s\n' "$log" >&2; exit 1; }
+    done
+    for log in root_old.log auth/small_old.log auth/active.log billing/active.log; do
+        [[ -f "$lab_dir/$log" ]] || { printf 'Unexpected deletion: %s\n' "$log" >&2; exit 1; }
+    done
+)
+```
+
+```powershell
+.\cleanup_logs.ps1 -LogDirectory $LabDir -Days 30 -Recursive -MinSizeMB 10
+if ($LASTEXITCODE -ne 0) { throw "Live cleanup failed (exit $LASTEXITCODE)." }
+$Expired = 'billing/large_old.log', 'worker/large_old.log'
+foreach ($Log in $Sizes.Keys) {
+    $Present = Test-Path -LiteralPath (Join-Path $LabDir $Log) -PathType Leaf
+    if ($Present -ne ($Log -notin $Expired)) { throw "Unexpected file state: $Log" }
+}
+```
+
+## Step 5: Remove the sandbox
+
+Remove only the four remaining sample files and their now-empty directories.
+
+```bash
+rm -- "${lab_dir:?Run lab setup first}/root_old.log" "$lab_dir/auth/small_old.log" \
+    "$lab_dir/auth/active.log" "$lab_dir/billing/active.log" &&
+    rmdir -- "$lab_dir"/{auth,billing,worker} "$lab_dir"
+```
+
+```powershell
+foreach ($Log in $Sizes.Keys) {
+    if ($Log -notin $Expired) {
+        Remove-Item -LiteralPath (Join-Path $LabDir $Log) -ErrorAction Stop
+    }
+}
+foreach ($Service in 'auth', 'billing', 'worker') {
+    [System.IO.Directory]::Delete((Join-Path $LabDir $Service))
+}
+[System.IO.Directory]::Delete($LabDir)
+```
