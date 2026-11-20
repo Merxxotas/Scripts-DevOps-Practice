@@ -359,6 +359,24 @@ EXPECTED
         "$(sed $'s/\033\\[[0-9;]*m//g' "$lab_stderr")" "Test 26c: missing fake diagnostic"
     assert_equals "" "$(cat "$TEST_SANDBOX/lab2_inherited_calls")" \
         "Test 26d: missing fake never invokes inherited kubectl"
+
+    # An invalid PATH entry must be rejected before any client can run.
+    lab_tools="$TEST_SANDBOX/lab2-tools"
+    mkdir -p "$lab_tools" "$lab_tools:scratch"
+    export LAB2_COLON_CALLS="$TEST_SANDBOX/lab2_colon_calls"
+    : > "$LAB2_COLON_CALLS"
+    printf '#!/bin/bash\nprintf "called\\n" >> %q\nexit 1\n' "$LAB2_COLON_CALLS" \
+        > "$lab_tools/kubectl"
+    chmod +x "$lab_tools/kubectl"
+    lab_rc=0
+    (cd "$SCRIPT_DIR" && TMPDIR="$lab_tools:scratch" bash "$lab_script") \
+        > "$lab_stdout" 2> "$lab_stderr" || lab_rc=$?
+    assert_equals 1 "$lab_rc" "Test 27a: Lab 2 rejects a colon in its temporary path"
+    assert_equals "" "$(<"$lab_stdout")" "Test 27b: rejected path has no stdout"
+    assert_equals "Lab 2 needs a temporary directory path without ':'." \
+        "$(<"$lab_stderr")" "Test 27c: rejected path diagnostic"
+    assert_equals "" "$(<"$LAB2_COLON_CALLS")" "Test 27d: rejected path never invokes kubectl"
+    assert_equals "" "$(ls -A "$lab_tools:scratch")" "Test 27e: rejected path stays empty"
 fi
 
 # ---------- summary ----------

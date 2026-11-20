@@ -9,6 +9,7 @@ Copy and run the **whole block**. Do not run the monitor separately for this lab
 it defaults to live mode. The block clears the monitor's inherited environment
 and sets its `PATH` to a directory containing only a newly created fake `kubectl`.
 If the fake is missing, the monitor stops; it cannot fall back to your normal `PATH`.
+A temporary path containing `:` is rejected because `PATH` treats it as a separator.
 All lab files are removed when the block exits.
 
 ```bash
@@ -20,7 +21,12 @@ All lab files are removed when the block exits.
         exit 1
     fi
 
-    lab_dir=$(mktemp -d "${TMPDIR:-/tmp}/k8s-lab2.XXXXXX")
+    temp_root=${TMPDIR:-/tmp}
+    if [[ "$temp_root" == *:* ]]; then
+        printf '%s\n' "Lab 2 needs a temporary directory path without ':'." >&2
+        exit 1
+    fi
+    lab_dir=$(mktemp -d "$temp_root/k8s-lab2.XXXXXX")
     trap 'rm -rf -- "$lab_dir"' EXIT
     mkdir "$lab_dir/bin"
     cat > "$lab_dir/bin/kubectl" <<'FAKE_KUBECTL'
