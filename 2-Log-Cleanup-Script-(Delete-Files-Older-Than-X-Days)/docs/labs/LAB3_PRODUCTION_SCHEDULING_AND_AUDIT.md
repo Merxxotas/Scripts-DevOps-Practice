@@ -1,95 +1,134 @@
-# Lab 3: Production Scheduling & Audit Logging ⏰
+# Lab 3: Audit Logs, Exit Codes & Scheduling
 
-## Objective
-Configure production-grade automated scheduling (Linux Cron and Windows Task Scheduler) with persistent ISO-8601 audit logging, exit code validation, and error alert hooking.
+Verify an audit trail and two exit codes without installing a scheduler or deleting real logs.
+Start in the module directory. Run the blocks for your shell in the same session, in order, and
+stop if a step fails. The scheduling section is reference only.
 
----
+## Step 1: Create a sandbox and preview cleanup (exit 0)
 
-## 📋 Prerequisites
-- Administrative/sudo access on Linux or Administrator privileges on Windows (for system scheduler setup).
-- Completed [Lab 1](LAB1_BASIC_RETENTION_AND_DRYRUN.md) and [Lab 2](LAB2_RECURSIVE_SIZE_FILTERING.md).
+Create one log dated about 45 days ago. Keep the audit log outside the scanned directory so it
+cannot become a cleanup candidate. Dry-run must leave the test log in place.
 
----
+### Bash
 
-## Step 1: Set Up Persistent Audit Logging
-
-The utility provides built-in ISO-8601 audit logging via the `-l / -LogFile` option.
-
-### Execute Cleanup with Audit Log:
 ```bash
-mkdir -p /tmp/lab3_logs /tmp/lab3_audit
-echo "Stale log" > /tmp/lab3_logs/old.log
-touch -t 202606010000 /tmp/lab3_logs/old.log
-
-./cleanup_logs.sh -d /tmp/lab3_logs -t 30 -l /tmp/lab3_audit/cleanup.log
+lab_dir=$(mktemp -d "${TMPDIR:-/tmp}/log-cleanup-lab3.XXXXXXXX") && (
+    set -e
+    mkdir "$lab_dir/input"
+    printf 'Sample stale log\n' > "$lab_dir/input/old.log"
+    if [[ $(uname -s) == Darwin ]]; then
+        stamp=$(date -v-45d +%Y%m%d%H%M)
+    else
+        stamp=$(date -d '45 days ago' +%Y%m%d%H%M)
+    fi
+    touch -t "$stamp" "$lab_dir/input/old.log"
+    rc=0
+    ./cleanup_logs.sh -d "$lab_dir/input" -t 30 -n -l "$lab_dir/audit.log" || rc=$?
+    printf 'Preview exit: %s\n' "$rc"
+    [[ "$rc" -eq 0 && -f "$lab_dir/input/old.log" ]]
+)
 ```
 
-### Inspect Audit Log:
-```bash
-cat /tmp/lab3_audit/cleanup.log
-```
+### PowerShell
 
-### Example Output:
-```text
-2026-08-19T14:45:00Z [INFO] Log cleanup initiated for '/tmp/lab3_logs' (Retention: 30d, Pattern: '*.log', Recursive: false, DryRun: false, MinSizeMB: 0)
-2026-08-19T14:45:01Z [INFO] DELETED: /tmp/lab3_logs/old.log (Size: 10 B, Age: 79d)
-2026-08-19T14:45:01Z [INFO] Cleanup completed: Scanned=1, Eligible=1, Processed=1, Failed=0, Reclaimed=10 B
-```
-
----
-
-## Step 2: Validate Standardized Exit Codes
-
-In automated DevOps pipelines, exit codes determine whether alerting systems trigger pager incidents.
-
-### Test Case A: Success (Code 0)
-```bash
-./cleanup_logs.sh -d /tmp/lab3_logs -t 30
-echo "Exit Code: $?"  # Outputs: 0
-```
-
-### Test Case B: Safety Violation (Code 1)
-```bash
-./cleanup_logs.sh -d /etc
-echo "Exit Code: $?"  # Outputs: 1
-```
-
----
-
-## Step 3: Production Schedulers Configuration
-
-### 1. Linux Cron Configuration
-Edit the system crontab (`crontab -e`):
-```cron
-# Run daily at 02:30 AM with automatic error alerting
-30 2 * * * /usr/local/bin/cleanup_logs.sh -d /var/log/myapp -t 14 -r -l /var/log/cleanup_audit.log || echo "Log cleanup failed!" | mail -s "ALERT: Log Cleanup Error" devops-alerts@example.com
-```
-
-### 2. Windows Task Scheduler (PowerShell Automation)
-Create and register the daily task programmatically:
 ```powershell
-$Action = New-ScheduledTaskAction -Execute "PowerShell.exe" `
-    -Argument "-ExecutionPolicy Bypass -File C:\Scripts\cleanup_logs.ps1 -LogDirectory C:\Logs\App -Days 30 -Recursive -LogFile C:\Logs\audit.log"
-
-$Trigger = New-ScheduledTaskTrigger -Daily -At 2am
-$Principal = New-ScheduledTaskPrincipal -UserId "NT AUTHORITY\SYSTEM" -LogonType ServiceAccount
-
-Register-ScheduledTask -TaskName "AutomatedLogCleanup" `
-                       -Action $Action `
-                       -Trigger $Trigger `
-                       -Principal $Principal `
-                       -Description "Daily automated log retention and purging"
+$LabDir = $null
+$SandboxPath = Join-Path ([System.IO.Path]::GetTempPath()) ('log-cleanup-lab3.' + [guid]::NewGuid())
+$LabDir = (New-Item -ItemType Directory -Path $SandboxPath -ErrorAction Stop).FullName
+$InputDir = Join-Path $LabDir 'input'
+New-Item -ItemType Directory -Path $InputDir -ErrorAction Stop | Out-Null
+$Old = Join-Path $InputDir 'old.log'
+Set-Content -LiteralPath $Old -Value 'Sample stale log' -ErrorAction Stop
+[System.IO.File]::SetLastWriteTime($Old, (Get-Date).AddDays(-45))
+$Audit = Join-Path $LabDir 'audit.log'
+.\cleanup_logs.ps1 -LogDirectory $InputDir -Days 30 -DryRun -LogFile $Audit
+$Code = $LASTEXITCODE
+"Preview exit: $Code"
+if ($Code -ne 0 -or -not (Test-Path -LiteralPath $Old -PathType Leaf)) {
+    throw 'Preview must succeed and preserve old.log.'
+}
 ```
 
-### Verify Task in Windows:
-```powershell
-Get-ScheduledTask -TaskName "AutomatedLogCleanup"
-```
+## Step 2: Verify the audit trail and a rejected input (exit 1)
 
----
+The audit log should show an ISO 8601 UTC timestamp, a `Would delete` entry for `old.log`, and a
+summary for one scanned file, one candidate, and zero failures. `Processed=1` counts the previewed
+candidate; it does not mean a deletion occurred. The actual timestamp and file size vary.
 
-## Step 4: Cleanup Lab Environment
+Pass a nonexistent directory within the sandbox to demonstrate exit `1` without scanning system
+paths. Exit `2` indicates a partial failure; this exercise does not induce one.
+
+### Bash
+
 ```bash
-rm -rf /tmp/lab3_logs /tmp/lab3_audit
+(
+    set -e
+    audit="${lab_dir:?Run lab setup first}/audit.log"
+    timestamp='^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z'
+    grep -E "$timestamp \\[INFO\\] \\[DRY RUN\\] Would delete: .*/old\\.log " "$audit"
+    grep -F 'Cleanup completed: Scanned=1, Eligible=1, Processed=1, Failed=0' "$audit"
+    rc=0
+    ./cleanup_logs.sh -d "$lab_dir/missing" -t 30 -n || rc=$?
+    printf 'Rejected input exit: %s\n' "$rc"
+    [[ "$rc" -eq 1 && -f "$lab_dir/input/old.log" && ! -e "$lab_dir/missing" ]]
+)
 ```
 
+### PowerShell
+
+```powershell
+$Entries = Get-Content -LiteralPath $Audit -ErrorAction Stop
+$Timestamp = '^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z'
+$Preview = $Entries -match "$Timestamp \[INFO\] \[DRY RUN\] Would delete: .*old\.log "
+$Summary = $Entries -like '*Cleanup completed: Scanned=1, Eligible=1, Processed=1, Failed=0*'
+if (-not $Preview -or -not $Summary) { throw 'The expected audit entries are missing.' }
+$Preview
+$Summary
+$Missing = Join-Path $LabDir 'missing'
+.\cleanup_logs.ps1 -LogDirectory $Missing -Days 30 -DryRun
+$Code = $LASTEXITCODE
+"Rejected input exit: $Code"
+if ($Code -ne 1 -or (Test-Path -LiteralPath $Missing) -or
+    -not (Test-Path -LiteralPath $Old -PathType Leaf)) {
+    throw 'An invalid directory must return exit 1 and leave the sandbox unchanged.'
+}
+```
+
+## Step 3: Remove the sandbox
+
+### Bash
+
+```bash
+rm -- "${lab_dir:?Run lab setup first}/input/old.log" "$lab_dir/audit.log" &&
+    rmdir -- "$lab_dir/input" "$lab_dir"
+```
+
+### PowerShell
+
+```powershell
+Remove-Item -LiteralPath $Old, $Audit -ErrorAction Stop
+[System.IO.Directory]::Delete($InputDir)
+[System.IO.Directory]::Delete($LabDir)
+```
+
+## Production scheduling reference (not part of the walkthrough)
+
+The scheduler should run under a dedicated account with access only to the intended logs and
+an audit destination outside that tree. Start with dry-run, inspect the audit output and scheduler
+history, and configure an alert on nonzero exits before enabling deletion. A successful exit does
+not by itself prove that the audit file was written; verify that separately.
+
+- **Cron:** Use explicit paths. In the dedicated account's crontab, a daily preview at 02:30
+  looks like this:
+
+  ```cron
+  30 2 * * * /opt/log-cleanup/cleanup_logs.sh -d /srv/myapp/logs -t 14 -r -n -l /srv/myapp/audit/cleanup.log
+  ```
+
+- **Windows Task Scheduler:** Use a daily trigger under a dedicated account, not `SYSTEM`. Set
+  `powershell.exe` as the program and use an action such as the following (replace all paths and
+  follow your execution policy). Verify **Last Run Result** and the audit file after a preview.
+
+  ```text
+  -NoProfile -NonInteractive -File "C:\Scripts\cleanup_logs.ps1" -LogDirectory "C:\Logs\App" -Days 14 -Recursive -DryRun -LogFile "C:\Audit\cleanup.log"
+  ```

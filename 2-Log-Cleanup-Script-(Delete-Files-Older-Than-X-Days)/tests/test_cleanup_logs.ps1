@@ -275,6 +275,34 @@ function Test-Lab2Walkthrough {
     }
 }
 
+# Run only the executable walkthrough. Scheduler configuration is reference text.
+function Test-Lab3Walkthrough {
+    $ErrorActionPreference = "Stop"
+    $Lab = Join-Path (Split-Path -Parent $ScriptDir) `
+        "docs/labs/LAB3_PRODUCTION_SCHEDULING_AND_AUDIT.md"
+    $Blocks = [regex]::Matches((Get-Content -LiteralPath $Lab -Raw),
+        '(?ms)^```powershell[^\S\r\n]*\r?\n(.*?)^```')
+    if ($Blocks.Count -ne 3) {
+        Assert-Equal -Expected 3 -Actual $Blocks.Count -TestName "Lab 3 publishes its isolated steps"
+        return
+    }
+
+    Push-Location -LiteralPath (Split-Path -Parent $CleanupScript)
+    $LabDir = $null
+    try {
+        . ([scriptblock]::Create(($Blocks | ForEach-Object { $_.Groups[1].Value }) -join "`n"))
+        Assert-Equal -Expected $false -Actual (Test-Path -LiteralPath $LabDir) `
+            -TestName "Lab 3 verifies audit entries and exit codes without a scheduler"
+    } catch {
+        Assert-Equal -Expected "Lab succeeds" -Actual $_.ToString() -TestName "Lab 3 examples"
+    } finally {
+        Pop-Location
+        if ($LabDir -and (Test-Path -LiteralPath $LabDir)) {
+            Remove-Item -LiteralPath $LabDir -Recurse -Force
+        }
+    }
+}
+
 # Execution
 Write-Host "$([char]27)[0;36mStarting PowerShell Log Cleanup Test Suite...$([char]27)[0m"
 Test-MissingDirectory
@@ -289,6 +317,7 @@ Test-RecursiveCleanup
 Test-AuditLogging
 Test-Lab1Walkthrough
 Test-Lab2Walkthrough
+Test-Lab3Walkthrough
 
 Write-Host "============================================================"
 Write-Host "Tests Summary: $([char]27)[0;32m$Script:PassedCount Passed$([char]27)[0m, $([char]27)[0;31m$Script:FailedCount Failed$([char]27)[0m"
