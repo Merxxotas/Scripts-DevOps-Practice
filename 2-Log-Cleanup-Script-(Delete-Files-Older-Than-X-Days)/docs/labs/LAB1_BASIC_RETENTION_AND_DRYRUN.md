@@ -1,127 +1,132 @@
 # Lab 1: Basic Retention Policy & Dry-Run Preview 🧪
 
-## Objective
-Learn how to safely inspect, evaluate, and purge stale log files using retention thresholds and dry-run simulation mode without risking accidental file deletion.
+Preview a 30-day retention policy on four disposable logs, then apply it and verify what remains.
 
----
+Use Bash 4+ on Linux/macOS or PowerShell 5.1+ on Windows. Start in the module directory, where
+`cleanup_logs.sh` and `cleanup_logs.ps1` live. Run only the blocks for your shell, in the same
+session, and stop if a step fails.
 
-## 📋 Prerequisites
-- A Linux/macOS shell with Bash 4+ or a Windows workstation with PowerShell 5.1+.
-- Execution permissions on `cleanup_logs.sh` or `cleanup_logs.ps1`.
+## Step 1: Create the test logs
 
----
-
-## Step 1: Set Up the Mock Test Environment
-
-Create a temporary sandbox directory with a mix of stale logs (older than 30 days) and active recent logs.
+Each run creates a new temporary directory. The four files have ages of 0, 5, 45 and 60 days, so
+two are well outside the 30-day retention window regardless of when you run the lab.
 
 ### Linux / macOS (Bash)
+
 ```bash
-# Create sandbox directory
-mkdir -p /tmp/lab1_logs
+lab_dir=$(mktemp -d "${TMPDIR:-/tmp}/log-cleanup-lab1.XXXXXXXX") && (
+    set -e
+    for log in app access debug error; do
+        printf 'Sample %s log\n' "$log" > "$lab_dir/$log.log"
+    done
 
-# Create sample log files
-echo "Active server log" > /tmp/lab1_logs/app.log
-echo "Recent access log" > /tmp/lab1_logs/access_2026-08-15.log
-echo "Stale debug log" > /tmp/lab1_logs/debug_2026-06-01.log
-echo "Stale error log" > /tmp/lab1_logs/error_2026-05-10.log
-
-# Manipulate modification timestamps for stale files (45+ days old)
-touch -t 202606010000 /tmp/lab1_logs/debug_2026-06-01.log
-touch -t 202605100000 /tmp/lab1_logs/error_2026-05-10.log
+    for fixture in access:5 debug:45 error:60; do
+        log=${fixture%:*}
+        days=${fixture#*:}
+        if [[ $(uname -s) == Darwin ]]; then
+            stamp=$(date -v-"${days}"d +%Y%m%d%H%M)
+        else
+            stamp=$(date -d "$days days ago" +%Y%m%d%H%M)
+        fi
+        touch -t "$stamp" "$lab_dir/$log.log"
+    done
+)
 ```
 
 ### Windows (PowerShell)
+
 ```powershell
-$LabDir = "$env:TEMP\lab1_logs"
-New-Item -ItemType Directory -Path $LabDir -Force | Out-Null
-
-Set-Content -Path "$LabDir\app.log" -Value "Active server log"
-Set-Content -Path "$LabDir\access_2026-08-15.log" -Value "Recent access log"
-Set-Content -Path "$LabDir\debug_2026-06-01.log" -Value "Stale debug log"
-Set-Content -Path "$LabDir\error_2026-05-10.log" -Value "Stale error log"
-
-# Set LastWriteTime to 45 and 60 days in the past
-(Get-Item "$LabDir\debug_2026-06-01.log").LastWriteTime = (Get-Date).AddDays(-45)
-(Get-Item "$LabDir\error_2026-05-10.log").LastWriteTime = (Get-Date).AddDays(-60)
+$LabDir = $null
+$SandboxPath = Join-Path ([System.IO.Path]::GetTempPath()) ('log-cleanup-lab1.' + [guid]::NewGuid())
+$LabDir = (New-Item -ItemType Directory -Path $SandboxPath -ErrorAction Stop).FullName
+$Now = Get-Date
+$Ages = @{ 'app' = 0; 'access' = 5; 'debug' = 45; 'error' = 60 }
+foreach ($Log in $Ages.Keys) {
+    $File = Join-Path $LabDir "$Log.log"
+    Set-Content -LiteralPath $File -Value "Sample $Log log" -ErrorAction Stop
+    (Get-Item -LiteralPath $File -ErrorAction Stop).LastWriteTime = $Now.AddDays(-$Ages[$Log])
+}
 ```
 
----
+## Step 2: Preview and check that nothing was deleted
 
-## Step 2: Execute Dry-Run Simulation
+The dry run should scan four files and report two deletion candidates: `debug.log` and
+`error.log`. Paths, file order, reported ages and sizes can vary. Both recent and expired logs
+must still exist after the command.
 
-Simulate a 30-day retention cleanup. The dry-run switch (`-n` / `-DryRun`) outputs candidate files and projected storage savings without deleting anything.
+### Bash
 
-### Bash:
 ```bash
-./cleanup_logs.sh -d /tmp/lab1_logs -t 30 -n
+./cleanup_logs.sh -d "$lab_dir" -t 30 -n && (
+    for log in app access debug error; do
+        if [[ ! -f "$lab_dir/$log.log" ]]; then
+            printf 'Dry run did not preserve %s.log\n' "$log" >&2
+            exit 1
+        fi
+    done
+)
 ```
 
-### PowerShell:
+### PowerShell
+
 ```powershell
-.\cleanup_logs.ps1 -LogDirectory "$env:TEMP\lab1_logs" -Days 30 -DryRun
+.\cleanup_logs.ps1 -LogDirectory $LabDir -Days 30 -DryRun
+if ($LASTEXITCODE -ne 0) { throw "Dry run failed (exit $LASTEXITCODE)." }
+foreach ($Log in $Ages.Keys) {
+    if (-not (Test-Path -LiteralPath (Join-Path $LabDir "$Log.log") -PathType Leaf)) {
+        throw "Dry run did not preserve $Log.log."
+    }
+}
 ```
 
-### Expected Output:
-```text
-============================================================
-                DevOps Log Cleanup Utility                  
-============================================================
-Target Directory : /tmp/lab1_logs
-Retention Policy : Older than 30 days
-Matching Pattern : *.log
-Min Size Filter  : 0 MB
-Recursive Scan   : false
-Execution Mode   : DRY RUN (Simulation)
+## Step 3: Apply the policy and verify what remains
 
-Scanning target files...
-[DRY RUN] Would delete: /tmp/lab1_logs/debug_2026-06-01.log (16 B, 79 days old)
-[DRY RUN] Would delete: /tmp/lab1_logs/error_2026-05-10.log (16 B, 101 days old)
+Only `app.log` and `access.log` should remain. `debug.log` and `error.log` should be gone.
 
-============================================================
-                    Execution Summary                       
-============================================================
-Total Files Scanned : 4
-Eligible for Purge  : 2
-Files Processed     : 2
-Failed Deletions    : 0
-Storage Reclaimed   : 32 B
-============================================================
-```
+### Bash
 
-Verify that all files are still present on disk:
 ```bash
-ls -la /tmp/lab1_logs
+./cleanup_logs.sh -d "$lab_dir" -t 30 && (
+    if [[ ! -f "$lab_dir/app.log" || ! -f "$lab_dir/access.log" ||
+          -e "$lab_dir/debug.log" || -e "$lab_dir/error.log" ]]; then
+        printf 'Live cleanup did not leave exactly the two recent logs.\n' >&2
+        exit 1
+    fi
+)
 ```
 
----
+### PowerShell
 
-## Step 3: Execute Live Purge
-
-Now execute the live cleanup without the simulation switch:
-
-### Bash:
-```bash
-./cleanup_logs.sh -d /tmp/lab1_logs -t 30
-```
-
-### PowerShell:
 ```powershell
-.\cleanup_logs.ps1 -LogDirectory "$env:TEMP\lab1_logs" -Days 30
+.\cleanup_logs.ps1 -LogDirectory $LabDir -Days 30
+if ($LASTEXITCODE -ne 0) { throw "Live cleanup failed (exit $LASTEXITCODE)." }
+foreach ($Log in 'app', 'access') {
+    if (-not (Test-Path -LiteralPath (Join-Path $LabDir "$Log.log") -PathType Leaf)) {
+        throw "Live cleanup did not preserve $Log.log."
+    }
+}
+foreach ($Log in 'debug', 'error') {
+    if (Test-Path -LiteralPath (Join-Path $LabDir "$Log.log")) {
+        throw "Live cleanup did not delete $Log.log."
+    }
+}
 ```
 
-### Verification:
-List the remaining files in the directory:
+## Step 4: Remove the sandbox
+
+Remove the remaining sample logs, then the empty directory. This does not recursively delete files.
+
+### Bash
+
 ```bash
-ls -la /tmp/lab1_logs
+rm -- "${lab_dir:?Run lab setup first}/app.log" "$lab_dir/access.log" && rmdir -- "$lab_dir"
 ```
 
-Only `app.log` and `access_2026-08-15.log` remain. Both stale files have been purged.
+### PowerShell
 
----
-
-## Step 4: Cleanup Lab Resources
-```bash
-rm -rf /tmp/lab1_logs
+```powershell
+foreach ($Log in 'app', 'access') {
+    Remove-Item -LiteralPath (Join-Path $LabDir "$Log.log") -ErrorAction Stop
+}
+[System.IO.Directory]::Delete($LabDir)
 ```
-

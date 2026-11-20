@@ -197,6 +197,36 @@ function Test-AuditLogging {
     Exit-TestEnvironment
 }
 
+# Run the published lab steps, including their filesystem assertions.
+function Test-Lab1Walkthrough {
+    $ErrorActionPreference = "Stop"
+    $LabPath = Join-Path (Split-Path -Parent $ScriptDir) `
+        "docs/labs/LAB1_BASIC_RETENTION_AND_DRYRUN.md"
+    $Lab = Get-Content -LiteralPath $LabPath -Raw
+    $Blocks = [regex]::Matches($Lab, '(?ms)^```powershell[^\S\r\n]*\r?\n(.*?)^```')
+    if ($Blocks.Count -ne 4) {
+        Assert-Equal -Expected 4 -Actual $Blocks.Count -TestName "Lab 1 publishes all PowerShell steps"
+        return
+    }
+
+    Push-Location -LiteralPath (Split-Path -Parent $CleanupScript)
+    $LabDir = $null
+    try {
+        $Commands = ($Blocks | ForEach-Object { $_.Groups[1].Value }) -join "`n"
+        # Keep the setup variable in this scope so the sandbox can be cleaned up on failure.
+        . ([scriptblock]::Create($Commands))
+        Assert-Equal -Expected $false -Actual (Test-Path -LiteralPath $LabDir) `
+            -TestName "Lab 1 completes dry-run, live purge, and sandbox cleanup"
+    } catch {
+        Assert-Equal -Expected "Lab succeeds" -Actual $_.ToString() -TestName "Lab 1 examples"
+    } finally {
+        Pop-Location
+        if ($LabDir -and (Test-Path -LiteralPath $LabDir)) {
+            Remove-Item -LiteralPath $LabDir -Recurse -Force
+        }
+    }
+}
+
 # Execution
 Write-Host "$([char]27)[0;36mStarting PowerShell Log Cleanup Test Suite...$([char]27)[0m"
 Test-MissingDirectory
@@ -209,6 +239,7 @@ Test-DryRunMode
 Test-RetentionDeletion
 Test-RecursiveCleanup
 Test-AuditLogging
+Test-Lab1Walkthrough
 
 Write-Host "============================================================"
 Write-Host "Tests Summary: $([char]27)[0;32m$Script:PassedCount Passed$([char]27)[0m, $([char]27)[0;31m$Script:FailedCount Failed$([char]27)[0m"
