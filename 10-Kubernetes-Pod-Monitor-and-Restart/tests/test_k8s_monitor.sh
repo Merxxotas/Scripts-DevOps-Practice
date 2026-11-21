@@ -283,7 +283,8 @@ lab_stderr="$TEST_SANDBOX/stderr.txt"
 run_lab2() (
     cd "$SCRIPT_DIR" || exit 1
     # The child shell can invoke this only if the lab leaks the inherited environment.
-    # shellcheck disable=SC2329
+    # SC2329 (0.11+) and SC2317 (distro 0.10) both flag this indirectly-invoked function.
+    # shellcheck disable=SC2317,SC2329
     kubectl() {
         printf '%s\n' "$*" >> "$TEST_SANDBOX/lab2_inherited_calls"
         return 1
@@ -347,7 +348,8 @@ EXPECTED
     lab_rc=0
     (
         # Invoked by the child shell when it tries to finish setting up the fake.
-        # shellcheck disable=SC2329
+        # SC2329 (0.11+) and SC2317 (distro 0.10) both flag this indirectly-invoked function.
+        # shellcheck disable=SC2317,SC2329
         chmod() { mv "$2" "$2.disabled"; }
         export -f chmod
         run_lab2
