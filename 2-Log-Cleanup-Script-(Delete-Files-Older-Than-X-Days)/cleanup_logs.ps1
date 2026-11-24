@@ -6,6 +6,7 @@
 .DESCRIPTION
     Scans, filters, and purges stale log files based on retention days, file glob patterns,
     and size thresholds with safety guardrails against critical directory purging.
+    If file enumeration fails, live and dry-run modes exit 2 without processing log files.
 
 .PARAMETER LogDirectory
     Target directory path containing the log files to clean.
@@ -269,6 +270,24 @@ function Invoke-LogCleanup {
 
     Write-AuditLog -Level "INFO" -Message "Log cleanup initiated for '$ResolvedDir' (Retention: ${Days}d, Pattern: '$Pattern', Recursive: $Recursive, DryRun: $DryRun, MinSizeMB: $MinSizeMB)"
 
+    # Finish enumeration before processing any result; even a partial listing can contain candidates.
+    try {
+        if ($Recursive) {
+            $Files = Get-ChildItem -LiteralPath $ResolvedDir -Filter $Pattern -File -Force `
+                -Recurse -ErrorAction Stop
+        } else {
+            $Files = Get-ChildItem -LiteralPath $ResolvedDir -Filter $Pattern -File -Force `
+                -ErrorAction Stop | Where-Object {
+                    $_.Directory.FullName.TrimEnd('\', '/') -eq $NormalizedRootDir
+                }
+        }
+    } catch {
+        $Diagnostic = 'Error: File enumeration failed; no log files were processed.'
+        [Console]::Error.WriteLine($Diagnostic)
+        Write-AuditLog -Level 'ERROR' -Message $Diagnostic
+        exit 2
+    }
+
     $ModeText = if ($DryRun) { "$($Colors.Yellow)DRY RUN (Simulation)$($Colors.Reset)" } else { "$($Colors.Green)LIVE (Deletions Active)$($Colors.Reset)" }
     if ($humanMode) {
         Write-Host "$($Colors.Blue)$($Colors.Bold)============================================================$($Colors.Reset)"
@@ -284,15 +303,6 @@ function Invoke-LogCleanup {
             Write-Host "Audit Log File   : $($Colors.Cyan)$LogFile$($Colors.Reset)"
         }
         Write-Host "`n$($Colors.Blue)Scanning target files...$($Colors.Reset)"
-    }
-
-    if ($Recursive) {
-        $Files = Get-ChildItem -LiteralPath $ResolvedDir -Filter $Pattern -File -Force -Recurse -ErrorAction SilentlyContinue
-    } else {
-        $Files = Get-ChildItem -LiteralPath $ResolvedDir -Filter $Pattern -File -Force -ErrorAction SilentlyContinue |
-            Where-Object {
-                $_.Directory.FullName.TrimEnd('\', '/') -eq $NormalizedRootDir
-            }
     }
 
     foreach ($File in $Files) {

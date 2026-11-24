@@ -60,6 +60,8 @@ Optional Arguments:
   -v                Enable verbose per-file diagnostic output.
   -h                Show this help and usage documentation.
 
+If file enumeration fails, live and dry-run modes exit 2 without processing log files.
+
 Examples:
   $0 -d /var/log/myapp -t 14 -n
   $0 -d /var/log/myapp -t 30 -p "*.log" -r -l /var/log/cleanup_audit.log
@@ -273,6 +275,50 @@ parse_arguments() {
     fi
 }
 
+# Do not stage in an operator-controlled TMPDIR or mutate the scan tree.
+scan_scratch_root() {
+    local target="$1" candidate physical owner
+    for candidate in /tmp /var/tmp; do
+        physical="$(cd -P -- "$candidate" && pwd -P)" || continue
+        [[ "$physical" != "$target" && "$physical" != "$target/"* ]] || continue
+        [[ -k "$physical" ]] || continue
+        owner="$(stat -c %u "$physical" 2>/dev/null || stat -f %u "$physical")" || continue
+        [[ "$owner" == 0 ]] || continue
+        printf '%s\n' "$physical"
+        return 0
+    done
+    return 1
+}
+
+# Open independent read/write offsets before unlinking; the listing has no path during the scan.
+open_scan_spool() {
+    local root="$1" scratch spool rc=0
+    scratch="$(mktemp -d "$root/log-cleanup.XXXXXXXX")" || return 1
+    spool="$scratch/paths"
+    { exec 9>"$spool" && exec 8<"$spool"; } || rc=1
+    rm -f "$spool" || rc=1
+    rmdir "$scratch" || rc=1
+    return "$rc"
+}
+
+stage_scan() {
+    local target="$1" root
+    root="$(scan_scratch_root "$target")" || return 1
+    open_scan_spool "$root" || return 1
+
+    local -a find_cmd=(find "$LOG_DIR")
+    if [[ "$RECURSIVE" = false ]]; then
+        find_cmd+=(-maxdepth 1)
+    fi
+    find_cmd+=(-type f -name "$FILE_PATTERN" -print0)
+
+    # pipefail covers both the enumerator and the process writing the complete listing.
+    local rc=0
+    "${find_cmd[@]}" 8<&- 9>&- | cat 8<&- >&9 9>&- || rc=1
+    exec 9>&-
+    return "$rc"
+}
+
 # Main execution entrypoint
 main() {
     parse_arguments "$@"
@@ -313,6 +359,15 @@ main() {
 
     log_message "INFO" "Log cleanup initiated for '$resolved_dir' (Retention: ${RETENTION_DAYS}d, Pattern: '$FILE_PATTERN', Recursive: $RECURSIVE, DryRun: $DRY_RUN, MinSizeMB: $MIN_SIZE_MB)"
 
+    local scan_target
+    if ! scan_target="$(CDPATH='' cd -P -- "$LOG_DIR" && pwd -P)" 2>/dev/null ||
+       ! stage_scan "$scan_target" 2>/dev/null; then
+        local diagnostic='Error: File enumeration failed; no log files were processed.'
+        printf '%s\n' "$diagnostic" >&2
+        log_message "ERROR" "$diagnostic"
+        exit 2
+    fi
+
     local mode_label
     if [[ "$DRY_RUN" = true ]]; then
         mode_label="$(printf "%bDRY RUN (Simulation)%b" "$COLOR_YELLOW" "$COLOR_RESET")"
@@ -346,15 +401,9 @@ main() {
     local min_size_bytes
     min_size_bytes=$(awk -v m="$MIN_SIZE_MB" 'BEGIN { printf "%.0f", m * 1048576 }')
 
-    # Construct find arguments
-    local -a find_cmd=("find" "$LOG_DIR")
-    if [[ "$RECURSIVE" = false ]]; then
-        find_cmd+=("-maxdepth" "1")
-    fi
-    find_cmd+=("-type" "f" "-name" "$FILE_PATTERN")
-
-    # Read files safely via null delimiter
-    while IFS= read -r -d '' file_path; do
+    # Read from the retained descriptor in this process; signals stop further deletions.
+    local file_path
+    while IFS= read -r -d '' file_path <&8; do
         ((TOTAL_SCANNED++)) || true
 
         local file_mtime
@@ -421,7 +470,8 @@ main() {
             file_age=$(( (current_epoch - file_mtime) / 86400 ))
             printf "%b[SKIP - AGE]%b %s is within retention period (%d days <= %d days)\n" "$COLOR_CYAN" "$COLOR_RESET" "$file_path" "$file_age" "$RETENTION_DAYS"
         fi
-    done < <("${find_cmd[@]}" -print0 2>/dev/null)
+    done
+    exec 8<&-
 
     local total_space_formatted
     total_space_formatted="$(format_bytes "$TOTAL_RECLAIMED_BYTES")"

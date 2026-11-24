@@ -148,6 +148,12 @@ To prevent accidental data loss or catastrophic operating system corruption, bot
 
 4. **Fail-closed metadata (Bash)**: if a file's modification time or size cannot be determined by *any* available source (`stat` GNU/BSD, `date`, `wc`), the file is skipped, logged as `UNINSPECTABLE`, counted in the `uninspectable` metric, and the process exits with code `2`. It is never treated as "ancient" and never deleted.
 
+5. **Fail-closed enumeration**: finish enumeration before inspecting, previewing, or deleting
+   candidates. If the scan cannot complete, exit `2` in live and dry-run modes, write the diagnostic
+   to stderr and to the optional audit log, and emit no report on stdout. In Bash, stage NUL-delimited
+   paths in an unlinked spool outside the target tree. A staging failure has the same result; the
+   Bash process does not accumulate the full listing in memory.
+
 ---
 
 ## 6. Space Calculation & Metric Aggregation
@@ -196,7 +202,7 @@ Standardized exit codes ensure seamless integration with CI/CD runners, cron dae
 | :---: | :--- | :--- |
 | `0` | **Success** | Cleanup finished with 0 errors (including clean dry-run runs). |
 | `1` | **Configuration / Safety Error** | Invalid arguments (`-t` below 1, non-numeric `-m`), non-existent path, unreadable/unwritable target directory (failed pre-flight probe), or target inside a protected system tree / protected root. |
-| `2` | **Partial Failure** | One or more files could not be inspected (metadata unavailable — the file is left untouched) or deleted (e.g., file lock, transient permission error). |
+| `2` | **Partial Failure** | Enumeration or staging failed before processing, or one or more files could not be inspected (metadata unavailable — the file is left untouched) or deleted (e.g., file lock, transient permission error). |
 
 ---
 

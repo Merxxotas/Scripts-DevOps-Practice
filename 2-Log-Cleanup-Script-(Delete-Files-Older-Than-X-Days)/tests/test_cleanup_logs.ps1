@@ -303,6 +303,58 @@ function Test-Lab3Walkthrough {
     }
 }
 
+function Test-IncompleteScan {
+    param([switch]$DryRun)
+
+    Enter-TestEnvironment
+    try {
+        $Candidate = Join-Path $TestSandbox 'purge_me.log'
+        $Audit = Join-Path $TestSandbox 'audit.txt'
+        $ErrorFile = Join-Path $TestSandbox 'stderr.txt'
+        [System.IO.File]::WriteAllText($Candidate, 'original log')
+        [System.IO.File]::SetLastWriteTime($Candidate, [datetime]::new(2000, 1, 1))
+        $Runner = Join-Path $TestSandbox 'scan-fixture.ps1'
+        Set-Content -LiteralPath $Runner -Value @'
+param($CleanupScript, $Target, $Candidate, $Audit, $Mode)
+function Get-ChildItem {
+    [CmdletBinding()]
+    param($LiteralPath, $Filter, [switch]$File, [switch]$Force, [switch]$Recurse)
+    Get-Item -LiteralPath $Candidate
+    Write-Error 'Simulated failure after enumerating one file'
+}
+$Options = if ($Mode -eq 'DryRun') { @{ DryRun = $true; Csv = $true } }
+           else { @{ Recursive = $true; Json = $true } }
+& $CleanupScript -LogDirectory $Target -Days 30 -LogFile $Audit @Options
+exit $LASTEXITCODE
+'@
+        $Mode = if ($DryRun) { 'DryRun' } else { 'Live' }
+        $Executable = (Get-Process -Id $PID).Path
+        # Process-level redirection keeps Windows PowerShell from formatting native stderr.
+        $OutputFile = Join-Path $TestSandbox 'stdout.txt'
+        $Arguments = @('-NoProfile', '-File', "`"$Runner`"", "`"$CleanupScript`"",
+            "`"$TestSandbox`"", "`"$Candidate`"", "`"$Audit`"", $Mode)
+        $Process = Start-Process -FilePath $Executable -ArgumentList $Arguments `
+            -RedirectStandardOutput $OutputFile -RedirectStandardError $ErrorFile -Wait -PassThru
+        $ExitCode = $Process.ExitCode
+        $Diagnostic = 'Error: File enumeration failed; no log files were processed.'
+        $Contents = if (Test-Path -LiteralPath $Candidate) {
+            [System.IO.File]::ReadAllText($Candidate)
+        } else { '[missing]' }
+
+        Assert-Equal 2 $ExitCode "${Mode}: incomplete scan exits 2"
+        Assert-Equal 'original log' $Contents "${Mode}: candidate remains untouched"
+        Assert-Equal 0 ([System.IO.FileInfo]::new($OutputFile).Length) `
+            "${Mode}: no partial report on stdout"
+        $ExpectedError = $Diagnostic + [Environment]::NewLine
+        Assert-Equal $true ([System.IO.File]::ReadAllText($ErrorFile) -ceq $ExpectedError) `
+            "${Mode}: stderr diagnostic"
+        Assert-Equal $true (([System.IO.File]::ReadAllText($Audit)).Contains("[ERROR] $Diagnostic")) `
+            "${Mode}: audit records the enumeration failure"
+    } finally {
+        Exit-TestEnvironment
+    }
+}
+
 # Execution
 Write-Host "$([char]27)[0;36mStarting PowerShell Log Cleanup Test Suite...$([char]27)[0m"
 Test-MissingDirectory
@@ -318,6 +370,8 @@ Test-AuditLogging
 Test-Lab1Walkthrough
 Test-Lab2Walkthrough
 Test-Lab3Walkthrough
+Test-IncompleteScan
+Test-IncompleteScan -DryRun
 
 Write-Host "============================================================"
 Write-Host "Tests Summary: $([char]27)[0;32m$Script:PassedCount Passed$([char]27)[0m, $([char]27)[0;31m$Script:FailedCount Failed$([char]27)[0m"

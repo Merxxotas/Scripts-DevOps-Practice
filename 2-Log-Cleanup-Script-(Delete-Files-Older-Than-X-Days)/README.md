@@ -124,8 +124,14 @@ Register-ScheduledTask -Action $Action -Trigger $Trigger -TaskName "DailyLogClea
 | Exit Code | Status | Meaning |
 | :---: | :--- | :--- |
 | `0` | **Success** | All operations completed without errors. |
-| `1` | **Configuration Error** | Invalid arguments (e.g. `-t 0`, or a non-numeric `-m`), non-existent directory, unreadable/unwritable target directory, or a protected system path targeted. |
-| `2` | **Partial Failure** | One or more files could not be inspected (e.g. `stat`/`wc` failed — the file is left untouched) or removed due to OS file locks or permission issues. |
+| `1` | **Configuration Error** | Invalid arguments (e.g. `-t 0`, or a non-numeric `-m`), non-existent directory, failed writability probe, or a protected system path targeted. |
+| `2` | **Partial Failure** | The file scan could not finish, a file could not be inspected, or a deletion failed. |
+
+If the scan cannot finish, both live and dry-run modes exit `2` before processing any log
+files. The diagnostic goes to stderr and to the audit log when configured; stdout has no
+partial report, including in JSON and CSV modes.
+Bash stages the scan in an unlinked spool under a system temporary directory outside the
+scan tree. It does not use `TMPDIR`; if staging fails, it exits before processing files.
 
 ---
 
