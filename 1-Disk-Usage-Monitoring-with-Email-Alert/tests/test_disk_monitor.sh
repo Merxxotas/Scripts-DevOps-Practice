@@ -1841,6 +1841,82 @@ test_doctor_reports_threshold_value() {
     teardown
 }
 
+test_lab_scratch_lifecycle() {
+    setup
+    local runner="$SCRIPT_DIR/docs/labs/disk_lab_shell.sh"
+    local parent="$TEST_SANDBOX/lab scratch" expected one two status=0
+    mkdir -p "$parent"/{lab1_disk,lab2_disk,lab3_prod}
+    printf '%s\n' keep > "$parent/lab3-none.log"
+    expected=$(printf '%s\n' "$parent"/*)
+    if [[ ! -f "$runner" ]]; then
+        assert_equals present missing 'Lab scratch: safe runner exists; legacy snippets not run'
+        teardown
+        return
+    fi
+
+    one=$(LAB="$parent/lab1_disk" TMPDIR="$parent" bash "$runner" <<'EOF'
+[[ -d "$LAB" && ! -e "$LAB/fixture" ]] || exit 10
+printf '%s\n' fixture > "$LAB/fixture"
+printf '%s\n' "$LAB"
+EOF
+    ) || status=$?
+    assert_equals 0 "$status" 'Lab scratch: first run succeeds'
+    status=0
+    two=$(TMPDIR="$parent" bash "$runner" <<'EOF'
+[[ -d "$LAB" && ! -e "$LAB/fixture" ]] || exit 10
+printf '%s\n' "$LAB"
+exit 7
+EOF
+    ) || status=$?
+    assert_equals 7 "$status" 'Lab scratch: child failure status is preserved'
+    local physical_parent
+    physical_parent=$(cd "$parent" && pwd -P)
+    if [[ "$one" == "$physical_parent"/disk-monitor-lab.* &&
+          "$two" == "$physical_parent"/disk-monitor-lab.* && "$one" != "$two" ]]; then
+        assert_equals yes yes 'Lab scratch: paths are private and distinct'
+    else
+        assert_equals distinct "$one / $two" 'Lab scratch: paths are private and distinct'
+    fi
+    assert_equals "$expected" "$(printf '%s\n' "$parent"/*)" \
+        'Lab scratch: cleans only owned paths on success and child failure'
+    assert_equals keep "$(< "$parent/lab3-none.log")" 'Lab scratch: existing log is unchanged'
+
+    local fault="$TEST_SANDBOX/lab-fault-bin"
+    mkdir "$fault"
+    cat > "$fault/mktemp" <<'EOF'
+#!/bin/bash
+printf '%s\n' "$LAB"
+exit 1
+EOF
+    chmod u+x "$fault/mktemp"
+    status=0
+    LAB="$parent/lab2_disk" TMPDIR="$parent" PATH="$fault:$PATH" bash "$runner" \
+        > "$parent/lab.out" 2> "$parent/lab.err" <<'EOF' || status=$?
+printf '%s\n' 'child unexpectedly ran'
+EOF
+    assert_equals 1 "$status" 'Lab scratch: failed allocation exits 1'
+    assert_equals '' "$(< "$parent/lab.out")" 'Lab scratch: failed allocation starts no shell'
+    assert_equals 'Could not create a private lab directory.' "$(< "$parent/lab.err")" \
+        'Lab scratch: failed allocation diagnostic'
+    rm -- "$parent/lab.out" "$parent/lab.err"
+    assert_equals "$expected" "$(printf '%s\n' "$parent"/*)" \
+        'Lab scratch: failed allocation leaves pre-existing paths alone'
+    teardown
+}
+
+test_lab_audit_failure_is_best_effort() {
+    setup
+    local blocked="$TEST_SANDBOX/not-a-directory"
+    printf '%s\n' keep > "$blocked"
+    DISK_MONITOR_USAGE_OVERRIDE=70 LC_ALL=C run_monitor \
+        -p / -t 80 --notify none -l "$blocked/audit.log"
+    assert_equals 0 "$LAST_EXIT_CODE" 'Lab 2: audit failure is best-effort'
+    assert_contains "$LAST_STDOUT" 'Disk usage is within the threshold.' 'Lab 2: check completed'
+    assert_contains "$LAST_STDERR" "$blocked/audit.log: Not a directory" 'Lab 2: audit write failed'
+    assert_equals keep "$(< "$blocked")" 'Lab 2: existing parent file is unchanged'
+    teardown
+}
+
 # Run all tests
 printf "%bStarting Bash Disk Monitor Test Suite...%b\n" "$CYAN" "$RESET"
 test_help_menu
@@ -1851,6 +1927,8 @@ test_threshold_from_environment_range
 test_threshold_from_config_range
 test_notify_from_config_unsupported
 test_doctor_reports_threshold_value
+test_lab_scratch_lifecycle
+test_lab_audit_failure_is_best_effort
 test_missing_partition
 test_missing_recipient
 test_missing_mail_agent
