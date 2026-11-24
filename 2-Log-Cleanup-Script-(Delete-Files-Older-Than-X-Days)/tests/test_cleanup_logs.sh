@@ -59,9 +59,37 @@ assert_contains() {
 
 # Test 1: Help menu returns 0
 test_help_menu() {
-    local exit_code=0
-    "$CLEANUP_SCRIPT" -h >/dev/null 2>&1 || exit_code=$?
-    assert_equals "0" "$exit_code" "Test 1: Help menu exits with code 0"
+    setup
+    local exit_code=0 match=no
+    "$CLEANUP_SCRIPT" -h > "$TEST_SANDBOX/stdout" 2> "$TEST_SANDBOX/stderr" || exit_code=$?
+    cat > "$TEST_SANDBOX/expected" <<EOF
+Log Cleanup Utility (Bash)
+Usage: $CLEANUP_SCRIPT -d <directory> [OPTIONS]
+
+Required Arguments:
+  -d <path>         Target directory containing log files to clean.
+
+Optional Arguments:
+  -t <days>         Retention threshold in days (default: 30).
+  -p <pattern>      Filename glob matching pattern (default: "*.log").
+  -m <mb>           Minimum file size threshold in Megabytes (default: 0).
+  -r                Recursively scan child directories (default: flat scan).
+  -n                Dry-run simulation mode (preview without deleting).
+  -l <file>         Path to append persistent ISO-8601 audit logs.
+      --json            Output result as JSON.
+      --csv             Output result as CSV.
+  -v                Enable verbose per-file diagnostic output.
+  -h                Show this help and usage documentation.
+
+Examples:
+  $CLEANUP_SCRIPT -d /var/log/myapp -t 14 -n
+  $CLEANUP_SCRIPT -d /var/log/myapp -t 30 -p "*.log" -r -l /var/log/cleanup_audit.log
+EOF
+    cmp -s "$TEST_SANDBOX/expected" "$TEST_SANDBOX/stdout" && match=yes
+    assert_equals '0' "$exit_code" 'Test 1: Help exits 0'
+    assert_equals 'yes' "$match" 'Test 1: Help stdout matches the existing interface'
+    assert_equals '' "$(cat "$TEST_SANDBOX/stderr")" 'Test 1: Help emits no stderr'
+    teardown
 }
 
 # Test 2: Missing required directory flag fails with code 1
@@ -340,6 +368,194 @@ EOF
     teardown
 }
 
+test_incomplete_scan() {
+    local mode="$1"
+    shift
+    setup
+    local candidate="$TEST_SANDBOX/purge_me.log"
+    printf '%s\n' 'original log' > "$candidate"
+    touch -t 200001010000 "$candidate"
+    mkdir -p "$TEST_SANDBOX/bin"
+    local fake_find="$TEST_SANDBOX/bin/find"
+    cat > "$fake_find" <<'STUB'
+#!/bin/bash
+printf '%s\0' "$1/purge_me.log"
+exit 1
+STUB
+    chmod +x "$fake_find"
+
+    local ec=0
+    PATH="$TEST_SANDBOX/bin:$PATH" "$CLEANUP_SCRIPT" -d "$TEST_SANDBOX" -t 30 \
+        -l "$TEST_SANDBOX/audit.txt" "$@" > "$TEST_SANDBOX/stdout" \
+        2> "$TEST_SANDBOX/stderr" || ec=$?
+
+    assert_equals '2' "$ec" "$mode: incomplete scan exits 2"
+    assert_equals 'original log' "$(cat "$candidate" 2>/dev/null || true)" \
+        "$mode: candidate remains untouched"
+    assert_equals '' "$(cat "$TEST_SANDBOX/stdout")" "$mode: no partial report on stdout"
+    local diagnostic='Error: File enumeration failed; no log files were processed.'
+    assert_equals "$diagnostic" "$(cat "$TEST_SANDBOX/stderr")" "$mode: stderr diagnostic"
+    assert_contains "$(cat "$TEST_SANDBOX/audit.txt")" "[ERROR] $diagnostic" \
+        "$mode: audit records the enumeration failure"
+    teardown
+}
+
+test_scan_ignores_tmpdir() {
+    local temp_name="$1"
+    setup
+    local target="$TEST_SANDBOX/sub1"
+    local candidate="$target/keep.log"
+    local marker="$TEST_SANDBOX/mtime-reference"
+    mkdir "$target/tmp"
+    touch -t 200001010000 "$marker"
+    touch -r "$marker" "$target/tmp"
+    printf '%s\n' 'recent log' > "$candidate"
+
+    local stdout ec=0
+    stdout=$(TMPDIR="$target/$temp_name" "$CLEANUP_SCRIPT" -d "$target" \
+        -r -n -p '*' --json 2> "$TEST_SANDBOX/stderr") || ec=$?
+
+    assert_equals '0' "$ec" "Scan with TMPDIR=$temp_name exits 0"
+    local expected
+    expected=$(printf '%s\n' '{' '  "scanned": 1,' '  "eligible": 0,' '  "deleted": 0,' \
+        '  "failed": 0,' '  "uninspectable": 0,' '  "reclaimed_bytes": 0,' \
+        '  "outcome": "dry-run",' '  "files": []' '}')
+    assert_equals "$expected" "$stdout" 'Scan counts only the input log'
+    assert_equals '' "$(cat "$TEST_SANDBOX/stderr")" 'Successful scan emits no stderr'
+    local modified=no
+    [[ "$target/tmp" -nt "$marker" || "$target/tmp" -ot "$marker" ]] && modified=yes
+    assert_equals 'no' "$modified" 'Dry-run leaves the temporary directory mtime intact'
+    assert_equals '' "$(ls -A "$target/tmp")" 'Scan does not leave a spool behind'
+    assert_equals 'no' "$([[ -e "$target/missing" ]] && echo yes || echo no)" \
+        'Scan does not create a missing temporary directory'
+    assert_equals 'recent log' "$(cat "$candidate")" 'Dry-run leaves the input log untouched'
+    teardown
+}
+
+test_large_incomplete_scan() {
+    if [[ "$(uname -s)" != Linux ]]; then
+        printf '[SKIP] Linux virtual memory limit probe\n'
+        return
+    fi
+    setup
+    local target="$TEST_SANDBOX/sub1" rc=0
+    printf 'keep\n' > "$target/old.log"
+    touch -t 200001010000 "$target/old.log"
+    mkdir "$TEST_SANDBOX/bin"
+    cat > "$TEST_SANDBOX/bin/find" <<'STUB'
+#!/bin/bash
+printf '%s\0' "$1/old.log"
+printf -v component '%0250d' 0
+printf -v record '%s/' "$1" "$component" "$component" "$component" "$component"
+for ((i = 0; i < 45056; i++)); do
+    printf '%s.log\0' "$record" || exit 4
+done
+exit 3
+STUB
+    chmod +x "$TEST_SANDBOX/bin/find"
+    (
+        ulimit -v 32768
+        PATH="$TEST_SANDBOX/bin:$PATH" "$CLEANUP_SCRIPT" -d "$target" --json
+    ) > "$TEST_SANDBOX/stdout" 2> "$TEST_SANDBOX/stderr" || rc=$?
+    assert_equals '2' "$rc" 'Large incomplete scan fails closed within 32 MiB'
+    assert_equals '' "$(cat "$TEST_SANDBOX/stdout")" 'Large failure emits no report'
+    assert_equals 'Error: File enumeration failed; no log files were processed.' \
+        "$(cat "$TEST_SANDBOX/stderr")" 'Large failure emits the scan diagnostic'
+    assert_equals 'keep' "$(cat "$target/old.log" 2>/dev/null || true)" \
+        'Large incomplete scan preserves the first candidate'
+    teardown
+}
+
+test_spool_write_failure() {
+    setup
+    local target="$TEST_SANDBOX/sub1" rc=0
+    printf 'keep\n' > "$target/old.log"
+    touch -t 200001010000 "$target/old.log"
+    mkdir "$TEST_SANDBOX/bin"
+    cat > "$TEST_SANDBOX/bin/find" <<'STUB'
+#!/bin/bash
+printf '%s\0' "$1/old.log"
+printf '%16384s\0' ''
+STUB
+    chmod +x "$TEST_SANDBOX/bin/find"
+    (
+        ulimit -f 1
+        PATH="$TEST_SANDBOX/bin:$PATH" "$CLEANUP_SCRIPT" -d "$target" --json
+    ) > "$TEST_SANDBOX/stdout" 2> "$TEST_SANDBOX/stderr" || rc=$?
+    assert_equals '2' "$rc" 'Spool write failure exits 2'
+    assert_equals '' "$(cat "$TEST_SANDBOX/stdout")" 'Spool failure emits no report'
+    assert_equals 'Error: File enumeration failed; no log files were processed.' \
+        "$(cat "$TEST_SANDBOX/stderr")" 'Spool failure emits the scan diagnostic'
+    assert_equals 'keep' "$(cat "$target/old.log" 2>/dev/null || true)" \
+        'Spool write failure preserves the first candidate'
+    teardown
+}
+
+test_nul_path_and_parent_signal() {
+    setup
+    local target="$TEST_SANDBOX/sub1" rc=0 name=$'first log\nwith newline and \\backslash.log'
+    printf 'first\n' > "$target/$name"
+    printf 'second\n' > "$target/second.log"
+    touch -t 200001010000 "$target/$name" "$target/second.log"
+    mkdir "$TEST_SANDBOX/bin"
+    cat > "$TEST_SANDBOX/bin/find" <<'STUB'
+#!/bin/bash
+printf '%s\0' "$1/"$'first log\nwith newline and \\backslash.log' "$1/second.log"
+STUB
+    cat > "$TEST_SANDBOX/bin/rm" <<'STUB'
+#!/bin/bash
+if [[ "${2:-}" == */first* ]]; then
+    /bin/rm "$@" || exit
+    kill -TERM "$PPID"
+else
+    exec /bin/rm "$@"
+fi
+STUB
+    chmod +x "$TEST_SANDBOX/bin/find" "$TEST_SANDBOX/bin/rm"
+    PATH="$TEST_SANDBOX/bin:$PATH" "$CLEANUP_SCRIPT" -d "$target" --csv \
+        > "$TEST_SANDBOX/stdout" 2> "$TEST_SANDBOX/stderr" &
+    local cleanup_pid=$!
+    wait "$cleanup_pid" 2>/dev/null || rc=$?
+    assert_equals '143' "$rc" 'TERM interrupts the cleanup process itself'
+    assert_equals 'no' "$([[ -e "$target/$name" ]] && echo yes || echo no)" \
+        'Deletion receives the exact NUL-delimited pathname'
+    assert_equals 'second' "$(cat "$target/second.log" 2>/dev/null || true)" \
+        'TERM prevents the next deletion'
+    assert_equals '' "$(cat "$TEST_SANDBOX/stdout")" 'Interrupted CSV emits no report'
+    assert_equals '' "$(cat "$TEST_SANDBOX/stderr")" 'Interrupted CSV has no CLI diagnostic'
+    teardown
+}
+
+test_retention_clock_precedes_scan() {
+    setup
+    local target="$TEST_SANDBOX/sub1" out rc=0
+    printf 'inert\n' > "$target/edge.log"
+    TZ=UTC touch -t 200001010000.01 "$target/edge.log"
+    mkdir "$TEST_SANDBOX/bin"
+    cat > "$TEST_SANDBOX/bin/date" <<'STUB'
+#!/bin/bash
+if [[ "$*" == +%s ]]; then
+    if [[ -e "$SCAN_MARKER" ]]; then echo 949276810; else echo 949276800; fi
+else
+    command -p date "$@"
+fi
+STUB
+    cat > "$TEST_SANDBOX/bin/find" <<'STUB'
+#!/bin/bash
+touch "$SCAN_MARKER"
+printf '%s\0' "$1/edge.log"
+STUB
+    chmod +x "$TEST_SANDBOX/bin/"{date,find}
+    out=$(SCAN_MARKER="$TEST_SANDBOX/scan-started" PATH="$TEST_SANDBOX/bin:$PATH" \
+        "$CLEANUP_SCRIPT" -d "$target" -t 30 --csv 2> "$TEST_SANDBOX/stderr") || rc=$?
+    assert_equals '0' "$rc" 'Retention boundary: cleanup exits 0'
+    assert_equals 'path,size_bytes' "$out" 'Scan time does not advance the retention cutoff'
+    assert_equals '' "$(cat "$TEST_SANDBOX/stderr")" 'Retention boundary: no stderr'
+    assert_equals 'inert' "$(cat "$target/edge.log" 2>/dev/null || true)" \
+        'File within retention at scan start is preserved'
+    teardown
+}
+
 # Run all tests
 printf "%bStarting Bash Log Cleanup Test Suite...%b\n" "$CYAN" "$RESET"
 test_json_dry_run() {
@@ -415,6 +631,14 @@ test_guardrail_home_root
 test_fail_closed_on_mtime_failure
 test_guardrail_var_log_exact
 test_fail_closed_on_size_failure
+test_incomplete_scan 'Live recursive JSON' -r --json
+test_incomplete_scan 'Dry-run flat CSV' -n --csv
+test_scan_ignores_tmpdir tmp
+test_scan_ignores_tmpdir missing
+test_large_incomplete_scan
+test_spool_write_failure
+test_nul_path_and_parent_signal
+test_retention_clock_precedes_scan
 
 printf "============================================================\n"
 printf "Tests Summary: %b%d Passed%b, %b%d Failed%b\n" "$GREEN" "$PASSED_TESTS" "$RESET" "$RED" "$FAILED_TESTS" "$RESET"
