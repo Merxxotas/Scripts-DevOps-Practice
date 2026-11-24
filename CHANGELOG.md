@@ -100,6 +100,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **Database Backup Lab 1 — isolated backup and dry-run walkthrough.** The Bash lab uses fake
+  MySQL and PostgreSQL clients in a private directory and verifies that the dry run leaves
+  backup fixtures unchanged.
+
 - **Database Backup Lab 2 — isolated exit-code and retention walkthrough.** The Bash lab now uses
   a private temporary directory and a fake client in a child shell. It checks exit codes, archive
   pruning, and audit records without accessing a database or existing backups.
