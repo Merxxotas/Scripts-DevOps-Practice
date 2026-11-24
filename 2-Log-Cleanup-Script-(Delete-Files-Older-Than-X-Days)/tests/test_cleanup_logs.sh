@@ -59,9 +59,37 @@ assert_contains() {
 
 # Test 1: Help menu returns 0
 test_help_menu() {
-    local exit_code=0
-    "$CLEANUP_SCRIPT" -h >/dev/null 2>&1 || exit_code=$?
-    assert_equals "0" "$exit_code" "Test 1: Help menu exits with code 0"
+    setup
+    local exit_code=0 match=no
+    "$CLEANUP_SCRIPT" -h > "$TEST_SANDBOX/stdout" 2> "$TEST_SANDBOX/stderr" || exit_code=$?
+    cat > "$TEST_SANDBOX/expected" <<EOF
+Log Cleanup Utility (Bash)
+Usage: $CLEANUP_SCRIPT -d <directory> [OPTIONS]
+
+Required Arguments:
+  -d <path>         Target directory containing log files to clean.
+
+Optional Arguments:
+  -t <days>         Retention threshold in days (default: 30).
+  -p <pattern>      Filename glob matching pattern (default: "*.log").
+  -m <mb>           Minimum file size threshold in Megabytes (default: 0).
+  -r                Recursively scan child directories (default: flat scan).
+  -n                Dry-run simulation mode (preview without deleting).
+  -l <file>         Path to append persistent ISO-8601 audit logs.
+      --json            Output result as JSON.
+      --csv             Output result as CSV.
+  -v                Enable verbose per-file diagnostic output.
+  -h                Show this help and usage documentation.
+
+Examples:
+  $CLEANUP_SCRIPT -d /var/log/myapp -t 14 -n
+  $CLEANUP_SCRIPT -d /var/log/myapp -t 30 -p "*.log" -r -l /var/log/cleanup_audit.log
+EOF
+    cmp -s "$TEST_SANDBOX/expected" "$TEST_SANDBOX/stdout" && match=yes
+    assert_equals '0' "$exit_code" 'Test 1: Help exits 0'
+    assert_equals 'yes' "$match" 'Test 1: Help stdout matches the existing interface'
+    assert_equals '' "$(cat "$TEST_SANDBOX/stderr")" 'Test 1: Help emits no stderr'
+    teardown
 }
 
 # Test 2: Missing required directory flag fails with code 1

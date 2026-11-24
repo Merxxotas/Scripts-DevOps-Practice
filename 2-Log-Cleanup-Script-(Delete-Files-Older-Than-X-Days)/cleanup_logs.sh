@@ -60,8 +60,6 @@ Optional Arguments:
   -v                Enable verbose per-file diagnostic output.
   -h                Show this help and usage documentation.
 
-If file enumeration fails, live and dry-run modes exit 2 without processing log files.
-
 Examples:
   $0 -d /var/log/myapp -t 14 -n
   $0 -d /var/log/myapp -t 30 -p "*.log" -r -l /var/log/cleanup_audit.log
