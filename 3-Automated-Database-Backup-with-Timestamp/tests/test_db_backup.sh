@@ -336,6 +336,77 @@ test_help_mentions_backends() {
     teardown
 }
 
+test_lab1_walkthrough() {
+    set -euo pipefail
+    fail_probe() { printf 'Lab 1 probe: %s\n' "$*" >&2; exit 1; }
+    local lab_doc="$SCRIPT_DIR/docs/labs/LAB1_BACKUP_AND_DRY_RUN.md"
+    local probe
+    probe=$(mktemp -d /tmp/test-db-lab1.XXXXXX)
+    # Bind the path now: the EXIT trap may run after the function's locals expire.
+    # shellcheck disable=SC2064
+    trap "rm -rf -- $(printf '%q' "$probe")" EXIT
+    mkdir -p "$probe/temp root" "$probe/outside" "$probe/caller-bin"
+    printf 'existing backup\n' > "$probe/outside/keep.sql"
+    printf 'existing temp file\n' > "$probe/temp root/note"
+    printf '%s\n' '#!/bin/sh' ": > \"\$FALLBACK_MARK\"" 'exit 99' \
+        > "$probe/caller-bin/mysqldump"
+    cp "$probe/caller-bin/mysqldump" "$probe/caller-bin/pg_dump"
+    chmod +x "$probe/caller-bin/mysqldump" "$probe/caller-bin/pg_dump"
+
+    # The old walkthrough is unsafe to execute, so require the child-shell wrapper first.
+    awk '/^```bash$/ { block = 1; next } /^```$/ && block { exit } block' \
+        "$lab_doc" > "$probe/walkthrough.sh"
+    grep -Fxq "BASH_ENV=/dev/null bash <<'LAB'" "$probe/walkthrough.sh" ||
+        fail_probe 'The walkthrough must run in a child Bash shell.'
+
+    local -x PATH="$probe/caller-bin:$ORIGINAL_PATH" TMPDIR="$probe/temp root"
+    local -x DB_BACKUP_PASSWORD=caller-placeholder FALLBACK_MARK="$probe/fallback-called"
+    local caller_path="$PATH" caller_mask
+    caller_mask=$(umask)
+    shopt -s failglob
+    export BASHOPTS
+    cd "$SCRIPT_DIR"
+    # shellcheck source=/dev/null
+    if ! source "$probe/walkthrough.sh" > "$probe/stdout" 2> "$probe/stderr"; then
+        cat "$probe/stdout" "$probe/stderr" >&2
+        fail_probe 'The walkthrough did not exit 0.'
+    fi
+    diff -u - "$probe/stdout" <<'EXPECTED'
+MySQL: exit=0 (compressed fake dump)
+Dry run: exit=0 (no dump; backup fixtures unchanged)
+PostgreSQL: exit=0 (uncompressed fake dump)
+Lab 1 checks passed.
+EXPECTED
+    [[ ! -s "$probe/stderr" ]] || { cat "$probe/stderr" >&2; exit 1; }
+    [[ "$PATH" == "$caller_path" && "$DB_BACKUP_PASSWORD" == caller-placeholder ]] ||
+        fail_probe 'The walkthrough changed the caller PATH or password.'
+    [[ "$PWD" == "$SCRIPT_DIR" && "$(umask)" == "$caller_mask" ]] ||
+        fail_probe 'The walkthrough changed the caller directory or umask.'
+    [[ "$TMPDIR" == "$probe/temp root" ]] || fail_probe 'The walkthrough changed TMPDIR.'
+    shopt -q failglob || fail_probe 'The walkthrough disabled caller failglob.'
+    [[ ! -e "$FALLBACK_MARK" ]] || fail_probe 'The walkthrough ran a fallback client.'
+    [[ $(find "$TMPDIR" -mindepth 1 -maxdepth 1 -print) == "$TMPDIR/note" ]] ||
+        fail_probe 'Cleanup did not leave exactly the pre-existing temp file.'
+    diff -u <(printf 'existing backup\n') "$probe/outside/keep.sql"
+    diff -u <(printf 'existing temp file\n') "$TMPDIR/note"
+
+    # An ineffective chmod must not let either lookup fall through to the caller's PATH.
+    printf '%s\n' '#!/bin/sh' 'exit 0' > "$probe/caller-bin/chmod"
+    chmod +x "$probe/caller-bin/chmod"
+    local status=0
+    # Bash 3.2 can exit the probe on a failing source even inside an OR-list.
+    # shellcheck source=/dev/null
+    (source "$probe/walkthrough.sh") > "$probe/stdout" 2> "$probe/stderr" || status=$?
+    [[ ! -e "$FALLBACK_MARK" ]] || fail_probe 'The failed setup ran a fallback client.'
+    if [[ "$status" != 1 || -s "$probe/stdout" ]]; then
+        cat "$probe/stdout" "$probe/stderr" >&2
+        fail_probe "Expected failed setup to exit 1 with empty stdout; got exit $status."
+    fi
+    diff -u <(printf 'Lab 1: Fake mysqldump did not resolve.\n') "$probe/stderr"
+    [[ $(find "$TMPDIR" -mindepth 1 -maxdepth 1 -print) == "$TMPDIR/note" ]] ||
+        fail_probe 'Cleanup after failed setup did not leave exactly the pre-existing temp file.'
+}
+
 test_lab2_walkthrough() (
     set -euo pipefail
     local lab_doc="$SCRIPT_DIR/docs/labs/LAB2_EXIT_CODES_AND_RETENTION.md"
@@ -440,6 +511,12 @@ test_lab2_walkthrough
 lab2_status=$?
 set -e
 assert_equals "0" "$lab2_status" "Lab 2: documented walkthrough is safe and self-checking"
+
+set +e
+( test_lab1_walkthrough )
+lab1_status=$?
+set -e
+assert_equals "0" "$lab1_status" "Lab 1: documented walkthrough is safe and self-checking"
 
 printf "============================================================\n"
 printf "Tests Summary: %b%d Passed%b, %b%d Failed%b\n" "$GREEN" "$PASSED_TESTS" "$RESET" "$RED" "$FAILED_TESTS" "$RESET"

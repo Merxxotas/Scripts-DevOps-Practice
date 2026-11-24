@@ -1,164 +1,127 @@
 # Lab 1: Backup & Dry Run
 
-## Objective
+Create a compressed MySQL backup and an uncompressed PostgreSQL backup using fake clients.
+Then verify that a dry run previews the work without changing any backup fixtures.
+No database, database client, or credentials are needed.
 
-Run a real backup end to end with a stubbed dump tool, then rehearse the same run with
-`--dry-run` and prove that nothing was touched. By the end you will know the filename shape,
-the exit code, and the dry-run contract.
-
-## Prerequisites
-
-- Bash 4+ on Linux/macOS (or PowerShell 7+ on Windows).
-- Execution permission on `db_backup.sh`.
-- No database required: the suite stubs `mysqldump`/`pg_dump` on `PATH`.
-
-Run every command from the module folder:
+From `3-Automated-Database-Backup-with-Timestamp/`, paste the **whole block** into Bash on Linux
+or macOS. It runs in a child shell and uses a private temporary directory under `${TMPDIR:-/tmp}`.
+The child removes only that directory on exit. Your shell and existing backups stay unchanged.
 
 ```bash
-cd 3-Automated-Database-Backup-with-Timestamp
-```
+BASH_ENV=/dev/null bash <<'LAB'
+set -euo pipefail
+IFS=$'\n\t'
+shopt -u failglob
+shopt -s nullglob dotglob
 
-## Step 1: Create a stub dump tool
+fail() { printf 'Lab 1: %s\n' "$*" >&2; exit 1; }
+backup="$PWD/db_backup.sh"
+[[ -f "$backup" ]] || fail 'Run from the Database Backup module directory.'
 
-The module invokes `mysqldump` / `pg_dump` as an external command, so a stand-in on `PATH`
-lets the lab run without a database.
+umask 077
+scratch=$(mktemp -d "${TMPDIR:-/tmp}/db-backup-lab1.XXXXXX")
+trap 'rm -rf -- "$scratch"' EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
+[[ "$scratch" == /* ]] || scratch="$PWD/$scratch"
+cd -- "$scratch"
 
-```bash
-mkdir -p /tmp/lab1_db/stubbin /tmp/lab1_db/backups
-cat > /tmp/lab1_db/stubbin/mysqldump <<'EOF'
-#!/bin/bash
-echo "-- MySQL dump stub"
-echo "CREATE TABLE t (id int);"
-EOF
-chmod +x /tmp/lab1_db/stubbin/mysqldump
-export PATH="/tmp/lab1_db/stubbin:$PATH"
-export DB_BACKUP_PASSWORD='secret'
-```
-
-## Step 2: Run a real backup
-
-```bash
-rm -rf /tmp/lab1_db/backups && mkdir -p /tmp/lab1_db/backups
-./db_backup.sh -t mysql -n labdb -u backup_user -d /tmp/lab1_db/backups -r 7
-echo "exit=$?"
-```
-
-Expected:
-
-```
-=== Database Backup Utility ===
-Database type : mysql
-Database name : labdb
-Backup dir    : /tmp/lab1_db/backups
-Backup file   : /tmp/lab1_db/backups/mysql_labdb_<timestamp>.sql
-Retention     : 7 days
-Compress      : true
-Backup created: /tmp/lab1_db/backups/mysql_labdb_<timestamp>.sql
-Compressed: /tmp/lab1_db/backups/mysql_labdb_<timestamp>.sql.gz
-Backup complete. Pruned 0 old backup(s).
-exit=0
-```
-
-Confirm only the compressed archive remains:
-
-```bash
-ls /tmp/lab1_db/backups
-```
-
-## Step 3: Dry run
-
-```bash
-./db_backup.sh -t mysql -n labdb -u backup_user -d /tmp/lab1_db/backups --dry-run
-echo "exit=$?"
-```
-
-Expected:
-
-```
-[DRY RUN] Would create backup directory: /tmp/lab1_db/backups
-[DRY RUN] Would invoke: mysqldump ... > /tmp/lab1_db/backups/mysql_labdb_<timestamp>.sql
-[DRY RUN] Would compress: ...sql -> ...sql.gz
-[DRY RUN] Would prune backups older than 7 days in /tmp/lab1_db/backups
-exit=0
-```
-
-Nothing is dumped, compressed or deleted. The target filename is built so you can see exactly
-what would be produced.
-
-## Step 4: Prove the dry run never invokes the dump tool
-
-```bash
-cat > /tmp/lab1_db/stubbin/mysqldump <<'EOF'
-#!/bin/bash
-echo "DUMP WAS CALLED" >&2
-exit 99
-EOF
-chmod +x /tmp/lab1_db/stubbin/mysqldump
-./db_backup.sh -t mysql -n labdb -d /tmp/lab1_db/backups --dry-run
-echo "exit=$?"
-```
-
-The run still exits `0` and prints the `[DRY RUN]` lines: the dump tool was never invoked,
-because a failing tool would have made the run exit `1`/`2`.
-
-Restore the good stub:
-
-```bash
-cat > /tmp/lab1_db/stubbin/mysqldump <<'EOF'
-#!/bin/bash
-echo "-- MySQL dump stub"
-EOF
-chmod +x /tmp/lab1_db/stubbin/mysqldump
-```
-
-## Step 5: PostgreSQL backend
-
-```bash
-cat > /tmp/lab1_db/stubbin/pg_dump <<'EOF'
-#!/bin/bash
-out=""
-while [[ $# -gt 0 ]]; do
-  case "$1" in -f) out="$2"; shift 2;; *) shift;; esac
+mkdir bin
+cat > bin/mysqldump <<'MYSQL'
+#!/bin/sh
+set -eu
+printf 'mysql\n' >> dump-calls
+[ "${LAB_DRY_RUN:-0}" = 0 ] || exit 99
+printf '%s\n' '-- MySQL dump stub' 'CREATE TABLE t (id int);'
+MYSQL
+cat > bin/pg_dump <<'POSTGRES'
+#!/bin/sh
+set -eu
+out=
+while [ "$#" -gt 0 ]; do
+    case "$1" in
+        -f) out=$2; shift 2 ;;
+        *) shift ;;
+    esac
 done
-printf -- "-- PG dump stub\n" > "$out"
-EOF
-chmod +x /tmp/lab1_db/stubbin/pg_dump
-./db_backup.sh -t postgresql -n labdb -d /tmp/lab1_db/backups --no-compress
-echo "exit=$?"
-ls /tmp/lab1_db/backups
+[ "${out%/*}" = postgres ] || exit 99
+printf 'postgresql\n' >> dump-calls
+printf '%s\n' '-- PostgreSQL dump stub' > "$out"
+POSTGRES
+chmod 700 bin/mysqldump bin/pg_dump
+export PATH="$PWD/bin:$PATH"
+for client in mysqldump pg_dump; do
+    [[ $(command -v "$client") == "$PWD/bin/$client" ]] || fail "Fake $client did not resolve."
+done
+export DB_BACKUP_PASSWORD=lab-placeholder-not-a-credential
+unset LAB_DRY_RUN
+
+run_backup() {
+    local status=0
+    bash "$backup" -n labdb -u backup_user "$@" >stdout 2>stderr || status=$?
+    if [[ "$status" != 0 || -s stderr ]]; then
+        cat stdout stderr >&2
+        fail "Expected exit 0 and empty stderr; got exit $status."
+    fi
+}
+
+# 1. MySQL: the utility reads the fake client's stdout and compresses it.
+run_backup -t mysql -d mysql -r 7
+files=(mysql/*)
+[[ ${#files[@]} == 1 && ${files[0]} == mysql/mysql_labdb_*.sql.gz ]] ||
+    fail 'Expected one MySQL archive.'
+gzip -cd -- "${files[0]}" > mysql-dump
+printf '%s\n' '-- MySQL dump stub' 'CREATE TABLE t (id int);' | cmp -s - mysql-dump ||
+    fail 'Unexpected MySQL dump contents.'
+grep -Fq 'Backup complete. Pruned 0 old backup(s).' stdout || fail 'Missing MySQL summary.'
+printf '%s\n' 'MySQL: exit=0 (compressed fake dump)'
+
+# 2. Dry run: age both fixtures so a real run would prune them.
+printf '%s\n' '-- Old disposable backup' > mysql/old.sql
+touch -t 200001010000 mysql/*
+mkdir before
+cp -p mysql/* before/
+LAB_DRY_RUN=1 run_backup -t mysql -d mysql --dry-run
+for action in 'create backup directory' 'invoke: mysqldump' 'compress:' 'prune backups'; do
+    grep -Fq "[DRY RUN] Would $action" stdout || fail "Missing dry-run preview: $action"
+done
+[[ $(<dump-calls) == mysql ]] || fail 'Dry run invoked a client.'
+files=(mysql/*)
+[[ ${#files[@]} == 2 ]] || fail 'Dry run changed the file list.'
+for original in before/*; do
+    current="mysql/${original##*/}"
+    cmp -s "$original" "$current" || fail "Dry run changed $current."
+    [[ ! "$original" -nt "$current" && ! "$current" -nt "$original" ]] ||
+        fail "Dry run changed the timestamp of $current."
+done
+printf '%s\n' 'Dry run: exit=0 (no dump; backup fixtures unchanged)'
+
+# 3. PostgreSQL: the fake client writes to the path supplied by -f.
+run_backup -t postgresql -d postgres --no-compress
+files=(postgres/*)
+[[ ${#files[@]} == 1 && ${files[0]} == postgres/postgresql_labdb_*.sql ]] ||
+    fail 'Expected one uncompressed PostgreSQL dump.'
+printf '%s\n' '-- PostgreSQL dump stub' | cmp -s - "${files[0]}" ||
+    fail 'Unexpected PostgreSQL dump contents.'
+[[ $(<dump-calls) == $'mysql\npostgresql' ]] || fail 'Unexpected client calls.'
+grep -Fq 'Backup complete. Pruned 0 old backup(s).' stdout || fail 'Missing PostgreSQL summary.'
+printf '%s\n' 'PostgreSQL: exit=0 (uncompressed fake dump)' 'Lab 1 checks passed.'
+LAB
 ```
 
-The file is `postgresql_labdb_<timestamp>.sql` and is left uncompressed.
+## What the checks show
 
-## Step 6: Clean up
-
-```bash
-rm -rf /tmp/lab1_db
-```
-
----
-
-## What You Should See
-
-| Check | Expected |
+| Check | Expected result |
 | :--- | :--- |
-| Real backup | `.sql.gz` archive, exit `0` |
-| Dry run | `[DRY RUN]` lines, no new file, exit `0` |
-| PostgreSQL | `postgresql_<db>_<timestamp>.sql`, exit `0` |
-| Missing password | error, exit `1` |
+| MySQL | Exit `0`; one `mysql_labdb_<timestamp>.sql.gz` containing the fake dump. |
+| Dry run | Exit `0`; `[DRY RUN]` previews the work without calling the fake client. |
+| PostgreSQL | Exit `0`; one `postgresql_labdb_<timestamp>.sql` left uncompressed. |
 
----
+The dry-run example does not pass `-l`. If you provide an audit log, dry run can write a preview
+record to it. Use [Lab 2](LAB2_EXIT_CODES_AND_RETENTION.md) to check failure exit codes and pruning.
 
-## Try It Yourself
+## Related documents
 
-1. Run with `-v` and watch the diagnostic output.
-2. Pass `--db-password` on the command line and confirm it overrides `DB_BACKUP_PASSWORD`.
-3. Point `-d` at a system path (`/etc`) and confirm exit `1`.
-
----
-
-## Related Documents
-
-- [Lab 2 -- Exit Codes & Retention](LAB2_EXIT_CODES_AND_RETENTION.md)
-- [Lab 3 -- Scheduling in Production](LAB3_PRODUCTION_SCHEDULING.md)
-- [SCENARIOS.md](../SCENARIOS.md)
+- [Lab 3 — Scheduling in Production](LAB3_PRODUCTION_SCHEDULING.md)
+- [Scenarios](../SCENARIOS.md)
