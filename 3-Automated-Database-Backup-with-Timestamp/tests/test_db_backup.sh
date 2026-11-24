@@ -394,8 +394,9 @@ EXPECTED
     printf '%s\n' '#!/bin/sh' 'exit 0' > "$probe/caller-bin/chmod"
     chmod +x "$probe/caller-bin/chmod"
     local status=0
+    # Bash 3.2 can exit the probe on a failing source even inside an OR-list.
     # shellcheck source=/dev/null
-    source "$probe/walkthrough.sh" > "$probe/stdout" 2> "$probe/stderr" || status=$?
+    (source "$probe/walkthrough.sh") > "$probe/stdout" 2> "$probe/stderr" || status=$?
     [[ ! -e "$FALLBACK_MARK" ]] || fail_probe 'The failed setup ran a fallback client.'
     if [[ "$status" != 1 || -s "$probe/stdout" ]]; then
         cat "$probe/stdout" "$probe/stderr" >&2
