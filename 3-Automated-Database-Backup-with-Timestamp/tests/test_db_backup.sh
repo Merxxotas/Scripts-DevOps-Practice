@@ -336,12 +336,10 @@ test_help_mentions_backends() {
     teardown
 }
 
-# Called by a separate Bash process below to keep the simulated caller isolated.
-# shellcheck disable=SC2329
 test_lab1_walkthrough() {
     set -euo pipefail
-    local module_dir=$1 original_path=$2
-    local lab_doc="$module_dir/docs/labs/LAB1_BACKUP_AND_DRY_RUN.md"
+    fail_probe() { printf 'Lab 1 probe: %s\n' "$*" >&2; exit 1; }
+    local lab_doc="$SCRIPT_DIR/docs/labs/LAB1_BACKUP_AND_DRY_RUN.md"
     local probe
     probe=$(mktemp -d /tmp/test-db-lab1.XXXXXX)
     # Bind the path now: the EXIT trap may run after the function's locals expire.
@@ -358,22 +356,20 @@ test_lab1_walkthrough() {
     # The old walkthrough is unsafe to execute, so require the child-shell wrapper first.
     awk '/^```bash$/ { block = 1; next } /^```$/ && block { exit } block' \
         "$lab_doc" > "$probe/walkthrough.sh"
-    if ! grep -Fxq "BASH_ENV=/dev/null bash <<'LAB'" "$probe/walkthrough.sh"; then
-        printf 'Lab 1 must run in a child Bash shell.\n' >&2
-        exit 1
-    fi
+    grep -Fxq "BASH_ENV=/dev/null bash <<'LAB'" "$probe/walkthrough.sh" ||
+        fail_probe 'The walkthrough must run in a child Bash shell.'
 
-    local -x PATH="$probe/caller-bin:$original_path" TMPDIR="$probe/temp root"
+    local -x PATH="$probe/caller-bin:$ORIGINAL_PATH" TMPDIR="$probe/temp root"
     local -x DB_BACKUP_PASSWORD=caller-placeholder FALLBACK_MARK="$probe/fallback-called"
     local caller_path="$PATH" caller_mask
     caller_mask=$(umask)
     shopt -s failglob
     export BASHOPTS
-    cd "$module_dir"
+    cd "$SCRIPT_DIR"
     # shellcheck source=/dev/null
     if ! source "$probe/walkthrough.sh" > "$probe/stdout" 2> "$probe/stderr"; then
         cat "$probe/stdout" "$probe/stderr" >&2
-        exit 1
+        fail_probe 'The walkthrough did not exit 0.'
     fi
     diff -u - "$probe/stdout" <<'EXPECTED'
 MySQL: exit=0 (compressed fake dump)
@@ -382,12 +378,15 @@ PostgreSQL: exit=0 (uncompressed fake dump)
 Lab 1 checks passed.
 EXPECTED
     [[ ! -s "$probe/stderr" ]] || { cat "$probe/stderr" >&2; exit 1; }
-    [[ "$PATH" == "$caller_path" && "$DB_BACKUP_PASSWORD" == caller-placeholder ]]
-    [[ "$PWD" == "$module_dir" && "$(umask)" == "$caller_mask" ]]
-    [[ "$TMPDIR" == "$probe/temp root" ]]
-    shopt -q failglob
-    [[ ! -e "$FALLBACK_MARK" ]]
-    [[ $(find "$TMPDIR" -mindepth 1 -maxdepth 1 -print) == "$TMPDIR/note" ]]
+    [[ "$PATH" == "$caller_path" && "$DB_BACKUP_PASSWORD" == caller-placeholder ]] ||
+        fail_probe 'The walkthrough changed the caller PATH or password.'
+    [[ "$PWD" == "$SCRIPT_DIR" && "$(umask)" == "$caller_mask" ]] ||
+        fail_probe 'The walkthrough changed the caller directory or umask.'
+    [[ "$TMPDIR" == "$probe/temp root" ]] || fail_probe 'The walkthrough changed TMPDIR.'
+    shopt -q failglob || fail_probe 'The walkthrough disabled caller failglob.'
+    [[ ! -e "$FALLBACK_MARK" ]] || fail_probe 'The walkthrough ran a fallback client.'
+    [[ $(find "$TMPDIR" -mindepth 1 -maxdepth 1 -print) == "$TMPDIR/note" ]] ||
+        fail_probe 'Cleanup did not leave exactly the pre-existing temp file.'
     diff -u <(printf 'existing backup\n') "$probe/outside/keep.sql"
     diff -u <(printf 'existing temp file\n') "$TMPDIR/note"
 
@@ -397,9 +396,14 @@ EXPECTED
     local status=0
     # shellcheck source=/dev/null
     source "$probe/walkthrough.sh" > "$probe/stdout" 2> "$probe/stderr" || status=$?
-    [[ "$status" == 1 && ! -s "$probe/stdout" && ! -e "$FALLBACK_MARK" ]]
+    [[ ! -e "$FALLBACK_MARK" ]] || fail_probe 'The failed setup ran a fallback client.'
+    if [[ "$status" != 1 || -s "$probe/stdout" ]]; then
+        cat "$probe/stdout" "$probe/stderr" >&2
+        fail_probe "Expected failed setup to exit 1 with empty stdout; got exit $status."
+    fi
     diff -u <(printf 'Lab 1: Fake mysqldump did not resolve.\n') "$probe/stderr"
-    [[ $(find "$TMPDIR" -mindepth 1 -maxdepth 1 -print) == "$TMPDIR/note" ]]
+    [[ $(find "$TMPDIR" -mindepth 1 -maxdepth 1 -print) == "$TMPDIR/note" ]] ||
+        fail_probe 'Cleanup after failed setup did not leave exactly the pre-existing temp file.'
 }
 
 test_lab2_walkthrough() (
@@ -507,9 +511,10 @@ lab2_status=$?
 set -e
 assert_equals "0" "$lab2_status" "Lab 2: documented walkthrough is safe and self-checking"
 
-lab1_status=0
-{ declare -f test_lab1_walkthrough; printf 'test_lab1_walkthrough "$@"\n'; } |
-    BASH_ENV=/dev/null bash -s -- "$SCRIPT_DIR" "$ORIGINAL_PATH" || lab1_status=$?
+set +e
+( test_lab1_walkthrough )
+lab1_status=$?
+set -e
 assert_equals "0" "$lab1_status" "Lab 1: documented walkthrough is safe and self-checking"
 
 printf "============================================================\n"
