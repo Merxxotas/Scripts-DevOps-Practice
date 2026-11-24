@@ -1,19 +1,17 @@
 # Lab 2 — Restart and Retries
 
-**Goal:** exercise the auto-restart loop.
+Exercise restart and retry behavior using a fake service manager and logger. No host service is
+queried or restarted. Use the lab runner rather than copying restart flags into a host command.
 
-1. Force a restart attempt with a short delay:
-   ```bash
-   ./service_monitor.sh -s nginx -r 3 --retry-delay 1
-   ```
+From the Service Monitor module directory, run:
 
-2. Observe retry exhaustion (use a service that cannot restart):
-   ```bash
-   ./service_monitor.sh -s nonexistent -r 2 --retry-delay 0
-   ```
-   Expected: exit 2.
+```bash
+bash docs/labs/run_service_monitor_lab.sh 2
+```
 
-3. Enable verbose output to see per-attempt detail:
-   ```bash
-   ./service_monitor.sh -s nginx -v --retry-delay 0
-   ```
+- `lab-recover`: the first attempt fails, then the second succeeds and sends one mock notification.
+  The CSV outcome is `restarted`, with `retries_used=2`.
+- `lab-stuck`: both attempts fail. The CSV outcome is `failed`, with `retries_used=2`; the
+  monitor exits 2 and the lab checks that status. Failed attempts are reported on stderr.
+
+The lab exits 0 when the simulated outcomes match, and removes its private scratch directory.
