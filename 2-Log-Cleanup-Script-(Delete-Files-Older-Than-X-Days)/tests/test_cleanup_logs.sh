@@ -498,6 +498,36 @@ STUB
     teardown
 }
 
+test_retention_clock_precedes_scan() {
+    setup
+    local target="$TEST_SANDBOX/sub1" out rc=0
+    printf 'inert\n' > "$target/edge.log"
+    TZ=UTC touch -t 200001010000.01 "$target/edge.log"
+    mkdir "$TEST_SANDBOX/bin"
+    cat > "$TEST_SANDBOX/bin/date" <<'STUB'
+#!/bin/bash
+if [[ "$*" == +%s ]]; then
+    if [[ -e "$SCAN_MARKER" ]]; then echo 949276810; else echo 949276800; fi
+else
+    command -p date "$@"
+fi
+STUB
+    cat > "$TEST_SANDBOX/bin/find" <<'STUB'
+#!/bin/bash
+touch "$SCAN_MARKER"
+printf '%s\0' "$1/edge.log"
+STUB
+    chmod +x "$TEST_SANDBOX/bin/"{date,find}
+    out=$(SCAN_MARKER="$TEST_SANDBOX/scan-started" PATH="$TEST_SANDBOX/bin:$PATH" \
+        "$CLEANUP_SCRIPT" -d "$target" -t 30 --csv 2> "$TEST_SANDBOX/stderr") || rc=$?
+    assert_equals '0' "$rc" 'Retention boundary: cleanup exits 0'
+    assert_equals 'path,size_bytes' "$out" 'Scan time does not advance the retention cutoff'
+    assert_equals '' "$(cat "$TEST_SANDBOX/stderr")" 'Retention boundary: no stderr'
+    assert_equals 'inert' "$(cat "$target/edge.log" 2>/dev/null || true)" \
+        'File within retention at scan start is preserved'
+    teardown
+}
+
 # Run all tests
 printf "%bStarting Bash Log Cleanup Test Suite...%b\n" "$CYAN" "$RESET"
 test_json_dry_run() {
@@ -580,6 +610,7 @@ test_scan_ignores_tmpdir missing
 test_large_incomplete_scan
 test_spool_write_failure
 test_nul_path_and_parent_signal
+test_retention_clock_precedes_scan
 
 printf "============================================================\n"
 printf "Tests Summary: %b%d Passed%b, %b%d Failed%b\n" "$GREEN" "$PASSED_TESTS" "$RESET" "$RED" "$FAILED_TESTS" "$RESET"

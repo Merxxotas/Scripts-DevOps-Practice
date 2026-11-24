@@ -359,6 +359,12 @@ main() {
 
     log_message "INFO" "Log cleanup initiated for '$resolved_dir' (Retention: ${RETENTION_DAYS}d, Pattern: '$FILE_PATTERN', Recursive: $RECURSIVE, DryRun: $DRY_RUN, MinSizeMB: $MIN_SIZE_MB)"
 
+    # Anchor retention to the scan start; a slow listing must not age files into eligibility.
+    local current_epoch cutoff_seconds cutoff_epoch
+    current_epoch="$(date +%s)"
+    cutoff_seconds=$(( RETENTION_DAYS * 86400 ))
+    cutoff_epoch=$(( current_epoch - cutoff_seconds ))
+
     local scan_target
     if ! scan_target="$(CDPATH='' cd -P -- "$LOG_DIR" && pwd -P)" 2>/dev/null ||
        ! stage_scan "$scan_target" 2>/dev/null; then
@@ -390,13 +396,6 @@ main() {
         fi
         printf "\n%bScanning target files...%b\n" "$COLOR_BLUE" "$COLOR_RESET"
     fi
-
-    local current_epoch
-    current_epoch="$(date +%s)"
-    local cutoff_seconds
-    cutoff_seconds=$(( RETENTION_DAYS * 86400 ))
-    local cutoff_epoch
-    cutoff_epoch=$(( current_epoch - cutoff_seconds ))
 
     local min_size_bytes
     min_size_bytes=$(awk -v m="$MIN_SIZE_MB" 'BEGIN { printf "%.0f", m * 1048576 }')
