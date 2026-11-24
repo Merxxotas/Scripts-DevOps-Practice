@@ -336,6 +336,57 @@ test_help_mentions_backends() {
     teardown
 }
 
+test_lab2_walkthrough() (
+    set -euo pipefail
+    local lab_doc="$SCRIPT_DIR/docs/labs/LAB2_EXIT_CODES_AND_RETENTION.md"
+    local probe
+    probe=$(mktemp -d /tmp/test-db-lab2.XXXXXX)
+    trap 'rm -rf -- "$probe"' EXIT
+    mkdir -p "$probe/temp root" "$probe/outside/backups" "$probe/caller-bin"
+    printf 'existing backup\n' > "$probe/outside/backups/keep.sql"
+    printf 'existing lab files\n' > "$probe/temp root/note"
+    printf '#!/bin/sh\nprintf "Unexpected caller mysqldump\\n" >&2\nexit 99\n' \
+        > "$probe/caller-bin/mysqldump"
+    chmod +x "$probe/caller-bin/mysqldump"
+
+    # Do not run the old unsafe setup: require the child-shell walkthrough first.
+    awk '/^```bash$/ { block = 1; next } /^```$/ && block { exit } block' \
+        "$lab_doc" > "$probe/walkthrough.sh"
+    if ! grep -Fxq "BASH_ENV=/dev/null bash <<'LAB'" "$probe/walkthrough.sh"; then
+        printf 'Lab 2 must run in a child Bash shell.\n' >&2
+        exit 1
+    fi
+
+    export PATH="$probe/caller-bin:$ORIGINAL_PATH"
+    export TMPDIR="$probe/temp root"
+    export DB_BACKUP_PASSWORD=caller-placeholder MYSQL_PWD=caller-mysql
+    local caller_path="$PATH" caller_mask
+    caller_mask=$(umask)
+    cd "$SCRIPT_DIR"
+    # shellcheck source=/dev/null
+    if ! source "$probe/walkthrough.sh" > "$probe/stdout" 2> "$probe/stderr"; then
+        cat "$probe/stdout" "$probe/stderr" >&2
+        exit 1
+    fi
+
+    diff -u - "$probe/stdout" <<'EXPECTED'
+Success: exit=0 (compressed fake dump)
+Missing password: exit=1
+System path: exit=1
+Bad retention: exit=1
+Failed dump: exit=2 (partial file removed; failure audited)
+Retention: exit=0 (pruned 3; kept recent and unrelated files)
+Lab 2 checks passed.
+EXPECTED
+    [[ ! -s "$probe/stderr" ]] || { cat "$probe/stderr" >&2; exit 1; }
+    [[ "$PATH" == "$caller_path" && "$DB_BACKUP_PASSWORD" == caller-placeholder ]]
+    [[ "$MYSQL_PWD" == caller-mysql && "$TMPDIR" == "$probe/temp root" ]]
+    [[ "$PWD" == "$SCRIPT_DIR" && "$(umask)" == "$caller_mask" ]]
+    diff -u <(printf 'existing backup\n') "$probe/outside/backups/keep.sql"
+    diff -u <(printf 'existing lab files\n') "$probe/temp root/note"
+    [[ $(find "$TMPDIR" -mindepth 1 -maxdepth 1 -print) == "$TMPDIR/note" ]]
+)
+
 # Run all tests
 printf "%bStarting DB Backup Test Suite...%b\n" "$CYAN" "$RESET"
 test_json_dry_run() {
@@ -383,6 +434,12 @@ test_help_mentions_backends
 test_json_dry_run
 test_csv_dry_run
 test_json_csv_mutual
+# Capture the subshell status without disabling errexit inside the probe.
+set +e
+test_lab2_walkthrough
+lab2_status=$?
+set -e
+assert_equals "0" "$lab2_status" "Lab 2: documented walkthrough is safe and self-checking"
 
 printf "============================================================\n"
 printf "Tests Summary: %b%d Passed%b, %b%d Failed%b\n" "$GREEN" "$PASSED_TESTS" "$RESET" "$RED" "$FAILED_TESTS" "$RESET"

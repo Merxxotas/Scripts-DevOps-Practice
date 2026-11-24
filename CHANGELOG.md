@@ -100,6 +100,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **Database Backup Lab 2 — isolated exit-code and retention walkthrough.** The Bash lab now uses
+  a private temporary directory and a fake client in a child shell. It checks exit codes, archive
+  pruning, and audit records without accessing a database or existing backups.
+
 - **Log Cleanup — incomplete scans no longer process files.** Bash and PowerShell now exit `2`
   before previewing or deleting any candidate when enumeration fails. The error goes to stderr
   and the optional audit log, with no partial report. Bash stages paths in a private, unlinked

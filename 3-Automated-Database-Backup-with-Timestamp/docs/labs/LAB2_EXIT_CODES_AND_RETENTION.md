@@ -1,162 +1,132 @@
 # Lab 2: Exit Codes & Retention
 
-## Objective
+Run the Bash backup utility against disposable files to see exit codes `0`, `1`, and `2`,
+retention pruning, and audit records. You do not need a database, database client, or credentials.
 
-Reproduce every exit code the module defines, and watch retention pruning delete old archives.
-By the end you will know which failures are configuration errors (`1`) and which are partial
-failures (`2`).
-
-## Prerequisites
-
-- Bash 4+.
-- A stubbed `mysqldump` on `PATH` (see Lab 1, Step 1).
-
-Run from the module folder.
-
-## Setup
+From the module directory, paste the **whole block** into Bash. It runs in a child shell with a
+private temporary directory under `${TMPDIR:-/tmp}`. The fake `mysqldump`, backups, and audit log are
+removed when that shell exits. Your shell environment and existing backups are not changed.
 
 ```bash
-mkdir -p /tmp/lab2_db/stubbin /tmp/lab2_db/backups
-cat > /tmp/lab2_db/stubbin/mysqldump <<'EOF'
-#!/bin/bash
-echo "-- MySQL dump stub"
-EOF
-chmod +x /tmp/lab2_db/stubbin/mysqldump
-export PATH="/tmp/lab2_db/stubbin:$PATH"
-export DB_BACKUP_PASSWORD='secret'
-```
+BASH_ENV=/dev/null bash <<'LAB'
+set -euo pipefail
+IFS=$'\n\t'
 
-## Step 1: Success (exit 0)
+fail() { printf 'Lab 2: %s\n' "$*" >&2; exit 1; }
+backup="$PWD/db_backup.sh"
+[[ -f "$backup" ]] || fail 'Run from the Database Backup module directory.'
 
-```bash
-rm -rf /tmp/lab2_db/backups && mkdir -p /tmp/lab2_db/backups
-./db_backup.sh -t mysql -n labdb -d /tmp/lab2_db/backups
-echo "exit=$?"
-```
+umask 077
+scratch=$(mktemp -d "${TMPDIR:-/tmp}/db-backup-lab2.XXXXXX")
+trap 'rm -rf -- "$scratch"' EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
+# Resolve a relative TMPDIR before changing directory.
+[[ "$scratch" == /* ]] || scratch="$PWD/$scratch"
+cd -- "$scratch"
 
-Expected: `exit=0`, a `.sql.gz` archive, and the "Backup complete" line.
+mkdir bin
+cat > bin/mysqldump <<'FAKE'
+#!/bin/sh
+set -eu
+printf 'called\n' >> dump-calls
+printf '%s\n' '-- MySQL dump stub'
+exit "${LAB_DUMP_STATUS:-0}"
+FAKE
+chmod 700 bin/mysqldump
+export PATH="$PWD/bin:$PATH"
+[[ $(command -v mysqldump) == "$PWD/bin/mysqldump" ]] || fail 'Fake client did not resolve.'
+unset DB_BACKUP_PASSWORD LAB_DUMP_STATUS
+password=lab-placeholder-not-a-credential
 
-## Step 2: Configuration error — missing password (exit 1)
+run_case() {
+    local expected=$1 status=0
+    shift
+    bash "$backup" -t mysql -n labdb "$@" >stdout 2>stderr || status=$?
+    if [[ "$status" != "$expected" ]]; then
+        cat stdout stderr >&2
+        fail "Expected exit $expected, got $status."
+    fi
+}
 
-```bash
-env -u DB_BACKUP_PASSWORD ./db_backup.sh -t mysql -n labdb -d /tmp/lab2_db/backups
-echo "exit=$?"
-```
+reject() {
+    local label=$1 diagnostic=$2
+    shift 2
+    # Dry run prevents writes even if the safety/configuration check regresses.
+    run_case 1 --dry-run "$@"
+    [[ ! -s stdout ]] || fail "Unexpected stdout for $label."
+    grep -Fq -- "Error: $diagnostic" stderr || fail "Missing error for $label."
+    printf '%s: exit=1\n' "$label"
+}
 
-Expected: `Error: Database password is required...` and `exit=1`.
+shopt -s nullglob dotglob
+run_case 0 -d success --db-password "$password"
+archives=(success/*)
+[[ ${#archives[@]} == 1 && ${archives[0]} == *.sql.gz ]] || fail 'Expected one archive.'
+[[ $(gzip -cd -- "${archives[0]}") == '-- MySQL dump stub' ]] || fail 'Unexpected dump data.'
+[[ ! -s stderr ]] || fail 'Unexpected stderr on success.'
+grep -Fq 'Backup complete. Pruned 0 old backup(s).' stdout || fail 'Missing success summary.'
+printf '%s\n' 'Success: exit=0 (compressed fake dump)'
 
-## Step 3: Configuration error — system path (exit 1)
+reject 'Missing password' \
+    'Database password is required. Pass --db-password or set DB_BACKUP_PASSWORD.' -d rejected
+reject 'System path' "Refusing to use a system path as the backup directory: '/etc'." \
+    -d /etc --db-password "$password"
+reject 'Bad retention' 'Retention days must be an integer between 0 and 3650.' \
+    -d rejected -r abc --db-password "$password"
+[[ ! -e rejected && $(cat dump-calls) == called ]] || fail 'A rejected case had side effects.'
 
-```bash
-./db_backup.sh -t mysql -n labdb -d /etc --db-password secret
-echo "exit=$?"
-```
+LAB_DUMP_STATUS=3 run_case 2 -d failed --db-password "$password" -l audit.log
+partial=(failed/*)
+[[ -d failed && ${#partial[@]} == 0 ]] || fail 'Partial dump was not removed.'
+grep -Fq 'Error: Database dump failed (exit 3).' stderr || fail 'Missing dump error.'
+grep -Eq '^[0-9TZ:-]+ \[ERROR\] Dump failed for mysql/labdb \(exit 3\)\.$' audit.log \
+    || fail 'Missing failure audit record.'
+printf '%s\n' 'Failed dump: exit=2 (partial file removed; failure audited)'
 
-Expected: `Error: Refusing to use a system path...` and `exit=1`.
-
-## Step 4: Configuration error — bad retention (exit 1)
-
-```bash
-./db_backup.sh -t mysql -n labdb -d /tmp/lab2_db/backups -r abc --db-password secret
-echo "exit=$?"
-```
-
-Expected: `Error: Retention days must be an integer between 0 and 3650.` and `exit=1`.
-
-## Step 5: Partial failure — dump fails (exit 2)
-
-```bash
-cat > /tmp/lab2_db/stubbin/mysqldump <<'EOF'
-#!/bin/bash
-exit 3
-EOF
-chmod +x /tmp/lab2_db/stubbin/mysqldump
-rm -rf /tmp/lab2_db/fail && mkdir -p /tmp/lab2_db/fail
-./db_backup.sh -t mysql -n labdb -d /tmp/lab2_db/fail
-echo "exit=$?"
-ls /tmp/lab2_db/fail
-```
-
-Expected: `Error: Database dump failed (exit 3).`, `exit=2`, and an empty backup directory
-(the partial `.sql` was removed).
-
-Restore the good stub:
-
-```bash
-cat > /tmp/lab2_db/stubbin/mysqldump <<'EOF'
-#!/bin/bash
-echo "-- MySQL dump stub"
-EOF
-chmod +x /tmp/lab2_db/stubbin/mysqldump
-```
-
-## Step 6: Retention pruning
-
-Create three archives with old mtimes, then run with a 7-day retention.
-
-```bash
-rm -rf /tmp/lab2_db/ret && mkdir -p /tmp/lab2_db/ret
-for i in 1 2 3; do
-  f="/tmp/lab2_db/ret/mysql_labdb_2020010${i}_000000.sql.gz"
-  echo "stub" > "$f"
-  touch -d "2020-01-0${i}" "$f"
+mkdir retention
+old=(retention/old-1.sql retention/old-2.sql.gz retention/old-3.sql.gz)
+printf 'keep recent\n' > retention/recent.sql.gz
+printf 'keep unrelated\n' > retention/notes.txt
+for file in "${old[@]}"; do printf 'old archive\n' > "$file"; done
+touch -t 200001010000 "${old[@]}" retention/notes.txt
+run_case 0 -d retention -r 7 --db-password "$password" -l audit.log
+[[ ! -s stderr ]] || fail 'Unexpected stderr during retention.'
+grep -Fq 'Backup complete. Pruned 3 old backup(s).' stdout || fail 'Wrong prune count.'
+for file in "${old[@]}"; do
+    [[ ! -e "$file" ]] || fail "Old archive survived: $file"
+    grep -Fq "[INFO] Pruned old backup: $file" audit.log || fail "Missing prune record: $file"
 done
-ls /tmp/lab2_db/ret
-./db_backup.sh -t mysql -n labdb -d /tmp/lab2_db/ret -r 7
-echo "exit=$?"
-ls /tmp/lab2_db/ret
+entries=(retention/*)
+archives=(retention/mysql_labdb_*.sql.gz)
+[[ ${#entries[@]} == 3 && ${#archives[@]} == 1 ]] || fail 'Unexpected retention survivors.'
+[[ $(gzip -cd -- "${archives[0]}") == '-- MySQL dump stub' ]] || fail 'New dump is missing.'
+[[ $(<retention/recent.sql.gz) == 'keep recent' && $(<retention/notes.txt) == 'keep unrelated' ]] ||
+    fail 'A kept fixture changed.'
+grep -Fq '[INFO] Backup complete for mysql/labdb. Pruned 3 old backup(s).' audit.log \
+    || fail 'Missing completion audit record.'
+if grep -Fq -- "$password" audit.log; then fail 'Password appeared in the audit log.'; fi
+printf '%s\n' 'Retention: exit=0 (pruned 3; kept recent and unrelated files)'
+printf '%s\n' 'Lab 2 checks passed.'
+LAB
 ```
 
-Expected: `Backup complete. Pruned 3 old backup(s).`, `exit=0`, and the directory holds only the
-new archive.
+## What the checks show
 
-## Step 7: Audit log on failure
-
-```bash
-cat > /tmp/lab2_db/stubbin/mysqldump <<'EOF'
-#!/bin/bash
-exit 1
-EOF
-chmod +x /tmp/lab2_db/stubbin/mysqldump
-rm -rf /tmp/lab2_db/aud && mkdir -p /tmp/lab2_db/aud
-./db_backup.sh -t mysql -n labdb -d /tmp/lab2_db/aud -l /tmp/lab2_db/audit.log
-echo "exit=$?"
-cat /tmp/lab2_db/audit.log
-```
-
-Expected: the audit log contains `Dump failed for mysql/labdb (exit 1).` and the password never
-appears.
-
-## Step 8: Clean up
-
-```bash
-rm -rf /tmp/lab2_db
-```
-
----
-
-## What You Should See
-
-| Check | Expected |
+| Check | Expected result |
 | :--- | :--- |
-| Success | exit `0` |
-| Missing password / system path / bad retention | exit `1` |
-| Failed dump | exit `2`, empty dir |
-| Retention | old archives removed, count reported |
-| Audit log | failure recorded, no password |
+| Success | Exit `0`; one `.sql.gz` containing the fake dump. |
+| Missing password, system path, bad retention | Exit `1`; no dump or backup writes. |
+| Fake client exits `3` after emitting data | Utility exits `2`, removes the partial dump, and logs the failure. |
+| Seven-day retention | Exit `0`; three old matching files are deleted and logged. The new archive, a recent matching file, and an old unrelated file remain. |
+| Audit log | Contains failure, prune, and completion records, but not the fake password. |
 
----
+Bash retention uses `find -mtime +N`, which counts whole 24-hour periods. A retention value of
+`0` does **not** mean “delete all archives.” The lab uses clearly old fixtures and a fresh file to
+avoid depending on the exact seven-day boundary.
 
-## Try It Yourself
+## Related documents
 
-1. Set retention to `0` and confirm every existing archive is pruned.
-2. Point `-l` at a read-only file and confirm the backup still succeeds (best-effort audit).
-3. Pass `--no-compress` and confirm the raw `.sql` is retained.
-
----
-
-## Related Documents
-
-- [Lab 1 -- Backup & Dry Run](LAB1_BACKUP_AND_DRY_RUN.md)
-- [Lab 3 -- Scheduling in Production](LAB3_PRODUCTION_SCHEDULING.md)
-- [SCENARIOS.md](../SCENARIOS.md)
+- [Lab 1 — Backup & Dry Run](LAB1_BACKUP_AND_DRY_RUN.md)
+- [Lab 3 — Scheduling in Production](LAB3_PRODUCTION_SCHEDULING.md)
+- [Scenarios](../SCENARIOS.md)
