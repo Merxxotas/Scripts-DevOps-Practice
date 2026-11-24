@@ -273,6 +273,114 @@ setup
 run_k8s --json --csv
 assert_equals 1 "$LAST_EXIT_CODE" "Test 24: mutual exclusion exits 1"
 
+# Tests 25–26: execute the published Lab 2 block, not a copy of it.
+setup
+lab="$SCRIPT_DIR/docs/labs/LAB2_THRESHOLD_AND_DELETION.md"
+lab_script="$TEST_SANDBOX/lab2.sh"
+lab_stdout="$TEST_SANDBOX/stdout.txt"
+lab_stderr="$TEST_SANDBOX/stderr.txt"
+
+run_lab2() (
+    cd "$SCRIPT_DIR" || exit 1
+    # The child shell can invoke this only if the lab leaks the inherited environment.
+    # SC2329 (0.11+) and SC2317 (distro 0.10) both flag this indirectly-invoked function.
+    # shellcheck disable=SC2317,SC2329
+    kubectl() {
+        printf '%s\n' "$*" >> "$TEST_SANDBOX/lab2_inherited_calls"
+        return 1
+    }
+    export -f kubectl
+    bash "$lab_script"
+)
+
+lab_extract_rc=0
+awk '/^```bash$/ { blocks++; in_bash=1; next }
+     /^```$/ { in_bash=0 }
+     in_bash { print }
+     END { if (blocks != 1 || in_bash) exit 1 }' "$lab" > "$lab_script" || lab_extract_rc=$?
+assert_equals 0 "$lab_extract_rc" "Test 25a: Lab 2 has one complete executable Bash block"
+if [[ "$lab_extract_rc" == 0 ]]; then
+    lab_rc=0
+    : > "$TEST_SANDBOX/lab2_inherited_calls"
+    run_lab2 > "$lab_stdout" 2> "$lab_stderr" || lab_rc=$?
+    assert_equals 0 "$lab_rc" "Test 25b: Lab 2 verifies both scenarios"
+    assert_equals "" "$(cat "$lab_stderr")" "Test 25c: Lab 2 has no stderr in either scenario"
+    lab_result=$(sed $'s/\033\\[[0-9;]*m//g' "$lab_stdout" | awk '
+        /^(success|failure|Monitor exit:|Fake delete attempts:|delete pod|  pod-|    ->|Pods:)/
+        /^    Restarts:|^Monitoring check completed\.|^Partial failure\./')
+    assert_equals "$(cat <<'EXPECTED'
+success
+  pod-below
+    Restarts: 2
+    -> kept (below threshold)
+  pod-equal
+    Restarts: 3
+    -> kept (below threshold)
+  pod-above
+    Restarts: 5
+    -> deleted
+Pods: 3  Deleted: 1  Failed: 0
+Monitoring check completed.
+Monitor exit: 0
+Fake delete attempts:
+delete pod pod-above -n lab-demo
+failure
+  pod-below
+    Restarts: 2
+    -> kept (below threshold)
+  pod-equal
+    Restarts: 3
+    -> kept (below threshold)
+  pod-above
+    Restarts: 5
+    -> delete FAILED
+Pods: 3  Deleted: 0  Failed: 1
+Partial failure.
+Monitor exit: 2
+Fake delete attempts:
+delete pod pod-above -n lab-demo
+EXPECTED
+)" "$lab_result" "Test 25d: exact pod decisions, summaries, exit codes and fake attempts"
+    assert_equals "" "$(cat "$TEST_SANDBOX/lab2_inherited_calls")" \
+        "Test 25e: lab ignores an inherited kubectl function"
+
+    # Hide the fake before startup; the monitor must not fall back to the suite's fake.
+    lab_rc=0
+    (
+        # Invoked by the child shell when it tries to finish setting up the fake.
+        # SC2329 (0.11+) and SC2317 (distro 0.10) both flag this indirectly-invoked function.
+        # shellcheck disable=SC2317,SC2329
+        chmod() { mv "$2" "$2.disabled"; }
+        export -f chmod
+        run_lab2
+    ) > "$lab_stdout" 2> "$lab_stderr" || lab_rc=$?
+    assert_equals 1 "$lab_rc" "Test 26a: lab cannot proceed without its own fake"
+    assert_equals $'\nsuccess\nMonitor exit: 1\nFake delete attempts:' "$(cat "$lab_stdout")" \
+        "Test 26b: the missing fake prevents any delete attempts"
+    assert_equals $'kubectl not found on PATH\nUnexpected result: success' \
+        "$(sed $'s/\033\\[[0-9;]*m//g' "$lab_stderr")" "Test 26c: missing fake diagnostic"
+    assert_equals "" "$(cat "$TEST_SANDBOX/lab2_inherited_calls")" \
+        "Test 26d: missing fake never invokes inherited kubectl"
+
+    # An invalid PATH entry must be rejected before any client can run.
+    lab_tools="$TEST_SANDBOX/lab2-tools"
+    mkdir -p "$lab_tools" "$lab_tools:scratch"
+    export LAB2_COLON_CALLS="$TEST_SANDBOX/lab2_colon_calls"
+    : > "$LAB2_COLON_CALLS"
+    printf '#!/bin/bash\nprintf "called\\n" >> %q\nexit 1\n' "$LAB2_COLON_CALLS" \
+        > "$lab_tools/kubectl"
+    chmod +x "$lab_tools/kubectl"
+    lab_rc=0
+    (cd "$SCRIPT_DIR" && TMPDIR="$lab_tools:scratch" bash "$lab_script") \
+        > "$lab_stdout" 2> "$lab_stderr" || lab_rc=$?
+    assert_equals 1 "$lab_rc" "Test 27a: Lab 2 rejects a colon in its temporary path"
+    assert_equals "" "$(<"$lab_stdout")" "Test 27b: rejected path has no stdout"
+    assert_equals "Lab 2 needs a temporary directory path without ':'." \
+        "$(<"$lab_stderr")" "Test 27c: rejected path diagnostic"
+    assert_equals "" "$(<"$LAB2_COLON_CALLS")" "Test 27d: rejected path never invokes kubectl"
+    assert_equals "" "$(ls -A "$lab_tools:scratch")" "Test 27e: rejected path stays empty"
+fi
+
 # ---------- summary ----------
 echo ""
 echo "========================================"
