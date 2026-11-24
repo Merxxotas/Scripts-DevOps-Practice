@@ -100,6 +100,11 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **Log Cleanup — incomplete scans no longer process files.** Bash and PowerShell now exit `2`
+  before previewing or deleting any candidate when enumeration fails. The error goes to stderr
+  and the optional audit log, with no partial report. Bash stages paths in a private, unlinked
+  spool outside the target tree instead of holding the full listing in memory.
+
 - **Automated Git Deployment — PowerShell backups silently skipped dotfiles.** `Compress-Archive
   -Path "$AppDir\*"` resolves like a default (non-`-Force`) enumeration, so hidden files such as
   `.env` (typically gitignored and deploy-critical) were never archived — and on PowerShell 7 for
