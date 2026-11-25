@@ -8,6 +8,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 DEPLOY_SCRIPT="$SCRIPT_DIR/git_deploy.sh"
 TEST_SANDBOX="$(mktemp -d "/tmp/test_git_deploy.XXXXXX")"
+trap 'rm -rf -- "$TEST_SANDBOX"' EXIT
 FAKE_BIN="$TEST_SANDBOX/bin"
 mkdir -p "$FAKE_BIN"
 
@@ -545,6 +546,93 @@ echo "https://github.com/acme/widgets.git" > "$TEST_SANDBOX/git_origin_url"
 run_deploy -a "$TEST_SANDBOX/appdir" --audit-log "$TEST_SANDBOX/audit35.log" --skip-post-deploy
 assert_equals 0 "$LAST_EXIT_CODE" "Test 35a: deploy exits 0"
 assert_contains "$(cat "$TEST_SANDBOX/audit35.log" 2>/dev/null || true)" "Backup verified" "Test 35b: audit records backup verified"
+
+# Test 36: run the published block in a disposable module with an enforcing proxy.
+setup
+lab="$SCRIPT_DIR/docs/labs/LAB2_SKIP_FLAGS_AND_AUDIT.md"
+block="$TEST_SANDBOX/lab2.sh"
+lab_root="$TEST_SANDBOX/lab-case"
+mkdir -p "$lab_root/module" "$lab_root/tmp" "$lab_root/home" "$lab_root/hooks"
+lab_root="$(cd "$lab_root" && pwd -P)"
+awk '/^```bash$/ { blocks++; inside=1; next } /^```$/ { inside=0; next }
+    inside { print } END { if (blocks != 1) exit 1 }' "$lab" > "$block" || true
+# Validate the complete argument vector and canonical owned paths before forwarding.
+{
+    printf '#!/bin/bash\nset -euo pipefail\n'
+    printf 'root=%q\nreal=%q\n' "$lab_root/tmp" "$DEPLOY_SCRIPT"
+    cat <<'PROXY'
+[[ $# -ge 5 && $1 == --app-dir && $3 == --backup-dir && $5 == --dry-run ]] || exit 90
+app=$2 backup=$4 workspace=${2%/app}
+[[ $workspace == "$root"/git-deploy-lab2.* && ${workspace#"$root"/} != */* ]] || exit 91
+[[ -d $workspace && ! -L $workspace && ! -L $app && ! -L $backup ]] || exit 91
+[[ $(cd "$workspace" && pwd -P) == "$workspace" ]] || exit 91
+[[ $(cd "$app" && pwd -P) == "$workspace/app" ]] || exit 91
+[[ $(cd "$backup" && pwd -P) == "$workspace/backups" ]] || exit 91
+calls=${root%/tmp}/calls
+if [[ -f $calls ]]; then
+    [[ $(head -n 1 "$calls") == "$workspace" ]] || exit 92
+else
+    printf '%s\n' "$workspace" > "$calls"
+fi
+count=$(wc -l < "$calls" | tr -d ' ')
+shift 5
+case $count in
+    1) [[ $# == 0 ]] ;;
+    2) [[ $# == 1 && $1 == --skip-backup ]] ;;
+    3) [[ $# == 1 && $1 == --skip-post-deploy ]] ;;
+    4) [[ $# == 1 && $1 == --no-rollback ]] ;;
+    5) [[ $# == 2 && $1 == --audit-log && $2 == "$workspace/audit.log" && ! -e $2 && ! -L $2 ]] ;;
+    *) exit 93 ;;
+esac || exit 93
+printf 'call\n' >> "$calls"
+exec bash "$real" --app-dir "$app" --backup-dir "$backup" --dry-run "$@"
+PROXY
+} > "$lab_root/module/git_deploy.sh"
+chmod +x "$lab_root/module/git_deploy.sh"
+printf '#!/bin/bash\necho hook >> %q\nexit 1\n' "$lab_root/forbidden" > "$lab_root/hooks/pre-commit"
+chmod +x "$lab_root/hooks/pre-commit"
+printf '[core]\n\thooksPath = %s\n' "$lab_root/hooks" > "$lab_root/home/.gitconfig"
+printf '#!/bin/bash\necho startup >> %q\n' "$lab_root/forbidden" > "$lab_root/startup"
+printf 'preexisting fixture\n' > "$lab_root/fixture"
+chmod 640 "$lab_root/fixture"
+cp -p "$lab_root/fixture" "$lab_root/fixture-copy"
+fixture_before="$(perl -e '@s=stat($ARGV[0]); print "$s[2] $s[9]"' "$lab_root/fixture")"
+lab_exit=1
+lab_out=""
+lab_err=""
+# Refuse baseline unsafe text rather than ever executing it.
+if [[ $(head -n 1 "$block") == '# LAB2_ISOLATED_WALKTHROUGH' ]]; then
+    lab_exit=0
+    (
+        cd "$lab_root/module"
+        export HOME="$lab_root/home" TMPDIR="$lab_root/tmp"
+        export GIT_CONFIG_GLOBAL="$lab_root/home/.gitconfig" GIT_CONFIG_COUNT=1
+        export GIT_CONFIG_KEY_0=core.hooksPath GIT_CONFIG_VALUE_0="$lab_root/hooks"
+        export GIT_DIR="$lab_root/not-a-repo" GIT_WORK_TREE="$lab_root"
+        export BASH_ENV="$lab_root/startup"
+        sentinel_function() { printf 'caller function\n'; }
+        [[ "$(sentinel_function)" == 'caller function' ]]
+        before_pwd="$PWD"; before_env="$(export -p)"; before_options="$(set +o; shopt -p || true)"
+        before_functions="$(declare -f)"
+        # shellcheck source=/dev/null
+        source "$block"
+        [[ "$PWD" == "$before_pwd" && "$(export -p)" == "$before_env" ]] &&
+            [[ "$(set +o; shopt -p || true)" == "$before_options" ]] &&
+            [[ "$(declare -f)" == "$before_functions" ]]
+    ) > "$TEST_SANDBOX/lab.out" 2> "$TEST_SANDBOX/lab.err" || lab_exit=$?
+    lab_out="$(cat "$TEST_SANDBOX/lab.out")"
+    lab_err="$(cat "$TEST_SANDBOX/lab.err")"
+fi
+assert_equals 0 "$lab_exit" "Test 36a: isolated walkthrough and caller state"
+assert_equals 'Lab 2 checks passed' "$lab_out" "Test 36b: walkthrough confirms checks"
+assert_equals '' "$lab_err" "Test 36c: walkthrough has no stderr"
+fixture_bytes=0
+cmp -s "$lab_root/fixture" "$lab_root/fixture-copy" || fixture_bytes=$?
+assert_equals 0 "$fixture_bytes" "Test 36d: fixture bytes unchanged"
+assert_equals "$fixture_before" "$(perl -e '@s=stat($ARGV[0]); print "$s[2] $s[9]"' "$lab_root/fixture")" "Test 36e: fixture mode and mtime unchanged"
+assert_equals '' "$(cat "$lab_root/forbidden" 2>/dev/null || true)" "Test 36f: hostile Git hook and shell startup not invoked"
+assert_equals 6 "$(wc -l < "$lab_root/calls" 2>/dev/null | tr -d ' ' || true)" "Test 36h: five exact guarded dry-run invocations"
+assert_equals '' "$(ls -A "$lab_root/tmp")" "Test 36g: owned workspace removed"
 
 # Summary
 echo ""
