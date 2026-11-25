@@ -1,20 +1,14 @@
 # Lab 1 — Monitoring and Dry Run
 
-**Goal:** observe a running service and preview a restart without touching it.
+Preview the monitor's decisions for a running service and a stopped service. Both are fixtures:
+the lab never queries the host's service manager or writes to its log.
 
-1. Check a running service:
-   ```bash
-   ./service_monitor.sh -s nginx
-   ```
-   Expected: success message, exit 0.
+From the Service Monitor module directory, run:
 
-2. Dry run against a down service:
-   ```bash
-   ./service_monitor.sh -s nginx --dry-run
-   ```
-   Expected: `[DRY RUN]` plan, no restart, exit 0.
+```bash
+bash docs/labs/run_service_monitor_lab.sh 1
+```
 
-3. Inspect the help:
-   ```bash
-   ./service_monitor.sh -h
-   ```
+Both CSV results have outcome `dry-run` and `retries_used=0`. The lab verifies that neither
+preview requested a restart or sent a notification. It exits 0 on success and removes its private
+scratch directory.
