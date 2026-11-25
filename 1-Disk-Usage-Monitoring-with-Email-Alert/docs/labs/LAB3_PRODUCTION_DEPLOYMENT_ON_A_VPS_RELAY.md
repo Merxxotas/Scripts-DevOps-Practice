@@ -234,7 +234,7 @@ reference workstation was:
                  Disk Usage Monitor - Doctor
 ============================================================
 Platform            : Linux (cachyos)
-Config file         : /tmp/lab3_prod/disk-monitor.conf
+Config file         : <scratch>/disk-monitor.conf
 Partition           : / (config)
 Threshold           : 80% (config)
 Notify backend      : http (config)
@@ -270,11 +270,19 @@ Do this on your workstation, in the module directory. The receiver is a one-shot
 
 ### 6.1 Create the rehearsal configuration
 
-```bash
-LAB=/tmp/lab3_prod
-mkdir -p "$LAB/log" "$LAB/home"
+Open a dedicated Bash session from the module directory before running these examples:
 
-cat > "$LAB/disk-monitor.conf" <<'EOF'
+```bash
+bash docs/labs/disk_lab_shell.sh
+```
+
+It creates and sets `$LAB` to a fresh private directory. Run the following Bash snippets
+inside that session. Type `exit` when done to remove only the directory it created.
+
+```bash
+mkdir -p "${LAB:?Start the lab shell first}/log" "${LAB:?Start the lab shell first}/home"
+
+cat > "${LAB:?Start the lab shell first}/disk-monitor.conf" <<'EOF'
 # /etc/disk-monitor/disk-monitor.conf
 partition = /
 threshold = 80
@@ -287,7 +295,7 @@ header = Authorization: Bearer S3CRET-TOKEN
 timeout = 10
 log_file = /var/log/disk-monitor/audit.log
 EOF
-chmod 600 "$LAB/disk-monitor.conf"
+chmod 600 "${LAB:?Start the lab shell first}/disk-monitor.conf"
 ```
 
 This is the production file, byte for byte. The rehearsal overrides two things on the command line:
@@ -296,17 +304,17 @@ the endpoint and the audit log, because `/var/log` needs root.
 ### 6.2 Run the doctor
 
 ```bash
-HOME="$LAB/home" ./disk_monitor.sh --config "$LAB/disk-monitor.conf" --doctor
+HOME="${LAB:?Start the lab shell first}/home" ./disk_monitor.sh --config "${LAB:?Start the lab shell first}/disk-monitor.conf" --doctor
 echo "exit=$?"
 ```
 
-The output is the `READY` block shown in Step 5, with `/tmp/lab3_prod/disk-monitor.conf` as
+The output is the `READY` block shown in Step 5, with `<scratch>/disk-monitor.conf` as
 the config path.
 
 ### 6.3 Start a receiver
 
 ```bash
-cat > "$LAB/receiver.py" <<'EOF'
+cat > "${LAB:?Start the lab shell first}/receiver.py" <<'EOF'
 """A one-shot HTTP receiver: print the request, answer 204, exit."""
 import http.server
 import sys
@@ -328,7 +336,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
 http.server.HTTPServer(("127.0.0.1", int(sys.argv[1])), Handler).handle_request()
 EOF
 
-python3 "$LAB/receiver.py" 8082 > "$LAB/receiver.out" &
+python3 "${LAB:?Start the lab shell first}/receiver.py" 8082 > "${LAB:?Start the lab shell first}/receiver.out" &
 sleep 1
 ```
 
@@ -338,9 +346,9 @@ sleep 1
 be exercised:
 
 ```bash
-HOME="$LAB/home" DISK_MONITOR_USAGE_OVERRIDE=91 \
-  ./disk_monitor.sh --config "$LAB/disk-monitor.conf" \
-    --url http://127.0.0.1:8082/alert --log-file "$LAB/log/audit.log"
+HOME="${LAB:?Start the lab shell first}/home" DISK_MONITOR_USAGE_OVERRIDE=91 \
+  ./disk_monitor.sh --config "${LAB:?Start the lab shell first}/disk-monitor.conf" \
+    --url http://127.0.0.1:8082/alert --log-file "${LAB:?Start the lab shell first}/log/audit.log"
 echo "exit=$?"
 ```
 
@@ -354,7 +362,7 @@ Threshold         : 80%
 Endpoint          : http://127.0.0.1:8082/alert
 HTTP Client       : /usr/bin/curl
 Execution Mode    : LIVE (Alerts Active)
-Audit Log File    : /tmp/lab3_prod/log/audit.log
+Audit Log File    : <scratch>/log/audit.log
 WARNING: Disk usage exceeds the threshold.
 Alert sent to http://127.0.0.1:8082/alert
 exit=0
@@ -363,7 +371,7 @@ exit=0
 The receiver prints what actually arrived:
 
 ```bash
-cat "$LAB/receiver.out"
+cat "${LAB:?Start the lab shell first}/receiver.out"
 ```
 
 ```text
@@ -377,7 +385,7 @@ the body. The hostname in the body is the machine's, so yours will differ. The a
 the hand-off:
 
 ```bash
-cat "$LAB/log/audit.log"
+cat "${LAB:?Start the lab shell first}/log/audit.log"
 ```
 
 ```text
@@ -392,9 +400,9 @@ cat "$LAB/log/audit.log"
 Point the same command at a closed port:
 
 ```bash
-HOME="$LAB/home" DISK_MONITOR_USAGE_OVERRIDE=91 \
-  ./disk_monitor.sh --config "$LAB/disk-monitor.conf" \
-    --url http://127.0.0.1:9/alert --timeout 2 --log-file "$LAB/log/audit.log"
+HOME="${LAB:?Start the lab shell first}/home" DISK_MONITOR_USAGE_OVERRIDE=91 \
+  ./disk_monitor.sh --config "${LAB:?Start the lab shell first}/disk-monitor.conf" \
+    --url http://127.0.0.1:9/alert --timeout 2 --log-file "${LAB:?Start the lab shell first}/log/audit.log"
 echo "exit=$?"
 ```
 
@@ -424,7 +432,7 @@ The module asks `curl` for `--fail`, so an HTTP error status is a non-zero clien
 hand-off fails like any other. A receiver that answers `401`:
 
 ```bash
-cat > "$LAB/reject.py" <<'EOF'
+cat > "${LAB:?Start the lab shell first}/reject.py" <<'EOF'
 import http.server
 import sys
 
@@ -443,12 +451,12 @@ class Handler(http.server.BaseHTTPRequestHandler):
 http.server.HTTPServer(("127.0.0.1", int(sys.argv[1])), Handler).handle_request()
 EOF
 
-python3 "$LAB/reject.py" 8084 &
+python3 "${LAB:?Start the lab shell first}/reject.py" 8084 &
 sleep 1
 
-HOME="$LAB/home" DISK_MONITOR_USAGE_OVERRIDE=91 \
-  ./disk_monitor.sh --config "$LAB/disk-monitor.conf" \
-    --url http://127.0.0.1:8084/alert --log-file "$LAB/log/audit.log"
+HOME="${LAB:?Start the lab shell first}/home" DISK_MONITOR_USAGE_OVERRIDE=91 \
+  ./disk_monitor.sh --config "${LAB:?Start the lab shell first}/disk-monitor.conf" \
+    --url http://127.0.0.1:8084/alert --log-file "${LAB:?Start the lab shell first}/log/audit.log"
 echo "exit=$?"
 ```
 
@@ -482,8 +490,8 @@ it is the only check that the whole path delivers.
 The token travelled in a header, and the audit line names the endpoint:
 
 ```bash
-grep -c 'S3CRET-TOKEN' "$LAB/log/audit.log"
-grep -c 'http://127.0.0.1:8082/alert' "$LAB/log/audit.log"
+grep -c 'S3CRET-TOKEN' "${LAB:?Start the lab shell first}/log/audit.log"
+grep -c 'http://127.0.0.1:8082/alert' "${LAB:?Start the lab shell first}/log/audit.log"
 ```
 
 ```text
@@ -496,9 +504,8 @@ command. The count is the point: the token is in the request and nowhere in the 
 
 ### 6.8 Clean up the rehearsal
 
-```bash
-rm -rf "$LAB"
-```
+Type `exit` in the rehearsal shell. Its wrapper removes the scratch directory. Return to
+your normal shell before following the VPS deployment steps.
 
 ---
 
@@ -692,11 +699,19 @@ and `Endpoint: (not required)` — a different set of checks, the same exit cont
 The relay is the host's business, so the rehearsal replaces `msmtp` with a stand-in that records
 the contract and delivers nothing:
 
-```bash
-LAB=/tmp/lab3_prod
-mkdir -p "$LAB/home" "$LAB/bin"
+Open a dedicated Bash session from the module directory before running these examples:
 
-cat > "$LAB/bin/msmtp" <<'EOF'
+```bash
+bash docs/labs/disk_lab_shell.sh
+```
+
+It creates and sets `$LAB` to a fresh private directory. Run the following Bash snippets
+inside that session. Type `exit` when done to remove only the directory it created.
+
+```bash
+mkdir -p "${LAB:?Start the lab shell first}/home" "${LAB:?Start the lab shell first}/bin" "${LAB:?Start the lab shell first}/log"
+
+cat > "${LAB:?Start the lab shell first}/bin/msmtp" <<'EOF'
 #!/bin/bash
 # A stand-in for msmtp. It accepts the module's contract
 # (-s <subject> <recipient>, body on stdin) and delivers nothing.
@@ -705,9 +720,9 @@ printf 'subject: %s\n' "$2"
 printf 'to     : %s\n' "$3"
 printf 'body   : %s\n' "$(cat)"
 EOF
-chmod +x "$LAB/bin/msmtp"
+chmod +x "${LAB:?Start the lab shell first}/bin/msmtp"
 
-cat > "$LAB/mail.conf" <<EOF
+cat > "${LAB:?Start the lab shell first}/mail.conf" <<EOF
 partition = /
 threshold = 80
 notify = mail
@@ -716,8 +731,8 @@ mail_command = $LAB/bin/msmtp
 log_file = $LAB/log/audit.log
 EOF
 
-HOME="$LAB/home" DISK_MONITOR_USAGE_OVERRIDE=91 \
-  ./disk_monitor.sh --config "$LAB/mail.conf"
+HOME="${LAB:?Start the lab shell first}/home" DISK_MONITOR_USAGE_OVERRIDE=91 \
+  ./disk_monitor.sh --config "${LAB:?Start the lab shell first}/mail.conf"
 echo "exit=$?"
 ```
 
@@ -740,6 +755,7 @@ exit=0
 
 The stand-in proves the contract: `-s` receives the subject, the recipient is the third argument,
 and the body arrives on standard input. The real `msmtp` receives exactly the same three things.
+Type `exit` in the rehearsal shell to clean up its scratch files.
 
 ---
 
@@ -817,11 +833,14 @@ and the body arrives on standard input. The real `msmtp` receives exactly the sa
    the alert path on a host you do not want to notify: everything runs, nothing leaves the host,
    and the audit line says so.
 
+   Open a fresh lab shell from the module directory with `bash docs/labs/disk_lab_shell.sh`.
+   Then run these commands inside it:
+
    ```bash
    DISK_MONITOR_USAGE_OVERRIDE=91 ./disk_monitor.sh --notify none \
-       --log-file /tmp/lab3-none.log
+       --log-file "${LAB:?Start the lab shell first}/lab3-none.log"
    echo "exit=$?"
-   cat /tmp/lab3-none.log
+   cat "${LAB:?Start the lab shell first}/lab3-none.log"
    ```
 
    The report ends with:
@@ -837,7 +856,7 @@ and the body arrives on standard input. The real `msmtp` receives exactly the sa
    ```
 
    Exit `0` means "the check completed and no alert was needed or sent", not "the disk is
-   healthy". The audit line is what tells the two apart. Remove `/tmp/lab3-none.log` when done.
+   healthy". The audit line is what tells the two apart. Type `exit` in the lab shell when done.
 
 ---
 

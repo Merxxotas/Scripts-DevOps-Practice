@@ -182,11 +182,19 @@ WARNING: Disk usage exceeds the threshold.
 To see the exact subject and body the module would deliver, point `--mail-command` at a harmless
 stand-in that records the hand-off and delivers nothing.
 
+Open a dedicated Bash session from the module directory before running these examples:
+
+```bash
+bash docs/labs/disk_lab_shell.sh
+```
+
+It creates and sets `$LAB` to a fresh private directory. Run the following Bash snippets
+inside that session. Type `exit` when done to remove only the directory it created.
+
 Create the stand-in:
 
 ```bash
-mkdir -p /tmp/lab1_disk
-cat > /tmp/lab1_disk/fake-mail-agent.sh <<'EOF'
+cat > "${LAB:?Start the lab shell first}/fake-mail-agent.sh" <<'EOF'
 #!/bin/bash
 # A harmless stand-in for the host mail agent. It records the hand-off and
 # delivers nothing, so the lab can never send a real email.
@@ -194,14 +202,14 @@ printf 'ARGV      : %s\n' "$*"
 printf '%s\n' '--- body received on stdin ---'
 cat
 EOF
-chmod +x /tmp/lab1_disk/fake-mail-agent.sh
+chmod +x "${LAB:?Start the lab shell first}/fake-mail-agent.sh"
 ```
 
 Now run the alert path for real, against the stand-in:
 
 ```bash
 DISK_MONITOR_USAGE_OVERRIDE=91 ./disk_monitor.sh -p / -t 80 --to ops@example.com \
-    --mail-command /tmp/lab1_disk/fake-mail-agent.sh
+    --mail-command "${LAB:?Start the lab shell first}/fake-mail-agent.sh"
 ```
 
 ```text
@@ -211,7 +219,7 @@ DISK_MONITOR_USAGE_OVERRIDE=91 ./disk_monitor.sh -p / -t 80 --to ops@example.com
 Partition         : /
 Usage             : 91% (overridden)
 Threshold         : 80%
-Mail Agent        : /tmp/lab1_disk/fake-mail-agent.sh
+Mail Agent        : <scratch>/fake-mail-agent.sh
 Recipient         : ops@example.com
 Execution Mode    : LIVE (Alerts Active)
 WARNING: Disk usage exceeds the threshold.
@@ -259,18 +267,18 @@ A production deployment should not carry six flags in a cron entry. The module r
 flag  →  environment variable  →  configuration file  →  built-in default
 ```
 
-Create a configuration file under `/tmp`, not in the repository. The repository ignores
-`.diskmonitor.conf` because it may hold a token, and this lab keeps every artifact in the scratch
+Create a configuration file in the private scratch directory, not in the repository. The
+repository ignores `.diskmonitor.conf` because it may hold a token, and this lab keeps every artifact in the scratch
 directory for the same reason:
 
 ```bash
-cat > /tmp/lab1_disk/lab1.conf <<'EOF'
+cat > "${LAB:?Start the lab shell first}/lab1.conf" <<'EOF'
 # Lab 1 configuration
 partition = /
 threshold = 70
 notify = none
 EOF
-chmod 600 /tmp/lab1_disk/lab1.conf
+chmod 600 "${LAB:?Start the lab shell first}/lab1.conf"
 ```
 
 `notify = none` keeps the lab offline: no recipient and no mail agent are needed. The file is mode
@@ -297,7 +305,7 @@ on your host the number will differ. `notify flag` is the `--notify none` on the
 ### 5b. The configuration file supplies the threshold
 
 ```bash
-./disk_monitor.sh --config /tmp/lab1_disk/lab1.conf -v
+./disk_monitor.sh --config "${LAB:?Start the lab shell first}/lab1.conf" -v
 ```
 
 ```text
@@ -312,7 +320,7 @@ file too, because this run carries no flag for them.
 ### 5c. The environment beats the file
 
 ```bash
-DISK_MONITOR_THRESHOLD=60 ./disk_monitor.sh --config /tmp/lab1_disk/lab1.conf -v
+DISK_MONITOR_THRESHOLD=60 ./disk_monitor.sh --config "${LAB:?Start the lab shell first}/lab1.conf" -v
 ```
 
 ```text
@@ -327,7 +335,7 @@ settings still come from the file, which is the point of a per-setting source.
 ### 5d. The flag beats everything
 
 ```bash
-DISK_MONITOR_THRESHOLD=60 ./disk_monitor.sh --config /tmp/lab1_disk/lab1.conf -t 50 -v
+DISK_MONITOR_THRESHOLD=60 ./disk_monitor.sh --config "${LAB:?Start the lab shell first}/lab1.conf" -t 50 -v
 ```
 
 ```text
@@ -363,11 +371,10 @@ file is not an error: the tool simply uses the defaults. This is why a cron entr
 
 ---
 
-## Step 6: Clean Up
+## Step 6: Finish the Walkthrough
 
-```bash
-rm -rf /tmp/lab1_disk
-```
+Keep the lab shell open for the optional Bash exercises below. Type `exit` when done, or
+repeat the lab-shell setup and the Step 4 stand-in setup before attempting them later.
 
 ---
 
@@ -399,22 +406,22 @@ rm -rf /tmp/lab1_disk
    instead of the one from Step 4:
 
    ```bash
-   printf '#!/bin/bash\ntouch /tmp/lab1_disk/mail-was-called\n' > /tmp/lab1_disk/marker.sh
-   chmod +x /tmp/lab1_disk/marker.sh
+   printf '#!/bin/bash\ntouch -- "${LAB:?Start the lab shell first}/mail-was-called"\n' > "${LAB:?Start the lab shell first}/marker.sh"
+   chmod +x "${LAB:?Start the lab shell first}/marker.sh"
    DISK_MONITOR_USAGE_OVERRIDE=91 ./disk_monitor.sh -p / -t 80 -n --to ops@example.com \
-       --mail-command /tmp/lab1_disk/marker.sh
-   ls /tmp/lab1_disk/mail-was-called
+       --mail-command "${LAB:?Start the lab shell first}/marker.sh"
+   ls "${LAB:?Start the lab shell first}/mail-was-called"
    ```
 
-   The `ls` reports no such file: the dry run resolved the agent but never invoked it. Remove the
-   marker file, then repeat the command **without** `-n` and check that the file now exists.
+   The `ls` reports no such file: the dry run resolved the agent but never invoked it.
+   Repeat the command **without** `-n` and check that the marker now exists.
 
 3. **Watch a real breach.** Drop the threshold below the real usage of your host and use the
    harmless stand-in from Step 4. Run `df -P /` first, note the percentage, then run:
 
    ```bash
    ./disk_monitor.sh -p / -t 1 --to ops@example.com \
-       --mail-command /tmp/lab1_disk/fake-mail-agent.sh
+       --mail-command "${LAB:?Start the lab shell first}/fake-mail-agent.sh"
    ```
 
    The report now carries a **measured** number and a real breach.
