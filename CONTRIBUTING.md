@@ -78,9 +78,21 @@ verification tier and requires an independent verifier before the change is cons
 
 ### Merge flow
 
-`feature branch → pull request → required review → merge into main → push`. `main` is **protected** — one approving
-review is required and stale reviews are dismissed, but there are **no required status checks** and
-admins are not enforced — so "CI green before merge" is still a manual obligation — check it yourself:
+`feature branch → pull request → Copilot review and CI → required approval → merge into main`.
+
+Before merging any PR, wait for the automatic GitHub Copilot review. Read its suggestions and
+record which were applied or declined and why. If the head changes, verify review coverage and
+rerun the applicable checks for the updated head. Leave the PR open if the review is missing
+or pending. The only exception is when Copilot explicitly reports insufficient remaining quota
+for the PR. Record that response and proceed under the normal merge checks; do not count it as
+a completed review. Copilot feedback does not replace CI, native review (RDD), or required
+approval. Do not use the administrator exception to bypass this policy.
+A maintainer's explicit, dated waiver applies only to its stated scope and expiry; it does not
+change this standing policy or disable CI, RDD, or required GitHub approval.
+
+`main` is **protected** — one approving review is required and stale reviews are dismissed, but
+there are **no required status checks** and admins are not enforced. Verify all applicable CI
+for the exact PR head before merging, then check the post-merge run on `main`:
 
 ```bash
 gh run list --workflow ci-cleanup-logs.yml --branch main --limit 1
