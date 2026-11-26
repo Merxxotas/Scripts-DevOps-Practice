@@ -14,21 +14,36 @@ This ledger supersedes the earlier local-only and in-progress statuses.
 | Disk lab scratch isolation | [89](https://github.com/Merxxotas/Scripts-DevOps-Practice/pull/89) | `758cdf5` | [passed](https://github.com/Merxxotas/Scripts-DevOps-Practice/actions/runs/45676072257) |
 | Disk Lab 3 production guards | [90](https://github.com/Merxxotas/Scripts-DevOps-Practice/pull/90) | `b2aa004` | [passed](https://github.com/Merxxotas/Scripts-DevOps-Practice/actions/runs/45865816789) |
 
-Each delivery cleared exact-candidate checks, independent verification, native RDD and hosted CI.
-Historical local review outcomes are not transferable authority for a different candidate.
+Later deliveries:
+
+| Unit | PR | Main commit | Post-merge CI |
+| --- | --- | --- | --- |
+| Webhook Lab 1 | [92](https://github.com/Merxxotas/Scripts-DevOps-Practice/pull/92) | `1998f55` | [passed](https://github.com/Merxxotas/Scripts-DevOps-Practice/actions/runs/45873523190) |
+| Disk Lab 1 PowerShell state | [93](https://github.com/Merxxotas/Scripts-DevOps-Practice/pull/93) | `5e322d3` | [passed](https://github.com/Merxxotas/Scripts-DevOps-Practice/actions/runs/45877756298) |
+| Disk Lab 3 scratch audit default | [94](https://github.com/Merxxotas/Scripts-DevOps-Practice/pull/94) | `13526f7` | [passed](https://github.com/Merxxotas/Scripts-DevOps-Practice/actions/runs/45879152227) |
+
+Each delivery cleared exact-candidate checks, applicable verification, native assessment and hosted CI.
+Due native reviews were approved and acknowledged; PR #93 was assessed medium/under-budget, so
+no review was due. Historical outcomes are not transferable authority for a different candidate.
 High-CPU and Service Monitor final Bash suites passed 68/0 and 43/0 respectively.
 Disk production helper verification passed 341/0 locally plus 29 independent public CLI cases.
 
-## Remaining work
+## Current disposition
 
-1. Webhook Lab 1 workspace and caller-state safety.
-2. Residual Disk caller-shell state and system-audit-path examples.
+These bounded ranked findings are delivered. This is not an exhaustive repository-wide safety
+assessment. Routine Bash prerequisite navigation was reviewed as normal directory navigation,
+not an uncontained export or a demonstrated destructive effect; no broad rewrite was made.
+Webhook fixture tests passed 5/0 plus six independent scenario groups. Disk PowerShell hosted
+RED exposed both the original override leak and absent-entry restoration; final hosted checks
+passed. Rehearsal audit tests passed 359/0 and preserve explicit log-file overrides.
 
 ## Deferred, non-blocking test improvements
 
 - High-CPU relative TMPDIR/CDPATH and duplicated fault-injection harness readability.
 - Service Monitor permanent post-precheck helper-loss probes; independently exercised.
 - Disk production helper permanent partial-I/O regression; independently exercised.
+- Webhook child-probe semicolon assertions can mask early permission failures; independent probes
+  verified the private modes directly. Strengthen permanent assertions as separate follow-up.
 
 Do not reopen delivered Database Backup Labs 1–2, Kubernetes Lab 2 or Log Cleanup.
 Preserve rejected candidate `b04c20a` and its lineage. Original Disk candidate `70535b3`
