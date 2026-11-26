@@ -25,7 +25,7 @@ Two ideas carry the lab:
 | Root access | `sudo` for the configuration, the installed script and the cron entry. |
 | An HTTP endpoint that accepts a `POST` | An `ntfy` topic, a self-hosted receiver, or a Telegram, Discord or Slack webhook. |
 | `curl` | Installed by default on Ubuntu and the module's default HTTP client. |
-| `python3` **on your workstation** | Only for the local receiver in Step 6. Not needed on the VPS. |
+| `python3` on the workstation and VPS | Local receiver and reviewed no-overwrite helper. |
 | A recipient address and an SMTP relay | Only for the migration path in Step 10. |
 
 > **Step 6 rehearses the production command line on your workstation** against a receiver on
@@ -82,6 +82,30 @@ schedule readable.
 
 ---
 
+## New installations only
+
+Run production steps only on the intended VPS, from a reviewed module checkout. The helper
+`docs/labs/disk_lab_create.py` is part of this lab, not the monitor runtime. Keep it in that
+checkout; invoke it with `sudo python3` when creating root-owned targets. It refuses existing
+files, directories and symlinks, including dangling links. It never changes existing metadata.
+
+**Existing installation? Stop for backup and review.** Use your administrator's backup procedure
+outside the repository, preserve ownership/modes, compare proposed settings, and plan a manual
+migration and rollback. Do not delete a target merely to make this lab pass. Never paste real
+credentials into a repository file or a command line.
+
+The helper preflights every target in a `files` invocation before writing any of them. Exclusive
+creation prevents replacing a newly appeared final target, but a multi-file operation is not a
+transaction: I/O failure can leave newly created files. Exit `0` means success, `1` means a
+preflight refusal, and `2` means a creation failure needing manual review. Creation audit lines
+go to stderr without file contents. Parent directories and the reviewed checkout must be under
+administrator control: this is not a sandbox against hostile concurrent parent replacement.
+
+Prepare new configuration content in a private, administrator-controlled staging directory outside
+the repository. In the commands below, `$STAGING` names that existing directory. Restrict it to
+mode `700`; do not reuse another user's directory. Review placeholders before installation.
+The helper does not create missing parent directories implicitly.
+
 ## Step 3: Install the Script
 
 Nothing extra is needed for HTTP. Confirm the client is there (on the VPS):
@@ -97,7 +121,7 @@ on `cron`'s `PATH`, or when several clients are installed.
 Copy the script to `/usr/local/bin/disk-monitor` and make it executable:
 
 ```bash
-sudo install -o root -g root -m 755 disk_monitor.sh /usr/local/bin/disk-monitor
+sudo python3 docs/labs/disk_lab_create.py files 755 disk_monitor.sh /usr/local/bin/disk-monitor
 ```
 
 Check the line endings before you trust it. A script with CRLF endings has a shebang of
@@ -124,9 +148,9 @@ one file instead, owned by root and readable only by root.
 ### 4.1 Create the file
 
 ```bash
-sudo install -d -o root -g root -m 700 /etc/disk-monitor
-sudo install -o root -g root -m 600 /dev/null /etc/disk-monitor/disk-monitor.conf
-sudo tee /etc/disk-monitor/disk-monitor.conf >/dev/null <<'EOF'
+sudo python3 docs/labs/disk_lab_create.py directory /etc/disk-monitor
+# Prepare this file privately, then review it before the installation command below.
+(umask 077; set -C; cat > "${STAGING:?Set a private staging directory}/disk-monitor.conf" <<'EOF'
 # /etc/disk-monitor/disk-monitor.conf
 partition = /
 threshold = 80
@@ -139,6 +163,9 @@ header = Authorization: Bearer S3CRET-TOKEN
 timeout = 10
 log_file = /var/log/disk-monitor/audit.log
 EOF
+)
+sudo python3 docs/labs/disk_lab_create.py files 600 \
+    "$STAGING/disk-monitor.conf" /etc/disk-monitor/disk-monitor.conf
 ```
 
 Replace the endpoint and `S3CRET-TOKEN` with your own. An `ntfy` topic needs no credential — drop
@@ -552,13 +579,15 @@ percentage is this host's, not a fixed number.
 `/etc/cron.d/disk-monitor`:
 
 ```bash
-sudo tee /etc/cron.d/disk-monitor >/dev/null <<'EOF'
+(umask 077; set -C; cat > "${STAGING:?Set a private staging directory}/cron" <<'EOF'
 SHELL=/bin/bash
 PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 DISK_MONITOR_CONFIG=/etc/disk-monitor/disk-monitor.conf
 
 17 7 * * * root /usr/local/bin/disk-monitor
 EOF
+)
+sudo python3 docs/labs/disk_lab_create.py files 644 "$STAGING/cron" /etc/cron.d/disk-monitor
 ```
 
 The job line carries **no arguments at all**. Four decisions in that file, each of them
@@ -587,7 +616,7 @@ The audit log grows by one line per run. Rotate it like any other log.
 `/etc/logrotate.d/disk-monitor`:
 
 ```bash
-sudo tee /etc/logrotate.d/disk-monitor >/dev/null <<'EOF'
+(umask 077; set -C; cat > "${STAGING:?Set a private staging directory}/logrotate" <<'EOF'
 /var/log/disk-monitor/audit.log {
     weekly
     rotate 8
@@ -598,6 +627,8 @@ sudo tee /etc/logrotate.d/disk-monitor >/dev/null <<'EOF'
     copytruncate
 }
 EOF
+)
+sudo python3 docs/labs/disk_lab_create.py files 644 "$STAGING/logrotate" /etc/logrotate.d/disk-monitor
 
 sudo logrotate -d /etc/logrotate.d/disk-monitor
 ```
@@ -631,11 +662,12 @@ sudo apt-get install -y msmtp
 
 ### 10.2 Configure the relay
 
-Two files, both **root only**, both outside the repository:
+Two files, both **root only**, both outside the repository. If either `/etc/msmtprc` or
+`/etc/msmtprc.secrets` exists, stop for backup and review of the existing relay installation.
+Prepare `relay.conf` and `relay-password` in your private staging directory using a secure editor;
+do not put credentials in shell history. The configuration template is data, not a shell command:
 
-```bash
-sudo install -o root -g root -m 600 /dev/null /etc/msmtprc
-sudo tee /etc/msmtprc >/dev/null <<'EOF'
+```text
 defaults
 logfile /var/log/msmtp.log
 tls_trust_file /etc/ssl/certs/ca-certificates.crt
@@ -649,12 +681,15 @@ tls_starttls on
 from ops@example.com
 user relay-user
 passwordeval "cat /etc/msmtprc.secrets"
-EOF
+```
 
-sudo install -o root -g root -m 600 /dev/null /etc/msmtprc.secrets
-sudo tee /etc/msmtprc.secrets >/dev/null <<'EOF'
-RELAY_PASSWORD
-EOF
+The password file contains only `RELAY_PASSWORD` and a newline. Review both private files first.
+Create both targets in one invocation so an existing target refuses the entire preflight:
+
+```bash
+sudo python3 docs/labs/disk_lab_create.py files \
+    600 "${STAGING:?Set a private staging directory}/relay.conf" /etc/msmtprc \
+    600 "$STAGING/relay-password" /etc/msmtprc.secrets
 ```
 
 Replace `RELAY_PASSWORD` with the credential your provider issued, and `relay.example.com` with
@@ -676,19 +711,18 @@ command delivers a message to an address **you** control; no output means succes
 
 ### 10.3 Switch the configuration file
 
-Replace the HTTP block with the mail keys; `notify` selects exactly one transport, so the HTTP
-keys are ignored in this mode:
+The existing HTTP configuration must not be overwritten by a pasted command. Stop for
+backup and review: preserve the current file and its metadata outside the repository, prepare
+and compare a separate candidate, arrange rollback, then have the administrator approve and
+perform the migration. These are the proposed keys, not an executable replacement command:
 
-```bash
-sudo tee /etc/disk-monitor/disk-monitor.conf >/dev/null <<'EOF'
-# /etc/disk-monitor/disk-monitor.conf, mail transport
+```text
 partition = /
 threshold = 80
 notify = mail
 to = ops@example.com
 mail_command = /usr/bin/msmtp
 log_file = /var/log/disk-monitor/audit.log
-EOF
 ```
 
 Then run the doctor again. It should report `Notify backend: mail`, a `Recipient`, a `Mail agent`
