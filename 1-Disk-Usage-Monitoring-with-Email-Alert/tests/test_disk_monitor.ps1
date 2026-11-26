@@ -2244,10 +2244,8 @@ if ($env:LAB_TEST_FAIL -eq "1") { throw "fake monitor failure" }
             foreach ($failure in @("0", "1")) {
                 if ($initial -eq "absent") {
                     Remove-Item Env:DISK_MONITOR_USAGE_OVERRIDE -ErrorAction SilentlyContinue
-                    $expected = $null
                 } else {
                     $env:DISK_MONITOR_USAGE_OVERRIDE = "caller-sentinel"
-                    $expected = "caller-sentinel"
                 }
                 $env:LAB_TEST_FAIL = $failure
                 Set-Content -LiteralPath $env:LAB_TEST_CAPTURE -Value "" -NoNewline
@@ -2265,8 +2263,12 @@ if ($env:LAB_TEST_FAIL -eq "1") { throw "fake monitor failure" }
                 $expectedCapture = 'OVERRIDE:91|ARG:-Partition|ARG:C:\|ARG:-Threshold|ARG:80' +
                     '|ARG:-DryRun|ARG:-To|ARG:ops@example.com'
                 Assert-Equal -Expected $expectedCapture -Actual $capture -TestName "$case fake invocation"
-                $actual = [Environment]::GetEnvironmentVariable("DISK_MONITOR_USAGE_OVERRIDE")
-                Assert-Equal -Expected $expected -Actual $actual -TestName "$case caller environment"
+                $exists = Test-Path Env:DISK_MONITOR_USAGE_OVERRIDE
+                Assert-Equal -Expected ($initial -eq "sentinel") -Actual $exists -TestName "$case caller environment exists"
+                if ($initial -eq "sentinel") {
+                    $actual = [Environment]::GetEnvironmentVariable("DISK_MONITOR_USAGE_OVERRIDE")
+                    Assert-Equal -Expected $true -Actual ($actual -ceq "caller-sentinel") -TestName "$case caller environment value"
+                }
                 Assert-Equal -Expected $TestSandbox -Actual (Get-Location).Path -TestName "$case cwd"
                 Assert-Equal -Expected "unchanged" -Actual $callerSentinel -TestName "$case variable"
             }
