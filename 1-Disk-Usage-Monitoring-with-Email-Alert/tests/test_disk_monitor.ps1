@@ -2209,6 +2209,78 @@ function Test-DoctorRemedySurvivesAQuotedPath {
 Test-HttpErrorStatusIsAFailedHandoff
 Test-DoctorRemedySurvivesAQuotedPath
 
+# The lab fence runs in the caller's scope, but its monitor is always a fixture.
+function Test-LabWindowsCallerState {
+    if (-not $IsWindows) {
+        Write-Host "[SKIP] Test 93: The Windows lab example requires Windows"
+        return
+    }
+
+    Enter-TestEnvironment
+    $labPath = Join-Path (Split-Path -Parent $ScriptDir) "docs/labs/LAB1_THRESHOLD_AND_DRY_RUN.md"
+    $labText = Get-Content -Raw -LiteralPath $labPath
+    $fences = [regex]::Matches(
+        $labText, '(?ms)^### On Windows\s+```powershell\s*\r?\n(.*?)^```'
+    )
+    Assert-Equal -Expected 1 -Actual $fences.Count -TestName "Test 93a: Windows fence is unique"
+    if ($fences.Count -ne 1) {
+        Exit-TestEnvironment
+        return
+    }
+
+    $fakeMonitor = Join-Path $TestSandbox "disk_monitor.ps1"
+    @'
+$lines = @("OVERRIDE:$env:DISK_MONITOR_USAGE_OVERRIDE")
+$lines += $args | ForEach-Object { "ARG:$_" }
+Set-Content -LiteralPath $env:LAB_TEST_CAPTURE -Value $lines
+if ($env:LAB_TEST_FAIL -eq "1") { throw "fake monitor failure" }
+'@ | Set-Content -LiteralPath $fakeMonitor -Encoding utf8
+    $env:LAB_TEST_CAPTURE = Join-Path $TestSandbox "lab-capture.txt"
+    $snippet = [scriptblock]::Create($fences[0].Groups[1].Value)
+    $originalLocation = Get-Location
+    try {
+        Set-Location -LiteralPath $TestSandbox
+        foreach ($initial in @("absent", "sentinel")) {
+            foreach ($failure in @("0", "1")) {
+                if ($initial -eq "absent") {
+                    Remove-Item Env:DISK_MONITOR_USAGE_OVERRIDE -ErrorAction SilentlyContinue
+                    $expected = $null
+                } else {
+                    $env:DISK_MONITOR_USAGE_OVERRIDE = "caller-sentinel"
+                    $expected = "caller-sentinel"
+                }
+                $env:LAB_TEST_FAIL = $failure
+                Set-Content -LiteralPath $env:LAB_TEST_CAPTURE -Value "" -NoNewline
+                $callerSentinel = "unchanged"
+                $thrown = ""
+                try {
+                    . $snippet
+                } catch {
+                    $thrown = $_.Exception.Message
+                }
+                $case = "Test 93 ($initial, failure=$failure)"
+                $expectedError = if ($failure -eq "1") { "fake monitor failure" } else { "" }
+                Assert-Equal -Expected $expectedError -Actual $thrown -TestName "$case error"
+                $capture = (Get-Content -LiteralPath $env:LAB_TEST_CAPTURE) -join "|"
+                $expectedCapture = 'OVERRIDE:91|ARG:-Partition|ARG:C:\|ARG:-Threshold|ARG:80' +
+                    '|ARG:-DryRun|ARG:-To|ARG:ops@example.com'
+                Assert-Equal -Expected $expectedCapture -Actual $capture -TestName "$case fake invocation"
+                $actual = [Environment]::GetEnvironmentVariable("DISK_MONITOR_USAGE_OVERRIDE")
+                Assert-Equal -Expected $expected -Actual $actual -TestName "$case caller environment"
+                Assert-Equal -Expected $TestSandbox -Actual (Get-Location).Path -TestName "$case cwd"
+                Assert-Equal -Expected "unchanged" -Actual $callerSentinel -TestName "$case variable"
+            }
+        }
+    } finally {
+        Set-Location -LiteralPath $originalLocation
+        Remove-Item Env:LAB_TEST_CAPTURE -ErrorAction SilentlyContinue
+        Remove-Item Env:LAB_TEST_FAIL -ErrorAction SilentlyContinue
+        Exit-TestEnvironment
+    }
+}
+
+Test-LabWindowsCallerState
+
 Write-Host "============================================================"
 Write-Host "Tests Summary: $([char]27)[0;32m$script:PassedCount Passed$([char]27)[0m, $([char]27)[0;31m$script:FailedCount Failed$([char]27)[0m"
 Write-Host "============================================================"
