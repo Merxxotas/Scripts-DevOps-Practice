@@ -250,12 +250,17 @@ opening a second tool.
 
 ```powershell
 & {
+    $overrideExisted = Test-Path Env:DISK_MONITOR_USAGE_OVERRIDE
     $previousOverride = [Environment]::GetEnvironmentVariable("DISK_MONITOR_USAGE_OVERRIDE")
     try {
         $env:DISK_MONITOR_USAGE_OVERRIDE = "91"
         .\disk_monitor.ps1 -Partition C:\ -Threshold 80 -DryRun -To ops@example.com
     } finally {
-        [Environment]::SetEnvironmentVariable("DISK_MONITOR_USAGE_OVERRIDE", $previousOverride)
+        if ($overrideExisted) {
+            [Environment]::SetEnvironmentVariable("DISK_MONITOR_USAGE_OVERRIDE", $previousOverride)
+        } else {
+            Remove-Item Env:DISK_MONITOR_USAGE_OVERRIDE
+        }
     }
 }
 ```
