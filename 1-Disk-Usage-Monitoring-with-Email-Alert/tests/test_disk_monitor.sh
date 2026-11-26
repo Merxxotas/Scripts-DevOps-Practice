@@ -1904,6 +1904,84 @@ EOF
     teardown
 }
 
+test_lab3_rehearsal_audit_path() {
+    setup
+    local LAB="$TEST_SANDBOX/lab scratch" lab config expected actual
+    lab="$SCRIPT_DIR/docs/labs/LAB3_PRODUCTION_DEPLOYMENT_ON_A_VPS_RELAY.md"
+    config="$LAB/disk-monitor.conf"
+    mkdir -p "$LAB/log" "$LAB/home"
+    # Permit only the documented config heredoc, never another lab command.
+    python3 - "$lab" "$TEST_SANDBOX/config-block" <<'PY'
+from pathlib import Path
+import sys
+text = Path(sys.argv[1]).read_text().split('## Step 6:', 1)[1].split('## Step 7:', 1)[0]
+blocks = [b.split('```', 1)[0] for b in text.split('```bash\n')[1:]]
+blocks = [b for b in blocks if '/disk-monitor.conf" <<' in b]
+assert len(blocks) == 1
+lines = blocks[0].splitlines()
+start = next(i for i, line in enumerate(lines) if line.startswith('cat > '))
+end = lines.index('EOF', start + 1)
+body = lines[start + 1:end]
+assert lines[start] in (
+    'cat > "${LAB:?Start the lab shell first}/disk-monitor.conf" <<EOF',
+    'cat > "${LAB:?Start the lab shell first}/disk-monitor.conf" <<\'EOF\'')
+assert body == [
+    '# /etc/disk-monitor/disk-monitor.conf', 'partition = /', 'threshold = 80',
+    'notify = http', 'url = https://ntfy.sh/disk-alerts-example',
+    'body_template = {"topic":"disk-alerts-example","message":"Disk on {host} at {usage}"}',
+    'header = Content-Type: application/json', 'header = Title: Disk alert',
+    'header = Authorization: Bearer S3CRET-TOKEN', 'timeout = 10',
+    body[-1],
+]
+assert body[-1] in ('log_file = /var/log/disk-monitor/audit.log',
+                    'log_file = $LAB/log/audit.log')
+Path(sys.argv[2]).write_text('\n'.join(lines[start:end + 1]) + '\n')
+PY
+    LAB="$LAB" bash "$TEST_SANDBOX/config-block"
+    expected=$(printf '%s\n' '# /etc/disk-monitor/disk-monitor.conf' 'partition = /' \
+        'threshold = 80' 'notify = http' 'url = https://ntfy.sh/disk-alerts-example' \
+        'body_template = {"topic":"disk-alerts-example","message":"Disk on {host} at {usage}"}' \
+        'header = Content-Type: application/json' 'header = Title: Disk alert' \
+        'header = Authorization: Bearer S3CRET-TOKEN' 'timeout = 10' \
+        "log_file = $LAB/log/audit.log"; printf '.')
+    actual=$(cat "$config"; printf '.')
+    assert_equals "$expected" "$actual" 'Lab 3: exact rehearsal config'
+    # Never run a config that could write to the host, even during RED.
+    if [[ "$actual" != "$expected" ]]; then
+        teardown
+        return
+    fi
+    chmod 600 "$config"
+    HOME="$LAB/home" run_monitor --config "$config" --doctor
+    assert_equals 0 "$LAST_EXIT_CODE" 'Lab 3: doctor succeeds'
+    assert_equals '' "$LAST_STDERR" 'Lab 3: doctor stderr'
+    assert_contains "$LAST_STDOUT" "Audit log file      : $LAB/log/audit.log (config)" \
+        'Lab 3: doctor reports scratch config source'
+    assert_equals no "$(test -e "$LAB/log/audit.log" && echo yes || echo no)" \
+        'Lab 3: doctor writes no audit log'
+    HOME="$LAB/home" DISK_MONITOR_USAGE_OVERRIDE=91 run_monitor --config "$config"
+    assert_equals 0 "$LAST_EXIT_CODE" 'Lab 3: configured audit run succeeds'
+    assert_equals '' "$LAST_STDERR" 'Lab 3: configured audit stderr'
+    assert_contains "$LAST_STDOUT" "Audit Log File    : $LAB/log/audit.log" \
+        'Lab 3: configured path reported'
+    assert_contains "$LAST_STDOUT" 'Alert sent to https://ntfy.sh/disk-alerts-example' \
+        'Lab 3: stubbed alert succeeds'
+    assert_file_exists "$LAB/log/audit.log" 'Lab 3: scratch audit created'
+    assert_contains "$(< "$LAB/log/audit.log")" 'ALERT SENT' 'Lab 3: scratch audit records alert'
+    assert_contains "$(< "$HTTP_CAPTURE_FILE")" ' at 91%"}' 'Lab 3: template rendered'
+    expected=$(< "$LAB/log/audit.log")
+    HOME="$LAB/home" DISK_MONITOR_USAGE_OVERRIDE=91 run_monitor --config "$config" \
+        --log-file "$LAB/log/override.log"
+    assert_equals 0 "$LAST_EXIT_CODE" 'Lab 3: explicit audit override succeeds'
+    assert_equals '' "$LAST_STDERR" 'Lab 3: override stderr'
+    assert_contains "$LAST_STDOUT" "Audit Log File    : $LAB/log/override.log" \
+        'Lab 3: explicit path reported'
+    assert_file_exists "$LAB/log/override.log" 'Lab 3: override audit created'
+    assert_contains "$(< "$LAB/log/override.log")" 'ALERT SENT' 'Lab 3: override records alert'
+    assert_equals "$expected" "$(< "$LAB/log/audit.log")" 'Lab 3: override leaves config log unchanged'
+    teardown
+}
+
 test_lab_audit_failure_is_best_effort() {
     setup
     local blocked="$TEST_SANDBOX/not-a-directory"
@@ -2068,6 +2146,7 @@ test_threshold_from_config_range
 test_notify_from_config_unsupported
 test_doctor_reports_threshold_value
 test_lab_scratch_lifecycle
+test_lab3_rehearsal_audit_path
 test_production_creation_helper
 test_lab_audit_failure_is_best_effort
 test_missing_partition
