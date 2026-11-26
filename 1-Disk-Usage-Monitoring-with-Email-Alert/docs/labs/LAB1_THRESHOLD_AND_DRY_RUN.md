@@ -249,12 +249,25 @@ opening a second tool.
 ### On Windows
 
 ```powershell
-$env:DISK_MONITOR_USAGE_OVERRIDE = "91"
-.\disk_monitor.ps1 -Partition C:\ -Threshold 80 -DryRun -To ops@example.com
+& {
+    $overrideExisted = Test-Path Env:DISK_MONITOR_USAGE_OVERRIDE
+    $previousOverride = [Environment]::GetEnvironmentVariable("DISK_MONITOR_USAGE_OVERRIDE")
+    try {
+        $env:DISK_MONITOR_USAGE_OVERRIDE = "91"
+        .\disk_monitor.ps1 -Partition C:\ -Threshold 80 -DryRun -To ops@example.com
+    } finally {
+        if ($overrideExisted) {
+            [Environment]::SetEnvironmentVariable("DISK_MONITOR_USAGE_OVERRIDE", $previousOverride)
+        } else {
+            Remove-Item Env:DISK_MONITOR_USAGE_OVERRIDE
+        }
+    }
+}
 ```
 
-The PowerShell side accepts the same environment contract and the same threshold semantics. Its
-help text is available with `.\disk_monitor.ps1 -Help`.
+The previous environment value is restored, or the variable is removed if it was absent, even if
+the monitor throws. The PowerShell side accepts the same environment contract and the same
+threshold semantics. Its help text is available with `.\disk_monitor.ps1 -Help`.
 
 ---
 
