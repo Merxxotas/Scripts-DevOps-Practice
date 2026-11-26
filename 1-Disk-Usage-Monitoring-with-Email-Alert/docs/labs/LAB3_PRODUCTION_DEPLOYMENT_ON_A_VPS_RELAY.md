@@ -270,7 +270,7 @@ Recipient           : (not required)
 HTTP client         : /usr/bin/curl (default)
 Mail agent          : (not required)
 Measurement command : /usr/bin/df (default)
-Audit log file      : /var/log/disk-monitor/audit.log (config)
+Audit log file      : <scratch>/log/audit.log (config)
 HTTP headers        : 3 (config)
 ------------------------------------------------------------
 Status              : READY
@@ -309,7 +309,7 @@ inside that session. Type `exit` when done to remove only the directory it creat
 ```bash
 mkdir -p "${LAB:?Start the lab shell first}/log" "${LAB:?Start the lab shell first}/home"
 
-cat > "${LAB:?Start the lab shell first}/disk-monitor.conf" <<'EOF'
+cat > "${LAB:?Start the lab shell first}/disk-monitor.conf" <<EOF
 # /etc/disk-monitor/disk-monitor.conf
 partition = /
 threshold = 80
@@ -320,13 +320,13 @@ header = Content-Type: application/json
 header = Title: Disk alert
 header = Authorization: Bearer S3CRET-TOKEN
 timeout = 10
-log_file = /var/log/disk-monitor/audit.log
+log_file = $LAB/log/audit.log
 EOF
 chmod 600 "${LAB:?Start the lab shell first}/disk-monitor.conf"
 ```
 
-This is the production file, byte for byte. The rehearsal overrides two things on the command line:
-the endpoint and the audit log, because `/var/log` needs root.
+This matches the production file except for the audit path, which stays in the scratch directory
+instead of `/var/log`. The live rehearsal commands still override the endpoint and audit path.
 
 ### 6.2 Run the doctor
 
@@ -335,8 +335,8 @@ HOME="${LAB:?Start the lab shell first}/home" ./disk_monitor.sh --config "${LAB:
 echo "exit=$?"
 ```
 
-The output is the `READY` block shown in Step 5, with `<scratch>/disk-monitor.conf` as
-the config path.
+The output is the `READY` block shown in Step 5, with scratch paths for the configuration and
+audit log.
 
 ### 6.3 Start a receiver
 
