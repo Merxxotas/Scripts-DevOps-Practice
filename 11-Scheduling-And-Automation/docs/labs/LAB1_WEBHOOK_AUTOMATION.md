@@ -15,49 +15,25 @@ In this hands-on lab, you will configure an EventOps daemon (Python or Go) to li
 ## 🛠️ Step-by-Step Instructions
 
 ### Step 1: Create a Working Directory & Rules Configuration
-Create a temporary workspace directory `lab1_workspace`:
+From the repository root, start the lab shell (do not source the helper):
 
 ```bash
-mkdir -p lab1_workspace
-cd lab1_workspace
+bash 11-Scheduling-And-Automation/docs/labs/webhook_lab_shell.sh
 ```
 
-Create `rules.json` with two webhook endpoints:
-
-```json
-{
-  "rules": [
-    {
-      "name": "Health Alert Webhook",
-      "type": "webhook",
-      "endpoint": "/alert",
-      "action": "echo '[ALERT] System health check triggered!' >> alert.log"
-    },
-    {
-      "name": "Deployment Webhook",
-      "type": "webhook",
-      "endpoint": "/deploy",
-      "action": "echo '[DEPLOY] Automated build initiated.' >> deploy.log"
-    }
-  ]
-}
-```
+The helper creates a private temporary workspace, `rules.json` with `/alert` and `/deploy`
+webhook rules, and a new `webhook.secret` with mode 600. It exports the secret only inside
+its child shell and displays the workspace path. Copy that path for the second terminal.
+Your original shell's directory, environment, functions, traps and umask are unchanged.
+Keep this shell open until you finish the lab. Never put the secret or workspace in git.
 
 ---
 
 ### Step 2: Generate a Shared Secret & Start the EventOps Daemon
 
-The webhook listener refuses to start without a shared HMAC secret. Generate one and export it:
-
-```bash
-export EVENTOPS_WEBHOOK_SECRET="$(openssl rand -hex 32)"
-
-# This file signs webhooks. A readable copy lets any local user forge
-# triggers, so it is created private from the start — a plain redirect
-# would leave it at 0644 under the usual umask 022.
-( umask 077; printf '%s' "$EVENTOPS_WEBHOOK_SECRET" > webhook.secret )
-chmod 600 webhook.secret
-```
+The webhook listener refuses to start without a shared HMAC secret. The lab shell already
+created and exported one. In that shell, start one daemon, replacing `/path/to` with the
+absolute repository location:
 
 #### Option A: Running Python Daemon
 ```bash
@@ -85,13 +61,20 @@ go run /path/to/11-Scheduling-And-Automation/EventOps-Go/main.go start --config 
 
 ### Step 3: Trigger the Webhooks via `curl`
 
-The daemon only accepts POSTs whose `X-Hub-Signature-256` header carries a valid HMAC-SHA256 of the raw body, keyed by `EVENTOPS_WEBHOOK_SECRET`. Define a signing helper first (same scheme GitHub uses):
+The daemon only accepts POSTs whose `X-Hub-Signature-256` header carries a valid
+HMAC-SHA256 of the raw body. In a second terminal, open a child Bash shell, change to the
+workspace path displayed by the first terminal, and load its secret. Replace the example path
+with that exact path; keep the quotes if it contains spaces:
 
 ```bash
+bash --noprofile --norc
+cd -- '/path/to/displayed/workspace' || exit
+EVENTOPS_WEBHOOK_SECRET=$(<webhook.secret) || exit
+export EVENTOPS_WEBHOOK_SECRET
 sign() { printf '%s' "$1" | openssl dgst -sha256 -hmac "$EVENTOPS_WEBHOOK_SECRET" -hex | awk '{print $NF}'; }
 ```
 
-Open a new terminal window and send HTTP POST requests:
+Run the following requests in that second child shell:
 
 #### Test Trigger 1: Health Alert Webhook
 ```bash
@@ -163,12 +146,10 @@ cat eventops.log
 
 ### Step 5: Clean Up
 
-`webhook.secret` holds a live shared secret. Delete it when the lab is done — and keep it out of
-git if you build on this workspace:
-
-```bash
-rm -f webhook.secret
-```
+Stop the daemon and exit the second child shell. Then exit the first lab shell. The helper
+removes its workspace, including `webhook.secret`, after the lab shell exits. An uncatchable kill
+or system crash can prevent cleanup: if that happens, remove the displayed workspace manually.
+Do not save or commit the secret.
 
 ---
 
