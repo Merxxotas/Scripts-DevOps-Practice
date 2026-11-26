@@ -1,18 +1,20 @@
 # Audit follow-up — current handoff
 
-Updated 2026-11-26. Last verified main: `b2aa004899727dd8a676a706609473bd7ea36225`.
-Disk [post-merge CI](https://github.com/Merxxotas/Scripts-DevOps-Practice/actions/runs/45865816789)
-passed on that exact commit. The audit is not complete.
+Updated 2026-11-26. Last verified functional main: `13526f7302781617c4c96979539c94ff199a1623`.
+Disk [post-merge CI](https://github.com/Merxxotas/Scripts-DevOps-Practice/actions/runs/45879152227)
+passed on that exact commit. The bounded ranked findings are delivered; the broader audit is
+not exhaustive and must not be described as complete.
 
-## Remaining priorities
+## Current disposition
 
-| Order | Unit | Acceptance boundary |
-| --- | --- | --- |
-| 1 — Next | Webhook Automation Lab 1 | Private workspace, owned cleanup and unchanged caller state. Use disposable fixtures; do not notify real endpoints. Inspect before choosing a bounded implementation. |
-| 2 | Residual Disk shell-state and system-audit-path examples | Contain caller changes and audit effects in private fixtures without changing production monitor behavior. Keep separate from delivered scratch and production guard work. |
+Webhook Lab 1, Disk Lab 1 PowerShell caller-state preservation and Disk Lab 3 scratch audit
+defaults shipped in PRs #92–94. Do not restart them. Optional test advisories remain in the
+[delivery ledger](tasks/high-cpu-lab2-isolation.md); they are not blocking corrections or approval
+for another implementation cycle. No additional functional unit is currently queued by this list.
+Any wider audit needs a fresh bounded scope, not a claim that all repository hazards were checked.
 
-Do not expand either unit into a broad rewrite. Run Windows validation only in GitHub Actions.
-Never execute unsafe production examples, read real credentials or touch real services.
+Run Windows validation only in GitHub Actions. Never execute unsafe production examples,
+read real credentials or touch real services.
 
 ## Completed — do not repeat
 
@@ -44,6 +46,15 @@ hosted checks and native RDD. Use the standing administrator exception only when
 approval is the sole remaining gate. Do not change branch protection. After merge, verify the
 resulting main commit/tree and post-merge CI. Stop and ask for genuine doubts or blockers.
 
+## Latest separate deliveries
+
+| Unit | Main commit | Post-merge evidence |
+| --- | --- | --- |
+| Documentation/policy reconciliation, PR #91 | `c5d7315` | [Pages passed](https://github.com/Merxxotas/Scripts-DevOps-Practice/actions/runs/45870243968); module CI not applicable |
+| Webhook Lab 1, PR #92 | `1998f55` | [CI passed](https://github.com/Merxxotas/Scripts-DevOps-Practice/actions/runs/45873523190) |
+| Disk Lab 1 PowerShell state, PR #93 | `5e322d3` | [CI passed](https://github.com/Merxxotas/Scripts-DevOps-Practice/actions/runs/45877756298) |
+| Disk Lab 3 rehearsal audit path, PR #94 | `13526f7` | [CI passed](https://github.com/Merxxotas/Scripts-DevOps-Practice/actions/runs/45879152227) |
+
 ## Local-only records
 
 Raw operational notes were preserved in the local Git administrative directory before reconciliation.
@@ -55,6 +66,6 @@ ignore rule was added for `odd/tasks/`. Local archives are not part of a clone o
 
 1. Read `AGENTS.md`, this handoff and the applicable task record.
 2. Check local changes, fetch main and reconcile the live repository before editing.
-3. Start the next unfinished priority only; keep implementation and policy/documentation PRs separate.
+3. Check the current disposition before selecting new work; keep functional and documentation PRs separate.
 4. Preserve unrelated edits and historical candidate references. Never replay historical review authority.
 5. Continue authorized in-scope work after each delivery; a completed unit is not an instruction to stop.
