@@ -1917,6 +1917,142 @@ test_lab_audit_failure_is_best_effort() {
     teardown
 }
 
+# Test the shared artifact, never translated or executed production Markdown.
+test_production_creation_helper() {
+    setup
+    local helper="$SCRIPT_DIR/docs/labs/disk_lab_create.py"
+    local root="$TEST_SANDBOX/production fixtures" status kind target before
+    mkdir -p "$root"
+    if [[ ! -f "$helper" ]]; then
+        assert_equals present missing 'Production: guarded creation helper exists'
+        teardown
+        return
+    fi
+    printf 'fixture\n' > "$root/source"
+    python3 "$helper" files 600 "$root/source" "$root/fresh" \
+        > "$root/out" 2> "$root/err"
+    assert_equals '' "$(< "$root/out")" 'Production: success stdout is empty'
+    assert_equals "INFO: Created: $root/fresh" "$(< "$root/err")" \
+        'Production: creation audit'
+    cmp "$root/source" "$root/fresh"
+    assert_equals 0 "$?" 'Production: exact bytes including final newline'
+    for kind in file directory link dangling; do
+        target="$root/$kind"
+        case "$kind" in
+            file) printf 'keep\n' > "$target" ;;
+            directory) mkdir "$target" ;;
+            link) ln -s "$root/source" "$target" ;;
+            dangling) ln -s "$root/missing" "$target" ;;
+        esac
+        before=$(ls -ldi "$target")
+        status=0
+        python3 "$helper" files 600 "$root/source" "$root/not-created" \
+            600 "$root/source" "$target" > "$root/out" 2> "$root/err" || status=$?
+        assert_equals 1 "$status" "Production: refuses existing $kind"
+        assert_equals '' "$(< "$root/out")" "Production: refused $kind stdout"
+        assert_equals "ERROR: Refusing existing target: $target" "$(< "$root/err")" \
+            "Production: refused $kind diagnostic"
+        assert_equals "$before" "$(ls -ldi "$target")" "Production: preserves $kind metadata"
+        assert_equals no "$(test -e "$root/not-created" && echo yes || echo no)" \
+            'Production: all targets checked before writes'
+    done
+    assert_equals keep "$(< "$root/file")" 'Production: existing file preserved'
+    assert_equals fixture "$(< "$root/source")" 'Production: link destination preserved'
+    python3 "$helper" directory "$root/config" > "$root/out" 2> "$root/err"
+    assert_equals '' "$(< "$root/out")" 'Production: directory stdout'
+    assert_equals "INFO: Created: $root/config" "$(< "$root/err")" \
+        'Production: directory creation audit'
+    before=$(ls -ldi "$root/config")
+    status=0
+    python3 "$helper" directory "$root/config" > "$root/out" 2> "$root/err" || status=$?
+    assert_equals 1 "$status" 'Production: repeated directory refused'
+    assert_equals "$before" "$(ls -ldi "$root/config")" 'Production: directory unchanged'
+    assert_equals '' "$(< "$root/out")" 'Production: directory refusal stdout'
+    assert_equals "ERROR: Refusing existing target: $root/config" "$(< "$root/err")" \
+        'Production: directory refusal diagnostic'
+    python3 - "$root" <<'PY'
+import os
+import stat
+import sys
+root = sys.argv[1]
+assert stat.S_IMODE(os.stat(root + '/fresh').st_mode) == 0o600
+assert stat.S_IMODE(os.stat(root + '/config').st_mode) == 0o700
+PY
+    assert_equals 0 "$?" 'Production: exact private file and directory modes'
+    python3 - "$helper" "$root" <<'PY'
+from pathlib import Path
+import os
+import subprocess
+import sys
+helper, root = sys.argv[1], Path(sys.argv[2])
+
+def run(*args):
+    return subprocess.run([sys.executable, helper, *map(str, args)], capture_output=True)
+
+def unchanged(target):
+    return (target.lstat(), target.read_bytes() if target.is_file() else None)
+
+source = root / 'source'
+one, two = root / 'relay-one', root / 'relay-two'
+result = run('files', '600', source, one, '600', source, two)
+assert (result.returncode, result.stdout, result.stderr) == (
+    0, b'', f'INFO: Created: {one}\nINFO: Created: {two}\n'.encode())
+assert one.read_bytes() == two.read_bytes() == source.read_bytes()
+for existing, missing in [(one, root / 'new-two'), (two, root / 'new-one')]:
+    before = unchanged(existing)
+    result = run('files', '600', source, existing, '600', source, missing)
+    assert (result.returncode, result.stdout, result.stderr) == (
+        1, b'', f'ERROR: Refusing existing target: {existing}\n'.encode())
+    assert unchanged(existing) == before and not missing.exists()
+for mode in ['644', '755']:
+    target = root / ('mode-' + mode)
+    result = run('files', mode, source, target)
+    assert result.returncode == 0 and result.stdout == b''
+    assert result.stderr == f'INFO: Created: {target}\n'.encode()
+    assert target.read_bytes() == source.read_bytes()
+    assert target.stat().st_mode & 0o777 == int(mode, 8)
+for args, diagnostic in [
+    (['files', '999', source, root / 'invalid'], b'ERROR: Modes must be 600, 644 or 755.\n'),
+    (['files', '600', source, one, '600', source, one],
+     b'ERROR: Duplicate targets are not allowed.\n'),
+    ([], b'ERROR: Use --help for directory or files syntax.\n'),
+]:
+    result = run(*args)
+    assert (result.returncode, result.stdout, result.stderr) == (1, b'', diagnostic)
+assert not (root / 'invalid').exists()
+result = run('files', '600', root / 'absent-source', root / 'no-output')
+assert result.returncode == 1 and result.stdout == b''
+assert result.stderr.startswith(b'ERROR: Preflight failed: ')
+assert not (root / 'no-output').exists()
+result = run('--help')
+assert result.returncode == 0 and b'Exit: 0 success' in result.stdout and result.stderr == b''
+# A restrictive caller umask must not make the documented modes inaccurate.
+result = subprocess.run(
+    [sys.executable, helper, 'directory', str(root / 'restrictive')],
+    capture_output=True, preexec_fn=lambda: os.umask(0o777))
+assert result.returncode == 0 and (root / 'restrictive').stat().st_mode & 0o777 == 0o700
+PY
+    assert_equals 0 "$?" 'Production: pair preflight, modes, invalid inputs and exact effects'
+    local lab="$SCRIPT_DIR/docs/labs/LAB3_PRODUCTION_DEPLOYMENT_ON_A_VPS_RELAY.md"
+    assert_contains "$(< "$lab")" 'disk_lab_create.py' 'Production: lab uses shared helper'
+    assert_contains "$(< "$lab")" 'backup and review' 'Production: migration guidance'
+    python3 - "$lab" <<'PY'
+from pathlib import Path
+import sys
+text = Path(sys.argv[1]).read_text()
+for target in ['/usr/local/bin/disk-monitor', '/etc/disk-monitor',
+               '/etc/disk-monitor/disk-monitor.conf', '/etc/cron.d/disk-monitor',
+               '/etc/logrotate.d/disk-monitor', '/etc/msmtprc', '/etc/msmtprc.secrets']:
+    blocks = [block.split('```', 1)[0] for block in text.split('```bash\n')[1:]]
+    assert any('disk_lab_create.py' in block and target in block for block in blocks), target
+assert 'sudo tee ' not in text
+assert 'sudo install ' not in text
+assert 'not an executable replacement command' in text
+PY
+    assert_equals 0 "$?" 'Production: each published target linked; no replacement commands'
+    teardown
+}
+
 # Run all tests
 printf "%bStarting Bash Disk Monitor Test Suite...%b\n" "$CYAN" "$RESET"
 test_help_menu
@@ -1928,6 +2064,7 @@ test_threshold_from_config_range
 test_notify_from_config_unsupported
 test_doctor_reports_threshold_value
 test_lab_scratch_lifecycle
+test_production_creation_helper
 test_lab_audit_failure_is_best_effort
 test_missing_partition
 test_missing_recipient
