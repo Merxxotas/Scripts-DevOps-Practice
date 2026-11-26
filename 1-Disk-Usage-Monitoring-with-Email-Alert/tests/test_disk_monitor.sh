@@ -1921,8 +1921,12 @@ test_lab_audit_failure_is_best_effort() {
 test_production_creation_helper() {
     setup
     local helper="$SCRIPT_DIR/docs/labs/disk_lab_create.py"
-    local root="$TEST_SANDBOX/production fixtures" status kind target before
+    local root="$TEST_SANDBOX//production fixtures" status kind target before
     mkdir -p "$root"
+    # The repeated separator pins trailing-slash TMPDIR handling on every platform.
+    # Match pathlib's lexical spelling without resolving symlinks.
+    root=$(python3 -c 'from pathlib import Path; import sys; sys.stdout.write(str(Path(sys.argv[1])))' \
+        "$root")
     if [[ ! -f "$helper" ]]; then
         assert_equals present missing 'Production: guarded creation helper exists'
         teardown
