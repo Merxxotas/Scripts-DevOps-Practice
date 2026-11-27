@@ -12,6 +12,19 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [2.0.0] - 2026-11-27
+
+Repository release since v1.0.0: breaking EventOps webhook authentication and safer cleanup,
+rotation and deployment behavior; JSON/CSV output, lab isolation, tests and CI updates. See the
+[release notes](release-notes/v2.0.0.md) and the
+[full comparison](https://github.com/Merxxotas/Scripts-DevOps-Practice/compare/v1.0.0...v2.0.0).
+
+The detailed entries below retain their historical grouping. They include both changes delivered
+since v1.0.0 and entries already present in that tag; they are not all new in v2.0.0. The
+historical v1.1 label describes post-v1.0.0 work, not a separate released tag.
+
+### Historical entries (mixed release dates)
+
 ### Added
 
 - **`11-Scheduling-And-Automation` — chunked webhook bodies are verified correctly, and the rejected-body
