@@ -157,9 +157,15 @@ def test_setup_failure_cleans_workspace(tmp_path):
 def test_workspace_assertions_reject_damaged_fixtures(tmp_path, damage):
     child = f"{damage} || exit; {WORKSPACE_CHECKS}"
     script = 'bash "$1" bash -c ' + shlex.quote(child)
-    result = run(script, tmp_path)
+    env = dict(os.environ, TMPDIR=str(tmp_path) + "/")
+    result = run(script, tmp_path, env)
     assert result.returncode == 1, result.stderr
     workspace = Path(result.stdout.strip())
-    assert result.stderr == f"Lab workspace: {workspace}\n"
+    prefix = "Lab workspace: "
+    assert result.stderr.startswith(prefix)
+    diagnostic_path = result.stderr.removeprefix(prefix).removesuffix("\n")
+    assert result.stderr == f"{prefix}{diagnostic_path}\n"
+    assert "\n" not in diagnostic_path
+    assert Path(diagnostic_path) == workspace
     assert workspace.is_absolute()
     assert not workspace.exists()
