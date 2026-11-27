@@ -2,6 +2,7 @@
 
 import json
 import os
+import shlex
 import shutil
 import subprocess
 from pathlib import Path
@@ -13,6 +14,13 @@ pytestmark = pytest.mark.skipif(
 )
 HELPER = Path(__file__).resolve().parents[2] / "docs/labs/webhook_lab_shell.sh"
 BASH = shutil.which("bash")
+WORKSPACE_CHECKS = r"""
+printf "%s\n" "$PWD" &&
+test "$(stat -c %a webhook.secret 2>/dev/null || stat -f %Lp webhook.secret)" = 600 &&
+test "$(stat -c %a . 2>/dev/null || stat -f %Lp .)" = 700 &&
+test -s webhook.secret &&
+test -s rules.json
+"""
 
 
 @pytest.fixture(autouse=True)
@@ -44,12 +52,13 @@ umask 027
 sign() { :; }
 trap ':' USR1
 before=$(pwd); oldtrap=$(trap -p USR1); oldfunc=$(declare -f sign)
-bash "$1" bash -c 'printf "%s\n" "$PWD"; test "$(stat -c %a webhook.secret 2>/dev/null || stat -f %Lp webhook.secret)" = 600; test "$(stat -c %a . 2>/dev/null || stat -f %Lp .)" = 700; test -s webhook.secret; test -s rules.json' || exit
+bash "$1" bash -c __WORKSPACE_CHECKS__ || exit
 [ "$PWD" = "$before" ] && [ "$(umask)" = 0027 ] &&
 [ "$EVENTOPS_WEBHOOK_SECRET" = caller-fixture ] && [ "$LAB" = caller ] &&
 [ "$BODY" = caller ] && [ "$(trap -p USR1)" = "$oldtrap" ] &&
 [ "$(declare -f sign)" = "$oldfunc" ]
 """
+    script = script.replace("__WORKSPACE_CHECKS__", shlex.quote(WORKSPACE_CHECKS))
     result = run(script, tmp_path)
     assert result.returncode == 0, result.stderr
     workspace = Path(result.stdout.strip())
@@ -133,3 +142,24 @@ def test_setup_failure_cleans_workspace(tmp_path):
     assert result.returncode != 0
     assert result.stdout == ""
     assert list(parent.iterdir()) == []
+
+
+@pytest.mark.parametrize(
+    "damage",
+    [
+        "chmod 644 webhook.secret",
+        "chmod 755 .",
+        ": > webhook.secret",
+        ": > rules.json",
+    ],
+    ids=["secret-mode", "workspace-mode", "empty-secret", "empty-rules"],
+)
+def test_workspace_assertions_reject_damaged_fixtures(tmp_path, damage):
+    child = f"{damage} || exit; {WORKSPACE_CHECKS}"
+    script = 'bash "$1" bash -c ' + shlex.quote(child)
+    result = run(script, tmp_path)
+    assert result.returncode == 1, result.stderr
+    workspace = Path(result.stdout.strip())
+    assert result.stderr == f"Lab workspace: {workspace}\n"
+    assert workspace.is_absolute()
+    assert not workspace.exists()
