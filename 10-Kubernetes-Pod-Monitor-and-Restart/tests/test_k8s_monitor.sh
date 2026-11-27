@@ -381,6 +381,60 @@ EXPECTED
     assert_equals "" "$(ls -A "$lab_tools:scratch")" "Test 27e: rejected path stays empty"
 fi
 
+# Test 28: execute only the isolated, published Lab 3 block.
+setup
+lab3_script="$TEST_SANDBOX/lab3.sh"
+lab3_rc=0
+awk '/^```bash$/ { blocks++; active=1; next }
+     /^```$/ { active=0 }
+     active { print }
+     END { if (blocks != 1 || active) exit 1 }' \
+    "$SCRIPT_DIR/docs/labs/LAB3_GUARDRAILS_AND_EXIT_CODES.md" > "$lab3_script" || lab3_rc=$?
+assert_equals 0 "$lab3_rc" "Test 28a: Lab 3 has one complete isolated Bash block"
+if [[ "$lab3_rc" == 0 ]]; then
+    lab3_tmp="$TEST_SANDBOX/lab3 scratch"
+    mkdir -p "$lab3_tmp"
+    printf 'preserve\n' > "$lab3_tmp/existing"
+    lab3_rc=0
+    (cd "$SCRIPT_DIR" && TMPDIR="$lab3_tmp" bash "$lab3_script") \
+        > "$TEST_SANDBOX/stdout.txt" 2> "$TEST_SANDBOX/stderr.txt" || lab3_rc=$?
+    assert_equals 0 "$lab3_rc" "Test 28b: published guardrail and audit checks pass"
+    assert_equals $'empty namespace: exit 1\nnegative threshold: exit 1\nempty selector: exit 1\naudit dry-run: exit 0; pods=1 deleted=0 outcome=dry-run\nLab 3 passed.' \
+        "$(cat "$TEST_SANDBOX/stdout.txt")" "Test 28c: exact Lab 3 result"
+    assert_equals "" "$(cat "$TEST_SANDBOX/stderr.txt")" "Test 28d: no unexpected stderr"
+    assert_equals existing "$(ls -A "$lab3_tmp")" "Test 28e: only owned scratch removed"
+    assert_equals preserve "$(cat "$lab3_tmp/existing")" "Test 28f: existing data unchanged"
+
+    # Setup loss must fail before the monitor can use a caller-provided client.
+    lab3_rc=0
+    (
+        # shellcheck disable=SC2317,SC2329
+        chmod() { rm -f -- "$2"; }
+        # shellcheck disable=SC2317,SC2329
+        kubectl() { printf 'fallback\n' >> "$TEST_SANDBOX/lab3_fallback"; }
+        export -f chmod kubectl
+        cd "$SCRIPT_DIR"
+        TMPDIR="$lab3_tmp" bash "$lab3_script"
+    ) > "$TEST_SANDBOX/stdout.txt" 2> "$TEST_SANDBOX/stderr.txt" || lab3_rc=$?
+    assert_equals 1 "$lab3_rc" "Test 29a: missing fake fails closed"
+    assert_equals "" "$(cat "$TEST_SANDBOX/stdout.txt")" "Test 29b: no monitor output"
+    assert_equals 'Lab 3 fake client or date helper is unavailable.' \
+        "$(cat "$TEST_SANDBOX/stderr.txt")" "Test 29c: missing fake diagnostic"
+    assert_equals no "$([[ -e "$TEST_SANDBOX/lab3_fallback" ]] && echo yes || echo no)" \
+        "Test 29d: inherited client never invoked"
+    assert_equals existing "$(ls -A "$lab3_tmp")" "Test 29e: failed setup cleans owned scratch"
+
+    mkdir "$lab3_tmp:colon"
+    lab3_rc=0
+    (cd "$SCRIPT_DIR" && TMPDIR="$lab3_tmp:colon" bash "$lab3_script") \
+        > "$TEST_SANDBOX/stdout.txt" 2> "$TEST_SANDBOX/stderr.txt" || lab3_rc=$?
+    assert_equals 1 "$lab3_rc" "Test 30a: colon path rejected"
+    assert_equals "" "$(cat "$TEST_SANDBOX/stdout.txt")" "Test 30b: rejected path has no stdout"
+    assert_equals "Lab 3 needs a temporary directory path without ':'." \
+        "$(cat "$TEST_SANDBOX/stderr.txt")" "Test 30c: rejected path diagnostic"
+    assert_equals "" "$(ls -A "$lab3_tmp:colon")" "Test 30d: rejected path cleaned"
+fi
+
 # ---------- summary ----------
 echo ""
 echo "========================================"

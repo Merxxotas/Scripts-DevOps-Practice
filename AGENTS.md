@@ -92,11 +92,9 @@ optional body explaining **WHY**, not what. Types: `feat` `fix` `docs` `ci` `tes
 = module name. Imperative mood; one logical change per commit, each buildable and CI-green on its own; tests
 and docs ship with it; **no** `Co-Authored-By` or AI attribution.
 
-**Merge flow:** `feature branch → pull request → required review → merge into main → push`. `main` is **protected** —
-one approving review is required and stale reviews are dismissed, but there are **no required status
-checks** and admins are not enforced — so CI-green-before-merge is still a **manual** obligation. Check
-with `gh run list --workflow ci-<module>.yml --branch main --limit 1`. →
-[`CONTRIBUTING.md`](CONTRIBUTING.md)
+**Merge flow:** Follow the [merge checklist](CONTRIBUTING.md#merge-flow) for GitHub Copilot review
+(including the explicit quota exception), green CI, and the required GitHub approval. For the
+next audit remediation, see the [audit follow-up plan](odd/AUDIT-FOLLOW-UP.md).
 
 ---
 
