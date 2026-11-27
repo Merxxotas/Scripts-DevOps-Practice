@@ -2115,6 +2115,45 @@ result = subprocess.run(
 assert result.returncode == 0 and (root / 'restrictive').stat().st_mode & 0o777 == 0o700
 PY
     assert_equals 0 "$?" 'Production: pair preflight, modes, invalid inputs and exact effects'
+    python3 - "$helper" "$root" <<'PY'
+from pathlib import Path
+import resource
+import signal
+import subprocess
+import sys
+
+helper, root = sys.argv[1], Path(sys.argv[2])
+small, large = root / 'partial-small-source', root / 'partial-large-source'
+small.write_bytes(b'completed fixture\n')
+large.write_bytes(bytes(range(256)) * 32)
+sources_before = [(path.stat(), path.read_bytes()) for path in (small, large)]
+one, two, three = [root / ('partial-' + name) for name in ('one', 'two', 'three')]
+limit = 1024
+
+def limit_child_writes():
+    # Ignore the signal so write() reports EFBIG to the public CLI's error handler.
+    signal.signal(signal.SIGXFSZ, signal.SIG_IGN)
+    resource.setrlimit(resource.RLIMIT_FSIZE, (limit, limit))
+
+result = subprocess.run(
+    [sys.executable, helper, 'files', '600', str(small), str(one),
+     '644', str(large), str(two), '600', str(small), str(three)],
+    capture_output=True, preexec_fn=limit_child_writes, timeout=10)
+assert result.returncode == 2, (result.returncode, result.stderr)
+assert result.stdout == b''
+lines = result.stderr.decode().splitlines()
+assert len(lines) == 2, lines
+assert lines[0] == f'INFO: Created: {one}'
+assert lines[1].startswith('ERROR: Creation failed; review any targets already created: ')
+assert one.read_bytes() == small.read_bytes()
+assert one.stat().st_mode & 0o777 == 0o600
+assert two.read_bytes() == large.read_bytes()[:limit]
+assert two.stat().st_size == limit
+assert two.stat().st_mode & 0o777 == 0o644
+assert not three.exists() and not three.is_symlink()
+assert [(path.stat(), path.read_bytes()) for path in (small, large)] == sources_before
+PY
+    assert_equals 0 "$?" 'Production: partial I/O preserves exact targets and reports manual review'
     local lab="$SCRIPT_DIR/docs/labs/LAB3_PRODUCTION_DEPLOYMENT_ON_A_VPS_RELAY.md"
     assert_contains "$(< "$lab")" 'disk_lab_create.py' 'Production: lab uses shared helper'
     assert_contains "$(< "$lab")" 'backup and review' 'Production: migration guidance'
