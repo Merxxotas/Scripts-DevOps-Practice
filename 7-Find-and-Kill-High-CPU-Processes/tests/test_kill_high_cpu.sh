@@ -347,6 +347,74 @@ assert_equals 0 "$LAST_EXIT_CODE" "Test 26a: control-char comm exits 0"
 assert_contains "$LAST_STDOUT" '"comm": "we\u0001ctrl"' "Test 26b: control char escaped"
 assert_valid_json "Test 26c: output parses"
 
+# Test 27: run the documented Lab 2 sandbox, never the old live examples.
+setup
+lab_doc="$SCRIPT_DIR/docs/labs/LAB2_AUTO_KILL_AND_FORCE.md"
+lab_probe="$TEST_SANDBOX/lab2.sh"
+lab_tmp="$TEST_SANDBOX/lab tmp"
+mkdir -p "$lab_tmp/keep"
+printf '%s\n' 'existing data' > "$lab_tmp/keep/audit.log"
+awk '/^# lab2-isolated-example$/ { capture=1; next }
+    capture && /^```$/ { exit }
+    capture { print }' "$lab_doc" > "$lab_probe"
+lab_status=0
+: > "$TEST_SANDBOX/stdout.txt"
+if [[ -s "$lab_probe" ]]; then
+    (
+        cd "$SCRIPT_DIR"
+        TMPDIR="$lab_tmp" bash -c '
+            set -e
+            original_path=$PATH original_pwd=$PWD original_tmp=$TMPDIR
+            # shellcheck disable=SC1090
+            source "$1"
+            [[ $PATH == "$original_path" && $PWD == "$original_pwd" && $TMPDIR == "$original_tmp" ]]
+        ' bash "$lab_probe"
+    ) > "$TEST_SANDBOX/stdout.txt" 2> "$TEST_SANDBOX/stderr.txt" || lab_status=$?
+else
+    lab_status=1
+    printf '%s\n' 'Missing isolated Lab 2 block; did not run live examples.' \
+        > "$TEST_SANDBOX/stderr.txt"
+fi
+lab_expected='pid,pcpu,comm,action
+987654321,95.0,"lab-worker","would-kill"
+pid,pcpu,comm,action
+987654321,95.0,"lab-worker","killed"
+pid,pcpu,comm,action
+987654321,95.0,"lab-worker","killed"
+Verified mock SIGTERM, SIGKILL, and audit entries.'
+assert_equals 0 "$lab_status" "Test 27a: isolated Lab 2 exits 0"
+assert_equals "$lab_expected" "$(< "$TEST_SANDBOX/stdout.txt")" \
+    "Test 27b: Lab 2 previews, simulates, and verifies the audit"
+assert_equals '' "$(< "$TEST_SANDBOX/stderr.txt")" "Test 27c: Lab 2 stderr is empty"
+assert_equals "$lab_tmp/keep" "$(printf '%s\n' "$lab_tmp"/*)" \
+    "Test 27d: Lab 2 removes only owned scratch"
+assert_equals 'existing data' "$(< "$lab_tmp/keep/audit.log")" \
+    "Test 27e: Lab 2 leaves the existing audit file alone"
+# Test 28: prevent activation of the mock signal helper; no fallback is allowed.
+mkdir "$TEST_SANDBOX/lab-fault-bin"
+cat > "$TEST_SANDBOX/lab-fault-bin/chmod" <<'EOF'
+#!/bin/bash
+command -p chmod u+x bin/ps
+EOF
+chmod +x "$TEST_SANDBOX/lab-fault-bin/chmod"
+lab_status=0
+if [[ -s "$lab_probe" ]]; then
+    (
+        cd "$SCRIPT_DIR"
+        PATH="$TEST_SANDBOX/lab-fault-bin:$PATH" TMPDIR="$lab_tmp" bash "$lab_probe"
+    ) > "$TEST_SANDBOX/stdout.txt" 2> "$TEST_SANDBOX/stderr.txt" || lab_status=$?
+fi
+assert_equals 1 "$lab_status" "Test 28a: missing mock kill fails closed"
+assert_equals '' "$(< "$TEST_SANDBOX/stdout.txt")" "Test 28b: no utility output on setup failure"
+assert_equals 'Lab 2 requires both private process helpers.' "$(< "$TEST_SANDBOX/stderr.txt")" \
+    "Test 28c: missing helper error"
+assert_equals "$lab_tmp/keep" "$(printf '%s\n' "$lab_tmp"/*)" \
+    "Test 28d: failed setup removes only owned scratch"
+assert_equals 'existing data' "$(< "$lab_tmp/keep/audit.log")" \
+    "Test 28e: failed setup leaves existing data alone"
+assert_equals 'not called' "$(if [[ ! -e "$TEST_SANDBOX/killed_pids" ]]; then echo 'not called'; fi)" \
+    "Test 28f: suite signal helper was never called"
+
 # Summary
 echo ""
 echo "========================================"

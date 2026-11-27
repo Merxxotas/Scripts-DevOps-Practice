@@ -240,6 +240,66 @@ touch "$TEST_SANDBOX/nginx.installed"
 run_monitor -s nginx --json --csv
 assert_equals 1 "$LAST_EXIT_CODE" "Test 16: mutual exclusion exits 1"
 
+# Run only the new, recognized lab entry points, never the old host commands.
+run_lab() {
+    local number="$1" doc="$2" status=0 expected extracted
+    expected="bash docs/labs/run_service_monitor_lab.sh $number"
+    extracted=$(awk '/^```bash$/ { getline; print }' "$SCRIPT_DIR/docs/labs/$doc")
+    : > "$TEST_SANDBOX/stdout.txt"
+    : > "$TEST_SANDBOX/stderr.txt"
+    if [[ "$extracted" == "$expected" && -f "$SCRIPT_DIR/docs/labs/run_service_monitor_lab.sh" ]]; then
+        (cd "$SCRIPT_DIR"; bash docs/labs/run_service_monitor_lab.sh "$number") \
+            > "$TEST_SANDBOX/stdout.txt" 2> "$TEST_SANDBOX/stderr.txt" || status=$?
+    else
+        status=1
+        printf '%s\n' 'No recognized isolated walkthrough; did not run the lab.' \
+            > "$TEST_SANDBOX/stderr.txt"
+    fi
+    LAST_STDOUT=$(< "$TEST_SANDBOX/stdout.txt")
+    LAST_STDERR=$(< "$TEST_SANDBOX/stderr.txt")
+    LAST_EXIT_CODE=$status
+}
+
+# Test 17: observation and dry run never request restart or notification.
+lab_tmp="$TEST_SANDBOX/lab scratch"
+mkdir -p "$lab_tmp/keep"
+printf '%s\n' 'untouched' > "$lab_tmp/keep/service.log"
+TMPDIR="$lab_tmp" run_lab 1 LAB1_MONITORING_AND_DRY_RUN.md
+assert_equals 0 "$LAST_EXIT_CODE" 'Test 17a: Lab 1 exits 0'
+lab_csv='service,max_retries,retry_delay,retries_used,outcome'
+assert_equals "$lab_csv"$'\n"lab-running",3,5,0,"dry-run"\n'"$lab_csv"\
+$'\n"lab-down",3,5,0,"dry-run"' "$LAST_STDOUT" 'Test 17b: both Lab 1 previews'
+assert_equals '' "$LAST_STDERR" 'Test 17c: Lab 1 stderr is empty'
+assert_equals "$lab_tmp/keep" "$(printf '%s\n' "$lab_tmp"/*)" 'Test 17d: Lab 1 cleans up'
+
+# Test 18: recovery on the second attempt; a separate service exhausts its attempts.
+TMPDIR="$lab_tmp" run_lab 2 LAB2_RESTART_AND_RETRIES.md
+assert_equals 0 "$LAST_EXIT_CODE" 'Test 18a: Lab 2 verifies exit 2 and succeeds'
+assert_equals "$lab_csv"$'\n"lab-recover",3,0,2,"restarted"\n'"$lab_csv"\
+$'\n"lab-stuck",2,0,2,"failed"' "$LAST_STDOUT" 'Test 18b: simulated retry outcomes'
+assert_equals $'\033[0;31m✗ Restart attempt 1/3 failed.\033[0m\n'\
+$'\033[0;31m✗ Restart attempt 1/2 failed.\033[0m\n'\
+$'\033[0;31m✗ Restart attempt 2/2 failed.\033[0m\n'\
+$'\033[0;31m✗ Failed to restart service \'lab-stuck\' after 2 attempt(s).\033[0m' \
+    "$LAST_STDERR" 'Test 18c: exact retry diagnostics'
+assert_equals "$lab_tmp/keep" "$(printf '%s\n' "$lab_tmp"/*)" 'Test 18d: Lab 2 cleans up'
+assert_equals 'untouched' "$(< "$lab_tmp/keep/service.log")" 'Test 18e: existing log unchanged'
+
+# Test 19: a setup tool succeeds but leaves the private service manager disabled.
+mkdir "$TEST_SANDBOX/lab-fault-bin"
+cat > "$TEST_SANDBOX/lab-fault-bin/chmod" <<'EOF'
+#!/bin/bash
+command -p chmod u+x logger
+EOF
+chmod u+x "$TEST_SANDBOX/lab-fault-bin/chmod"
+PATH="$TEST_SANDBOX/lab-fault-bin:$PATH" TMPDIR="$lab_tmp" run_lab 2 LAB2_RESTART_AND_RETRIES.md
+assert_equals 1 "$LAST_EXIT_CODE" 'Test 19a: missing private service manager aborts'
+assert_equals '' "$LAST_STDOUT" 'Test 19b: no service monitor output'
+assert_equals 'Lab requires both private service helpers.' "$LAST_STDERR" \
+    'Test 19c: missing helper diagnostic'
+assert_equals "$lab_tmp/keep" "$(printf '%s\n' "$lab_tmp"/*)" 'Test 19d: failed setup cleans up'
+assert_equals 'untouched' "$(< "$lab_tmp/keep/service.log")" 'Test 19e: existing log unchanged'
+
 # Summary
 echo ""
 echo "========================================"

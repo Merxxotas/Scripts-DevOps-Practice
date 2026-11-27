@@ -1841,6 +1841,339 @@ test_doctor_reports_threshold_value() {
     teardown
 }
 
+test_lab_scratch_lifecycle() {
+    setup
+    local runner="$SCRIPT_DIR/docs/labs/disk_lab_shell.sh"
+    local parent="$TEST_SANDBOX/lab scratch" expected one two status=0
+    mkdir -p "$parent"/{lab1_disk,lab2_disk,lab3_prod}
+    printf '%s\n' keep > "$parent/lab3-none.log"
+    expected=$(printf '%s\n' "$parent"/*)
+    if [[ ! -f "$runner" ]]; then
+        assert_equals present missing 'Lab scratch: safe runner exists; legacy snippets not run'
+        teardown
+        return
+    fi
+
+    one=$(LAB="$parent/lab1_disk" TMPDIR="$parent" bash "$runner" <<'EOF'
+[[ -d "$LAB" && ! -e "$LAB/fixture" ]] || exit 10
+printf '%s\n' fixture > "$LAB/fixture"
+printf '%s\n' "$LAB"
+EOF
+    ) || status=$?
+    assert_equals 0 "$status" 'Lab scratch: first run succeeds'
+    status=0
+    two=$(TMPDIR="$parent" bash "$runner" <<'EOF'
+[[ -d "$LAB" && ! -e "$LAB/fixture" ]] || exit 10
+printf '%s\n' "$LAB"
+exit 7
+EOF
+    ) || status=$?
+    assert_equals 7 "$status" 'Lab scratch: child failure status is preserved'
+    local physical_parent
+    physical_parent=$(cd "$parent" && pwd -P)
+    if [[ "$one" == "$physical_parent"/disk-monitor-lab.* &&
+          "$two" == "$physical_parent"/disk-monitor-lab.* && "$one" != "$two" ]]; then
+        assert_equals yes yes 'Lab scratch: paths are private and distinct'
+    else
+        assert_equals distinct "$one / $two" 'Lab scratch: paths are private and distinct'
+    fi
+    assert_equals "$expected" "$(printf '%s\n' "$parent"/*)" \
+        'Lab scratch: cleans only owned paths on success and child failure'
+    assert_equals keep "$(< "$parent/lab3-none.log")" 'Lab scratch: existing log is unchanged'
+
+    local fault="$TEST_SANDBOX/lab-fault-bin"
+    mkdir "$fault"
+    cat > "$fault/mktemp" <<'EOF'
+#!/bin/bash
+printf '%s\n' "$LAB"
+exit 1
+EOF
+    chmod u+x "$fault/mktemp"
+    status=0
+    LAB="$parent/lab2_disk" TMPDIR="$parent" PATH="$fault:$PATH" bash "$runner" \
+        > "$parent/lab.out" 2> "$parent/lab.err" <<'EOF' || status=$?
+printf '%s\n' 'child unexpectedly ran'
+EOF
+    assert_equals 1 "$status" 'Lab scratch: failed allocation exits 1'
+    assert_equals '' "$(< "$parent/lab.out")" 'Lab scratch: failed allocation starts no shell'
+    assert_equals 'Could not create a private lab directory.' "$(< "$parent/lab.err")" \
+        'Lab scratch: failed allocation diagnostic'
+    rm -- "$parent/lab.out" "$parent/lab.err"
+    assert_equals "$expected" "$(printf '%s\n' "$parent"/*)" \
+        'Lab scratch: failed allocation leaves pre-existing paths alone'
+    teardown
+}
+
+test_lab3_rehearsal_audit_path() {
+    setup
+    local LAB="$TEST_SANDBOX/lab scratch" lab config expected actual
+    lab="$SCRIPT_DIR/docs/labs/LAB3_PRODUCTION_DEPLOYMENT_ON_A_VPS_RELAY.md"
+    config="$LAB/disk-monitor.conf"
+    mkdir -p "$LAB/log" "$LAB/home"
+    # Permit only the documented config heredoc, never another lab command.
+    python3 - "$lab" "$TEST_SANDBOX/config-block" <<'PY'
+from pathlib import Path
+import sys
+text = Path(sys.argv[1]).read_text().split('## Step 6:', 1)[1].split('## Step 7:', 1)[0]
+blocks = [b.split('```', 1)[0] for b in text.split('```bash\n')[1:]]
+blocks = [b for b in blocks if '/disk-monitor.conf" <<' in b]
+assert len(blocks) == 1
+lines = blocks[0].splitlines()
+start = next(i for i, line in enumerate(lines) if line.startswith('cat > '))
+end = lines.index('EOF', start + 1)
+body = lines[start + 1:end]
+assert lines[start] in (
+    'cat > "${LAB:?Start the lab shell first}/disk-monitor.conf" <<EOF',
+    'cat > "${LAB:?Start the lab shell first}/disk-monitor.conf" <<\'EOF\'')
+assert body == [
+    '# /etc/disk-monitor/disk-monitor.conf', 'partition = /', 'threshold = 80',
+    'notify = http', 'url = https://ntfy.sh/disk-alerts-example',
+    'body_template = {"topic":"disk-alerts-example","message":"Disk on {host} at {usage}"}',
+    'header = Content-Type: application/json', 'header = Title: Disk alert',
+    'header = Authorization: Bearer S3CRET-TOKEN', 'timeout = 10',
+    body[-1],
+]
+assert body[-1] in ('log_file = /var/log/disk-monitor/audit.log',
+                    'log_file = $LAB/log/audit.log')
+Path(sys.argv[2]).write_text('\n'.join(lines[start:end + 1]) + '\n')
+PY
+    LAB="$LAB" bash "$TEST_SANDBOX/config-block"
+    expected=$(printf '%s\n' '# /etc/disk-monitor/disk-monitor.conf' 'partition = /' \
+        'threshold = 80' 'notify = http' 'url = https://ntfy.sh/disk-alerts-example' \
+        'body_template = {"topic":"disk-alerts-example","message":"Disk on {host} at {usage}"}' \
+        'header = Content-Type: application/json' 'header = Title: Disk alert' \
+        'header = Authorization: Bearer S3CRET-TOKEN' 'timeout = 10' \
+        "log_file = $LAB/log/audit.log"; printf '.')
+    actual=$(cat "$config"; printf '.')
+    assert_equals "$expected" "$actual" 'Lab 3: exact rehearsal config'
+    # Never run a config that could write to the host, even during RED.
+    if [[ "$actual" != "$expected" ]]; then
+        teardown
+        return
+    fi
+    chmod 600 "$config"
+    HOME="$LAB/home" run_monitor --config "$config" --doctor
+    assert_equals 0 "$LAST_EXIT_CODE" 'Lab 3: doctor succeeds'
+    assert_equals '' "$LAST_STDERR" 'Lab 3: doctor stderr'
+    assert_contains "$LAST_STDOUT" "Audit log file      : $LAB/log/audit.log (config)" \
+        'Lab 3: doctor reports scratch config source'
+    assert_equals no "$(test -e "$LAB/log/audit.log" && echo yes || echo no)" \
+        'Lab 3: doctor writes no audit log'
+    HOME="$LAB/home" DISK_MONITOR_USAGE_OVERRIDE=91 run_monitor --config "$config"
+    assert_equals 0 "$LAST_EXIT_CODE" 'Lab 3: configured audit run succeeds'
+    assert_equals '' "$LAST_STDERR" 'Lab 3: configured audit stderr'
+    assert_contains "$LAST_STDOUT" "Audit Log File    : $LAB/log/audit.log" \
+        'Lab 3: configured path reported'
+    assert_contains "$LAST_STDOUT" 'Alert sent to https://ntfy.sh/disk-alerts-example' \
+        'Lab 3: stubbed alert succeeds'
+    assert_file_exists "$LAB/log/audit.log" 'Lab 3: scratch audit created'
+    assert_contains "$(< "$LAB/log/audit.log")" 'ALERT SENT' 'Lab 3: scratch audit records alert'
+    assert_contains "$(< "$HTTP_CAPTURE_FILE")" ' at 91%"}' 'Lab 3: template rendered'
+    expected=$(< "$LAB/log/audit.log")
+    HOME="$LAB/home" DISK_MONITOR_USAGE_OVERRIDE=91 run_monitor --config "$config" \
+        --log-file "$LAB/log/override.log"
+    assert_equals 0 "$LAST_EXIT_CODE" 'Lab 3: explicit audit override succeeds'
+    assert_equals '' "$LAST_STDERR" 'Lab 3: override stderr'
+    assert_contains "$LAST_STDOUT" "Audit Log File    : $LAB/log/override.log" \
+        'Lab 3: explicit path reported'
+    assert_file_exists "$LAB/log/override.log" 'Lab 3: override audit created'
+    assert_contains "$(< "$LAB/log/override.log")" 'ALERT SENT' 'Lab 3: override records alert'
+    assert_equals "$expected" "$(< "$LAB/log/audit.log")" 'Lab 3: override leaves config log unchanged'
+    teardown
+}
+
+test_lab_audit_failure_is_best_effort() {
+    setup
+    local blocked="$TEST_SANDBOX/not-a-directory"
+    printf '%s\n' keep > "$blocked"
+    DISK_MONITOR_USAGE_OVERRIDE=70 LC_ALL=C run_monitor \
+        -p / -t 80 --notify none -l "$blocked/audit.log"
+    assert_equals 0 "$LAST_EXIT_CODE" 'Lab 2: audit failure is best-effort'
+    assert_contains "$LAST_STDOUT" 'Disk usage is within the threshold.' 'Lab 2: check completed'
+    assert_contains "$LAST_STDERR" "$blocked/audit.log: Not a directory" 'Lab 2: audit write failed'
+    assert_equals keep "$(< "$blocked")" 'Lab 2: existing parent file is unchanged'
+    teardown
+}
+
+# Test the shared artifact, never translated or executed production Markdown.
+test_production_creation_helper() {
+    setup
+    local helper="$SCRIPT_DIR/docs/labs/disk_lab_create.py"
+    local root="$TEST_SANDBOX//production fixtures" status kind target before
+    mkdir -p "$root"
+    # The repeated separator pins trailing-slash TMPDIR handling on every platform.
+    # Match pathlib's lexical spelling without resolving symlinks.
+    root=$(python3 -c 'from pathlib import Path; import sys; sys.stdout.write(str(Path(sys.argv[1])))' \
+        "$root")
+    if [[ ! -f "$helper" ]]; then
+        assert_equals present missing 'Production: guarded creation helper exists'
+        teardown
+        return
+    fi
+    printf 'fixture\n' > "$root/source"
+    python3 "$helper" files 600 "$root/source" "$root/fresh" \
+        > "$root/out" 2> "$root/err"
+    assert_equals '' "$(< "$root/out")" 'Production: success stdout is empty'
+    assert_equals "INFO: Created: $root/fresh" "$(< "$root/err")" \
+        'Production: creation audit'
+    cmp "$root/source" "$root/fresh"
+    assert_equals 0 "$?" 'Production: exact bytes including final newline'
+    for kind in file directory link dangling; do
+        target="$root/$kind"
+        case "$kind" in
+            file) printf 'keep\n' > "$target" ;;
+            directory) mkdir "$target" ;;
+            link) ln -s "$root/source" "$target" ;;
+            dangling) ln -s "$root/missing" "$target" ;;
+        esac
+        before=$(ls -ldi "$target")
+        status=0
+        python3 "$helper" files 600 "$root/source" "$root/not-created" \
+            600 "$root/source" "$target" > "$root/out" 2> "$root/err" || status=$?
+        assert_equals 1 "$status" "Production: refuses existing $kind"
+        assert_equals '' "$(< "$root/out")" "Production: refused $kind stdout"
+        assert_equals "ERROR: Refusing existing target: $target" "$(< "$root/err")" \
+            "Production: refused $kind diagnostic"
+        assert_equals "$before" "$(ls -ldi "$target")" "Production: preserves $kind metadata"
+        assert_equals no "$(test -e "$root/not-created" && echo yes || echo no)" \
+            'Production: all targets checked before writes'
+    done
+    assert_equals keep "$(< "$root/file")" 'Production: existing file preserved'
+    assert_equals fixture "$(< "$root/source")" 'Production: link destination preserved'
+    python3 "$helper" directory "$root/config" > "$root/out" 2> "$root/err"
+    assert_equals '' "$(< "$root/out")" 'Production: directory stdout'
+    assert_equals "INFO: Created: $root/config" "$(< "$root/err")" \
+        'Production: directory creation audit'
+    before=$(ls -ldi "$root/config")
+    status=0
+    python3 "$helper" directory "$root/config" > "$root/out" 2> "$root/err" || status=$?
+    assert_equals 1 "$status" 'Production: repeated directory refused'
+    assert_equals "$before" "$(ls -ldi "$root/config")" 'Production: directory unchanged'
+    assert_equals '' "$(< "$root/out")" 'Production: directory refusal stdout'
+    assert_equals "ERROR: Refusing existing target: $root/config" "$(< "$root/err")" \
+        'Production: directory refusal diagnostic'
+    python3 - "$root" <<'PY'
+import os
+import stat
+import sys
+root = sys.argv[1]
+assert stat.S_IMODE(os.stat(root + '/fresh').st_mode) == 0o600
+assert stat.S_IMODE(os.stat(root + '/config').st_mode) == 0o700
+PY
+    assert_equals 0 "$?" 'Production: exact private file and directory modes'
+    python3 - "$helper" "$root" <<'PY'
+from pathlib import Path
+import os
+import subprocess
+import sys
+helper, root = sys.argv[1], Path(sys.argv[2])
+
+def run(*args):
+    return subprocess.run([sys.executable, helper, *map(str, args)], capture_output=True)
+
+def unchanged(target):
+    return (target.lstat(), target.read_bytes() if target.is_file() else None)
+
+source = root / 'source'
+one, two = root / 'relay-one', root / 'relay-two'
+result = run('files', '600', source, one, '600', source, two)
+assert (result.returncode, result.stdout, result.stderr) == (
+    0, b'', f'INFO: Created: {one}\nINFO: Created: {two}\n'.encode())
+assert one.read_bytes() == two.read_bytes() == source.read_bytes()
+for existing, missing in [(one, root / 'new-two'), (two, root / 'new-one')]:
+    before = unchanged(existing)
+    result = run('files', '600', source, existing, '600', source, missing)
+    assert (result.returncode, result.stdout, result.stderr) == (
+        1, b'', f'ERROR: Refusing existing target: {existing}\n'.encode())
+    assert unchanged(existing) == before and not missing.exists()
+for mode in ['644', '755']:
+    target = root / ('mode-' + mode)
+    result = run('files', mode, source, target)
+    assert result.returncode == 0 and result.stdout == b''
+    assert result.stderr == f'INFO: Created: {target}\n'.encode()
+    assert target.read_bytes() == source.read_bytes()
+    assert target.stat().st_mode & 0o777 == int(mode, 8)
+for args, diagnostic in [
+    (['files', '999', source, root / 'invalid'], b'ERROR: Modes must be 600, 644 or 755.\n'),
+    (['files', '600', source, one, '600', source, one],
+     b'ERROR: Duplicate targets are not allowed.\n'),
+    ([], b'ERROR: Use --help for directory or files syntax.\n'),
+]:
+    result = run(*args)
+    assert (result.returncode, result.stdout, result.stderr) == (1, b'', diagnostic)
+assert not (root / 'invalid').exists()
+result = run('files', '600', root / 'absent-source', root / 'no-output')
+assert result.returncode == 1 and result.stdout == b''
+assert result.stderr.startswith(b'ERROR: Preflight failed: ')
+assert not (root / 'no-output').exists()
+result = run('--help')
+assert result.returncode == 0 and b'Exit: 0 success' in result.stdout and result.stderr == b''
+# A restrictive caller umask must not make the documented modes inaccurate.
+result = subprocess.run(
+    [sys.executable, helper, 'directory', str(root / 'restrictive')],
+    capture_output=True, preexec_fn=lambda: os.umask(0o777))
+assert result.returncode == 0 and (root / 'restrictive').stat().st_mode & 0o777 == 0o700
+PY
+    assert_equals 0 "$?" 'Production: pair preflight, modes, invalid inputs and exact effects'
+    python3 - "$helper" "$root" <<'PY'
+from pathlib import Path
+import resource
+import signal
+import subprocess
+import sys
+
+helper, root = sys.argv[1], Path(sys.argv[2])
+small, large = root / 'partial-small-source', root / 'partial-large-source'
+small.write_bytes(b'completed fixture\n')
+large.write_bytes(bytes(range(256)) * 32)
+sources_before = [(path.stat(), path.read_bytes()) for path in (small, large)]
+one, two, three = [root / ('partial-' + name) for name in ('one', 'two', 'three')]
+limit = 1024
+
+def limit_child_writes():
+    # Ignore the signal so write() reports EFBIG to the public CLI's error handler.
+    signal.signal(signal.SIGXFSZ, signal.SIG_IGN)
+    resource.setrlimit(resource.RLIMIT_FSIZE, (limit, limit))
+
+result = subprocess.run(
+    [sys.executable, helper, 'files', '600', str(small), str(one),
+     '644', str(large), str(two), '600', str(small), str(three)],
+    capture_output=True, preexec_fn=limit_child_writes, timeout=10)
+assert result.returncode == 2, (result.returncode, result.stderr)
+assert result.stdout == b''
+lines = result.stderr.decode().splitlines()
+assert len(lines) == 2, lines
+assert lines[0] == f'INFO: Created: {one}'
+assert lines[1].startswith('ERROR: Creation failed; review any targets already created: ')
+assert one.read_bytes() == small.read_bytes()
+assert one.stat().st_mode & 0o777 == 0o600
+assert two.read_bytes() == large.read_bytes()[:limit]
+assert two.stat().st_size == limit
+assert two.stat().st_mode & 0o777 == 0o644
+assert not three.exists() and not three.is_symlink()
+assert [(path.stat(), path.read_bytes()) for path in (small, large)] == sources_before
+PY
+    assert_equals 0 "$?" 'Production: partial I/O preserves exact targets and reports manual review'
+    local lab="$SCRIPT_DIR/docs/labs/LAB3_PRODUCTION_DEPLOYMENT_ON_A_VPS_RELAY.md"
+    assert_contains "$(< "$lab")" 'disk_lab_create.py' 'Production: lab uses shared helper'
+    assert_contains "$(< "$lab")" 'backup and review' 'Production: migration guidance'
+    python3 - "$lab" <<'PY'
+from pathlib import Path
+import sys
+text = Path(sys.argv[1]).read_text()
+for target in ['/usr/local/bin/disk-monitor', '/etc/disk-monitor',
+               '/etc/disk-monitor/disk-monitor.conf', '/etc/cron.d/disk-monitor',
+               '/etc/logrotate.d/disk-monitor', '/etc/msmtprc', '/etc/msmtprc.secrets']:
+    blocks = [block.split('```', 1)[0] for block in text.split('```bash\n')[1:]]
+    assert any('disk_lab_create.py' in block and target in block for block in blocks), target
+assert 'sudo tee ' not in text
+assert 'sudo install ' not in text
+assert 'not an executable replacement command' in text
+PY
+    assert_equals 0 "$?" 'Production: each published target linked; no replacement commands'
+    teardown
+}
+
 # Run all tests
 printf "%bStarting Bash Disk Monitor Test Suite...%b\n" "$CYAN" "$RESET"
 test_help_menu
@@ -1851,6 +2184,10 @@ test_threshold_from_environment_range
 test_threshold_from_config_range
 test_notify_from_config_unsupported
 test_doctor_reports_threshold_value
+test_lab_scratch_lifecycle
+test_lab3_rehearsal_audit_path
+test_production_creation_helper
+test_lab_audit_failure_is_best_effort
 test_missing_partition
 test_missing_recipient
 test_missing_mail_agent

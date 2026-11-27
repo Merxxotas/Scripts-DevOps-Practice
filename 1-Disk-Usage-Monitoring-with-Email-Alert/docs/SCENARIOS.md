@@ -59,9 +59,12 @@ itself never fails because of the network.
 
 ### Command
 
+Open the private Bash session and create the mail stand-in from
+[Lab 1](labs/LAB1_THRESHOLD_AND_DRY_RUN.md#step-4-inspect-the-composed-alert-without-sending-it).
+
 ```bash
 ./disk_monitor.sh -p / -t 40 --to ops@example.com \
-    --mail-command /tmp/lab1_disk/fake-mail-agent.sh
+    --mail-command "${LAB:?Start the lab shell first}/fake-mail-agent.sh"
 ```
 
 > Two deliberate choices. The threshold is **below** the real usage of this host (49 %), so the
@@ -79,7 +82,7 @@ itself never fails because of the network.
 Partition         : /
 Usage             : 49% (measured)
 Threshold         : 40%
-Mail Agent        : /tmp/lab1_disk/fake-mail-agent.sh
+Mail Agent        : <scratch>/fake-mail-agent.sh
 Recipient         : ops@example.com
 Execution Mode    : LIVE (Alerts Active)
 WARNING: Disk usage exceeds the threshold.
@@ -125,8 +128,10 @@ at deployment time instead of at 03:00 when the disk finally fills.
 
 ### Command
 
+Use the private lab shell from [Lab 2](labs/LAB2_EXIT_CODES_AND_AUDIT_LOG.md).
+
 ```bash
-./disk_monitor.sh --mail-command /tmp/lab2_disk/not-a-real-agent --to ops@example.com
+./disk_monitor.sh --mail-command "${LAB:?Start the lab shell first}/not-a-real-agent" --to ops@example.com
 ```
 
 ### Observed behaviour
@@ -200,13 +205,15 @@ There are **two distinct failures** here, and they produce **different exit code
 
 ### 4a. The command cannot be resolved — exit `1`
 
+Use the private lab shell and fixtures from [Lab 2](labs/LAB2_EXIT_CODES_AND_AUDIT_LOG.md).
+
 ```bash
-DISK_MONITOR_USAGE_COMMAND=/tmp/lab2_disk/not-a-real-command \
+DISK_MONITOR_USAGE_COMMAND="${LAB:?Start the lab shell first}/not-a-real-command" \
     ./disk_monitor.sh -p / -t 80 --to ops@example.com
 ```
 
 ```text
-Error: Measurement command '/tmp/lab2_disk/not-a-real-command' was not found.
+Error: Measurement command '<scratch>/not-a-real-command' was not found.
 ```
 
 **Exit code: `1`** — a configuration error. The tool cannot ever succeed with this setting.
@@ -217,7 +224,7 @@ A command that resolves and then exits non-zero (a broken wrapper, a filesystem 
 read, a `PATH` problem inside the wrapper):
 
 ```bash
-DISK_MONITOR_USAGE_COMMAND=/tmp/lab2_disk/df-broken \
+DISK_MONITOR_USAGE_COMMAND="${LAB:?Start the lab shell first}/df-broken" \
     ./disk_monitor.sh -p / -t 80 --to ops@example.com
 ```
 
@@ -268,7 +275,7 @@ loudly rather than pretending the disk is fine.
 Partition         : /
 Usage             : 49% (measured)
 Threshold         : 40%
-Mail Agent        : /tmp/lab2_disk/failing-mail-agent.sh
+Mail Agent        : <scratch>/failing-mail-agent.sh
 Recipient         : ops@example.com
 Execution Mode    : LIVE (Alerts Active)
 WARNING: Disk usage exceeds the threshold.
