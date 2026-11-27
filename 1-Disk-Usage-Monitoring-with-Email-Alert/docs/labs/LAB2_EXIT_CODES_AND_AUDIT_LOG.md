@@ -42,10 +42,17 @@ what it does *not* mean.
 Two stubs let us reach the failure paths without breaking the host. The measurement stub resolves
 but fails; the mail stub resolves but refuses the hand-off.
 
-```bash
-mkdir -p /tmp/lab2_disk
+Open a dedicated Bash session from the module directory before running these examples:
 
-cat > /tmp/lab2_disk/df-broken <<'EOF'
+```bash
+bash docs/labs/disk_lab_shell.sh
+```
+
+It creates and sets `$LAB` to a fresh private directory. Run the following Bash snippets
+inside that session. Type `exit` when done to remove only the directory it created.
+
+```bash
+cat > "${LAB:?Start the lab shell first}/df-broken" <<'EOF'
 #!/bin/bash
 # A measurement command that resolves but always fails, so the module can
 # exercise the "usage could not be read" path.
@@ -53,7 +60,7 @@ echo "df: simulated failure" >&2
 exit 1
 EOF
 
-cat > /tmp/lab2_disk/failing-mail-agent.sh <<'EOF'
+cat > "${LAB:?Start the lab shell first}/failing-mail-agent.sh" <<'EOF'
 #!/bin/bash
 # A mail agent that refuses the hand-off, so the module can exercise the
 # partial-failure path without sending anything.
@@ -61,7 +68,7 @@ cat >/dev/null
 exit 1
 EOF
 
-cat > /tmp/lab2_disk/fake-mail-agent.sh <<'EOF'
+cat > "${LAB:?Start the lab shell first}/fake-mail-agent.sh" <<'EOF'
 #!/bin/bash
 # A harmless stand-in for the host mail agent: it records nothing and
 # delivers nothing.
@@ -69,7 +76,7 @@ cat >/dev/null
 exit 0
 EOF
 
-cat > /tmp/lab2_disk/recording-http-client.sh <<'EOF'
+cat > "${LAB:?Start the lab shell first}/recording-http-client.sh" <<'EOF'
 #!/bin/bash
 # A stand-in for the HTTP client: records the request shape and delivers
 # nothing. It never echoes a header value.
@@ -90,7 +97,7 @@ printf '%s\n' '--- body on stdin ---'
 cat
 EOF
 
-cat > /tmp/lab2_disk/failing-http-client.sh <<'EOF'
+cat > "${LAB:?Start the lab shell first}/failing-http-client.sh" <<'EOF'
 #!/bin/bash
 # A client that resolves but refuses the request, so the module can exercise
 # the "the check worked, the delivery did not" path.
@@ -98,11 +105,11 @@ cat >/dev/null
 exit 7
 EOF
 
-chmod +x /tmp/lab2_disk/df-broken
-chmod +x /tmp/lab2_disk/failing-mail-agent.sh
-chmod +x /tmp/lab2_disk/fake-mail-agent.sh
-chmod +x /tmp/lab2_disk/recording-http-client.sh
-chmod +x /tmp/lab2_disk/failing-http-client.sh
+chmod +x "${LAB:?Start the lab shell first}/df-broken"
+chmod +x "${LAB:?Start the lab shell first}/failing-mail-agent.sh"
+chmod +x "${LAB:?Start the lab shell first}/fake-mail-agent.sh"
+chmod +x "${LAB:?Start the lab shell first}/recording-http-client.sh"
+chmod +x "${LAB:?Start the lab shell first}/failing-http-client.sh"
 ```
 
 `recording-http-client.sh` is the same contract as `curl`: it accepts the argv the module builds,
@@ -144,7 +151,7 @@ exit=0
 
 ```bash
 DISK_MONITOR_USAGE_OVERRIDE=91 ./disk_monitor.sh -p / -t 80 --to ops@example.com \
-    --mail-command /tmp/lab2_disk/fake-mail-agent.sh
+    --mail-command "${LAB:?Start the lab shell first}/fake-mail-agent.sh"
 echo "exit=$?"
 ```
 
@@ -155,7 +162,7 @@ echo "exit=$?"
 Partition         : /
 Usage             : 91% (overridden)
 Threshold         : 80%
-Mail Agent        : /tmp/lab2_disk/fake-mail-agent.sh
+Mail Agent        : <scratch>/fake-mail-agent.sh
 Recipient         : ops@example.com
 Execution Mode    : LIVE (Alerts Active)
 WARNING: Disk usage exceeds the threshold.
@@ -248,7 +255,7 @@ exit=1
 ### 1e — Mail agent cannot be resolved
 
 ```bash
-./disk_monitor.sh --mail-command /tmp/lab2_disk/not-a-real-agent --to ops@example.com
+./disk_monitor.sh --mail-command "${LAB:?Start the lab shell first}/not-a-real-agent" --to ops@example.com
 echo "exit=$?"
 ```
 
@@ -260,13 +267,13 @@ exit=1
 ### 1f — Measurement command cannot be resolved
 
 ```bash
-DISK_MONITOR_USAGE_COMMAND=/tmp/lab2_disk/not-a-real-command \
+DISK_MONITOR_USAGE_COMMAND="${LAB:?Start the lab shell first}/not-a-real-command" \
     ./disk_monitor.sh -p / -t 80 --to ops@example.com
 echo "exit=$?"
 ```
 
 ```text
-Error: Measurement command '/tmp/lab2_disk/not-a-real-command' was not found.
+Error: Measurement command '<scratch>/not-a-real-command' was not found.
 exit=1
 ```
 
@@ -298,7 +305,7 @@ from `1`, because both may succeed on the next run.
 ### 2a — The usage could not be read
 
 ```bash
-DISK_MONITOR_USAGE_COMMAND=/tmp/lab2_disk/df-broken \
+DISK_MONITOR_USAGE_COMMAND="${LAB:?Start the lab shell first}/df-broken" \
     ./disk_monitor.sh -p / -t 80 --to ops@example.com
 echo "exit=$?"
 ```
@@ -314,7 +321,7 @@ The command resolved — so the configuration is valid — but the measurement i
 
 ```bash
 DISK_MONITOR_USAGE_OVERRIDE=91 ./disk_monitor.sh -p / -t 80 --to ops@example.com \
-    --mail-command /tmp/lab2_disk/failing-mail-agent.sh
+    --mail-command "${LAB:?Start the lab shell first}/failing-mail-agent.sh"
 echo "exit=$?"
 ```
 
@@ -325,7 +332,7 @@ echo "exit=$?"
 Partition         : /
 Usage             : 91% (overridden)
 Threshold         : 80%
-Mail Agent        : /tmp/lab2_disk/failing-mail-agent.sh
+Mail Agent        : <scratch>/failing-mail-agent.sh
 Recipient         : ops@example.com
 Execution Mode    : LIVE (Alerts Active)
 WARNING: Disk usage exceeds the threshold.
@@ -343,12 +350,11 @@ The same distinction applies to the HTTP transport. A client that resolves — s
 is valid — but cannot deliver is a partial failure, not a configuration error:
 
 ```bash
-AUDIT=/tmp/lab2_disk/transport-audit.log
-rm -f "$AUDIT"
+AUDIT=$(mktemp "${LAB:?Start the lab shell first}/transport-audit.XXXXXXXX") || exit 1
 
 DISK_MONITOR_USAGE_OVERRIDE=91 ./disk_monitor.sh -p / -t 80 --notify http \
     --url https://example.invalid/disk \
-    --http-command /tmp/lab2_disk/failing-http-client.sh -l "$AUDIT"
+    --http-command "${LAB:?Start the lab shell first}/failing-http-client.sh" -l "$AUDIT"
 echo "exit=$?"
 ```
 
@@ -360,9 +366,9 @@ Partition         : /
 Usage             : 91% (overridden)
 Threshold         : 80%
 Endpoint          : https://example.invalid/disk
-HTTP Client       : /tmp/lab2_disk/failing-http-client.sh
+HTTP Client       : <scratch>/failing-http-client.sh
 Execution Mode    : LIVE (Alerts Active)
-Audit Log File    : /tmp/lab2_disk/transport-audit.log
+Audit Log File    : <scratch>/transport-audit.XXXXXXXX
 WARNING: Disk usage exceeds the threshold.
 Error: The alert could not be handed to the HTTP client.
 exit=2
@@ -387,8 +393,7 @@ Now run the whole matrix again, this time with `-l` pointing at one file, and re
 monitor recorded.
 
 ```bash
-AUDIT=/tmp/lab2_disk/audit.log
-rm -f "$AUDIT"
+AUDIT=$(mktemp "${LAB:?Start the lab shell first}/audit.XXXXXXXX") || exit 1
 
 run() {
     local label="$1"; shift
@@ -401,17 +406,17 @@ run 1a ./disk_monitor.sh --this-flag-does-not-exist
 run 1b ./disk_monitor.sh -t 101 --to ops@example.com
 run 1c ./disk_monitor.sh -p /no/such/partition --to ops@example.com
 run 1d ./disk_monitor.sh --notify mail
-run 1e ./disk_monitor.sh --mail-command /tmp/lab2_disk/not-a-real-agent --to ops@example.com
-run 1f env DISK_MONITOR_USAGE_COMMAND=/tmp/lab2_disk/not-a-real-command \
+run 1e ./disk_monitor.sh --mail-command "${LAB:?Start the lab shell first}/not-a-real-agent" --to ops@example.com
+run 1f env DISK_MONITOR_USAGE_COMMAND="${LAB:?Start the lab shell first}/not-a-real-command" \
     ./disk_monitor.sh -p / -t 80 --to ops@example.com
-run 2a env DISK_MONITOR_USAGE_COMMAND=/tmp/lab2_disk/df-broken \
+run 2a env DISK_MONITOR_USAGE_COMMAND="${LAB:?Start the lab shell first}/df-broken" \
     ./disk_monitor.sh -p / -t 80 --to ops@example.com
 run 2b env DISK_MONITOR_USAGE_OVERRIDE=91 ./disk_monitor.sh -p / -t 80 \
-    --to ops@example.com --mail-command /tmp/lab2_disk/failing-mail-agent.sh
+    --to ops@example.com --mail-command "${LAB:?Start the lab shell first}/failing-mail-agent.sh"
 run 0c env DISK_MONITOR_USAGE_OVERRIDE=91 ./disk_monitor.sh -p / -t 80 -n \
     --to ops@example.com
 run 0b env DISK_MONITOR_USAGE_OVERRIDE=91 ./disk_monitor.sh -p / -t 80 \
-    --to ops@example.com --mail-command /tmp/lab2_disk/fake-mail-agent.sh
+    --to ops@example.com --mail-command "${LAB:?Start the lab shell first}/fake-mail-agent.sh"
 ```
 
 ```text
@@ -440,7 +445,7 @@ cat "$AUDIT"
 2026-10-21T16:40:14Z [ERROR] Partition does not exist: '/no/such/partition'.
 2026-10-21T16:40:14Z [ERROR] No alert recipient configured.
 2026-10-21T16:40:14Z [ERROR] No mail agent could be resolved.
-2026-10-21T16:40:14Z [ERROR] Measurement command not found: '/tmp/lab2_disk/not-a-real-command'.
+2026-10-21T16:40:14Z [ERROR] Measurement command not found: '<scratch>/not-a-real-command'.
 2026-10-21T16:40:14Z [ERROR] Could not read the disk usage of '/'.
 2026-10-21T16:40:14Z [ERROR] FAILED to hand the alert to the mail agent (Usage: 91%, Source: overridden)
 2026-10-21T16:40:14Z [INFO] [DRY RUN] Would send an alert to ops@example.com (Usage: 91%, Source: overridden, Threshold: 80%)
@@ -467,14 +472,13 @@ module never writes a header value into it — and never prints one either. Prov
 ### 7a. Run the HTTP transport with a secret header
 
 ```bash
-AUDIT=/tmp/lab2_disk/header-audit.log
-OUT=/tmp/lab2_disk/header-run.out
-rm -f "$AUDIT" "$OUT"
+AUDIT=$(mktemp "${LAB:?Start the lab shell first}/header-audit.XXXXXXXX") || exit 1
+OUT=$(mktemp "${LAB:?Start the lab shell first}/header-run.XXXXXXXX") || exit 1
 
 DISK_MONITOR_USAGE_OVERRIDE=91 ./disk_monitor.sh -p / -t 80 --notify http \
     --url https://ntfy.sh/lab-disk-alerts \
     --header 'Authorization: Bearer S3CRET-TOKEN' \
-    --http-command /tmp/lab2_disk/recording-http-client.sh \
+    --http-command "${LAB:?Start the lab shell first}/recording-http-client.sh" \
     -l "$AUDIT" > "$OUT" 2>&1
 echo "exit=$?"
 ```
@@ -499,8 +503,8 @@ grep -c 'S3CRET-TOKEN' "$AUDIT" "$OUT" || true
 ```
 
 ```text
-/tmp/lab2_disk/header-audit.log:0
-/tmp/lab2_disk/header-run.out:0
+<scratch>/header-audit.XXXXXXXX:0
+<scratch>/header-run.XXXXXXXX:0
 ```
 
 Zero in the audit log and zero in everything the monitor printed. The `|| true` is there because
@@ -555,11 +559,10 @@ protects the header, not the URL.
 
 ---
 
-## Step 8: Clean Up
+## Step 8: Finish the Walkthrough
 
-```bash
-rm -rf /tmp/lab2_disk
-```
+Keep the lab shell open for the optional Bash exercises below. Type `exit` when done, or
+open a new lab shell and repeat Step 2 before attempting them later.
 
 ---
 
@@ -593,22 +596,18 @@ rm -rf /tmp/lab2_disk
            esac
    ```
 
-2. **Prove the audit write is best-effort.** Point the log at a path that cannot be created and
-   watch the exit code stay `0`:
+2. **Prove the audit write is best-effort.** Use a regular file as the parent of the audit log.
+   This makes the write fail even on a writable filesystem, without leaving scratch:
 
    ```bash
-   ./disk_monitor.sh -p / -t 80 --notify none -l /etc/disk-monitor/audit.log
+   blocked_parent=$(mktemp "${LAB:?Start the lab shell first}/blocked.XXXXXXXX") || exit 1
+   DISK_MONITOR_USAGE_OVERRIDE=70 ./disk_monitor.sh -p / -t 80 --notify none \
+       -l "$blocked_parent/audit.log"
    echo "exit=$?"
    ```
 
-   The report ends with:
-
-   ```text
-   Audit Log File    : /etc/disk-monitor/audit.log
-   Disk usage is within the threshold.
-   ./disk_monitor.sh: line 208: /etc/disk-monitor/audit.log: No such file or directory
-   exit=0
-   ```
+   The monitor names the scratch audit path and reports that disk usage is within the threshold.
+   Bash reports `Not a directory` on stderr. The monitor still returns `exit=0`.
 
    A monitor that died because its log directory was read-only would be a monitor that stopped
    monitoring. The trade-off is that the durable channel has to live somewhere else.
@@ -617,8 +616,7 @@ rm -rf /tmp/lab2_disk
    confirm the second run **appends** rather than truncating:
 
    ```bash
-   AUDIT=/tmp/lab2_disk/append.log
-   rm -f "$AUDIT"
+   AUDIT=$(mktemp "${LAB:?Start the lab shell first}/append.XXXXXXXX") || exit 1
    ./disk_monitor.sh -p / -t 80 --notify none -l "$AUDIT" >/dev/null 2>&1
    ./disk_monitor.sh -p / -t 80 --notify none -l "$AUDIT" >/dev/null 2>&1
    wc -l < "$AUDIT"
@@ -628,7 +626,7 @@ rm -rf /tmp/lab2_disk
    again — the module reports the problem on stderr and still exits `0`:
 
    ```bash
-   rm -f "$AUDIT"; mkdir -p "$AUDIT"
+   AUDIT=$(mktemp -d "${LAB:?Start the lab shell first}/append-dir.XXXXXXXX") || exit 1
    ./disk_monitor.sh -p / -t 80 --notify none -l "$AUDIT"
    echo "exit=$?"
    ```
@@ -636,9 +634,9 @@ rm -rf /tmp/lab2_disk
    The report ends with:
 
    ```text
-   Audit Log File    : /tmp/lab2_disk/append.log
+   Audit Log File    : <scratch>/append-dir.XXXXXXXX
    Disk usage is within the threshold.
-   ./disk_monitor.sh: line 208: /tmp/lab2_disk/append.log: Is a directory
+   ./disk_monitor.sh: line 208: <scratch>/append-dir.XXXXXXXX: Is a directory
    exit=0
    ```
 
